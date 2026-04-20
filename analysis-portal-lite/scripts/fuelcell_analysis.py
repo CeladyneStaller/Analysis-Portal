@@ -31,7 +31,21 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             stand=int(p.get('stand', 0)))
 
     from pathlib import Path
-    output_files = [f.name for f in Path(output_dir).rglob('*') if f.is_file()]
+    output_files = [str(f.relative_to(Path(output_dir)))
+                    for f in Path(output_dir).rglob('*') if f.is_file()]
+    if not output_files:
+        # Provide diagnostic info
+        inp = Path(input_dir)
+        all_data = list(inp.rglob('*'))
+        data_files = [f for f in all_data if f.is_file()
+                      and f.suffix.lower() in ('.csv', '.txt', '.tsv', '.fcd')]
+        dirs = sorted(set(str(f.parent.relative_to(inp)) for f in data_files)) if data_files else []
+        raise RuntimeError(
+            f"No output produced. Found {len(data_files)} data file(s) "
+            f"in {len(dirs)} folder(s): {dirs}. "
+            f"Check that filenames contain analysis keywords "
+            f"(ECSA, EIS, H2X, PolarizationCurve, etc.)"
+        )
     return {"status": "success", "files_produced": output_files}
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -107,13 +121,12 @@ def classify_files(folder):
 
     Returns dict: {type_name: [(filepath, label), ...]}
     """
-    extensions = ['*.csv', '*.txt', '*.tsv', '*.fcd',
-                  '*.CSV', '*.TXT', '*.TSV', '*.FCD']
-    all_files = []
-    for ext in extensions:
-        all_files.extend(glob.glob(os.path.join(folder, '**', ext), recursive=True))
-        all_files.extend(glob.glob(os.path.join(folder, ext)))
-    all_files = sorted(set(all_files))
+    from pathlib import Path
+    p = Path(folder)
+    all_files = sorted(set(
+        str(f) for f in p.rglob('*')
+        if f.is_file() and f.suffix.lower() in ('.csv', '.txt', '.tsv', '.fcd')
+    ))
 
     # Exclude filter/diagnostic files
     all_files = [fp for fp in all_files
