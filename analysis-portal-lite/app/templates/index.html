@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analysis Portal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0b0f14;
+    --surface: #12171e;
+    --surface-raised: #1a2029;
+    --border: #262e3a;
+    --border-hover: #3a4555;
+    --text: #dfe5ed;
+    --text-dim: #6e7a8a;
+    --accent: #47b5ff;
+    --accent-glow: rgba(71, 181, 255, 0.08);
+    --accent-strong: rgba(71, 181, 255, 0.18);
+    --green: #4ade80;
+    --green-bg: rgba(74, 222, 128, 0.1);
+    --amber: #fbbf24;
+    --amber-bg: rgba(251, 191, 36, 0.1);
+    --red: #f87171;
+    --red-bg: rgba(248, 113, 113, 0.1);
+    --radius: 6px;
+    --font: 'Outfit', sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ─────────────────────────────────── */
+
+  .shell {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 56px 20px 80px;
+  }
+
+  header {
+    margin-bottom: 44px;
+    position: relative;
+  }
+
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -22px;
+    left: 0;
+    width: 36px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+
+  header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+
+  header .sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  /* ── Section ────────────────────────────────── */
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+
+  .section-head {
+    padding: 16px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .section-head .count {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--surface-raised);
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: var(--text-dim);
+  }
+
+  .section-body { padding: 20px; }
+
+  /* ── Form ───────────────────────────────────── */
+
+  .field { margin-bottom: 18px; }
+
+  .field-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    letter-spacing: 0.3px;
+  }
+
+  select {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%236e7a8a'%3E%3Cpath d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    transition: border-color 0.15s;
+  }
+
+  select:focus { outline: none; border-color: var(--accent); }
+  select:hover { border-color: var(--border-hover); }
+
+  /* ── Drop zone ──────────────────────────────── */
+
+  .drop {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+  }
+
+  .drop:hover, .drop.over {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .drop input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .drop-icon {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 10px;
+    border-radius: 8px;
+    background: var(--surface-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+
+  .drop-text {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .drop-text em {
+    color: var(--accent);
+    font-style: normal;
+    font-weight: 500;
+  }
+
+  /* ── File chips ─────────────────────────────── */
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    animation: chipIn 0.15s ease;
+  }
+
+  @keyframes chipIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .chip .bytes { color: var(--text-dim); }
+
+  .chip button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: color 0.1s;
+  }
+
+  .chip button:hover { color: var(--red); }
+
+  /* ── Button ─────────────────────────────────── */
+
+  .btn-run {
+    width: 100%;
+    padding: 11px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s, opacity 0.12s;
+    margin-top: 4px;
+  }
+
+  .btn-run:hover { filter: brightness(1.1); }
+
+  .btn-run:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    filter: none;
+  }
+
+  /* ── Job cards ──────────────────────────────── */
+
+  .job {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    animation: slideUp 0.2s ease;
+  }
+
+  .job:last-child { border-bottom: none; }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .job-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .job-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 9px;
+    border-radius: 10px;
+  }
+
+  .tag-running  { background: var(--accent-strong); color: var(--accent); }
+  .tag-complete { background: var(--green-bg); color: var(--green); }
+  .tag-failed   { background: var(--red-bg); color: var(--red); }
+
+  .job-msg {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .bar-track {
+    height: 2px;
+    background: var(--surface-raised);
+    border-radius: 1px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  .bar-fill {
+    height: 100%;
+    width: 30%;
+    background: var(--accent);
+    border-radius: 1px;
+    animation: slide 1.8s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(450%); }
+  }
+
+  .dl-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .dl-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 11px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+    transition: border-color 0.12s, color 0.12s;
+  }
+
+  .dl-link:hover { border-color: var(--accent); color: var(--accent); }
+
+  .err-box {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--red-bg);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--red);
+    white-space: pre-wrap;
+    max-height: 160px;
+    overflow-y: auto;
+    line-height: 1.55;
+  }
+
+  .empty {
+    text-align: center;
+    padding: 28px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  /* ── Params grid ────────────────────────────── */
+
+  .params-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  @media (max-width: 500px) {
+    .params-grid { grid-template-columns: 1fr; }
+  }
+
+  .params-grid .field { margin-bottom: 0; }
+
+  .params-grid input[type="number"],
+  .params-grid select {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    transition: border-color 0.15s;
+  }
+
+  .params-grid input[type="number"]:focus,
+  .params-grid select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .params-grid input[type="number"]:hover,
+  .params-grid select:hover {
+    border-color: var(--border-hover);
+  }
+
+  .params-head {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <h1>Analysis Portal</h1>
+    <p class="sub">Upload data files, run analysis, download results</p>
+  </header>
+
+  <!-- ─── Upload ─────────────────────────────── -->
+  <div class="section">
+    <div class="section-head">New Analysis</div>
+    <div class="section-body">
+
+      <div class="field">
+        <label class="field-label">Script</label>
+        <select id="sel">
+          <option value="" disabled selected>Loading...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Data</label>
+        <div class="drop" id="drop">
+          <input type="file" id="fi" multiple accept=".csv,.txt,.tsv,.fcd">
+          <div class="drop-icon">&#8593;</div>
+          <div class="drop-text">Drop CSV, TXT, TSV, or FCD files here or <em>browse</em></div>
+        </div>
+        <div class="chips" id="chips"></div>
+      </div>
+
+      <div id="params-container"></div>
+
+      <button class="btn-run" id="go" disabled>Run Analysis</button>
+    </div>
+  </div>
+
+  <!-- ─── Jobs ───────────────────────────────── -->
+  <div class="section">
+    <div class="section-head">
+      Jobs
+      <span class="count" id="jc">0</span>
+    </div>
+    <div id="jlist">
+      <div class="empty">No jobs yet</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ───────────────────────────────────────
+let files = [];
+let polling = {};
+let scriptDefs = {};  // name → {description, params}
+
+// ── Load scripts ────────────────────────────────
+(async () => {
+  try {
+    const r = await fetch('/api/scripts');
+    const d = await r.json();
+    const s = document.getElementById('sel');
+    s.innerHTML = '<option value="" disabled selected>Select a script…</option>';
+    d.scripts.forEach(x => {
+      scriptDefs[x.name] = x;
+      const o = document.createElement('option');
+      o.value = x.name;
+      o.textContent = x.name;
+      o.title = x.description;
+      s.appendChild(o);
+    });
+  } catch(e) { console.error(e); }
+})();
+
+// ── Recover jobs on page reload ─────────────────
+(async () => {
+  try {
+    const r = await fetch('/api/jobs');
+    const d = await r.json();
+    (d.jobs || []).forEach(j => {
+      renderJob(j.job_id, j);
+      if (j.status === 'running') {
+        polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
+      }
+    });
+  } catch(e) { console.error(e); }
+})();
+
+// ── File handling ───────────────────────────────
+const drop = document.getElementById('drop');
+const fi = document.getElementById('fi');
+
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); });
+fi.addEventListener('change', () => { addFiles(fi.files); fi.value = ''; });
+
+function addFiles(list) {
+  for (const f of list) {
+    if (!['.csv','.txt','.tsv','.fcd'].some(ext => f.name.toLowerCase().endsWith(ext))) continue;
+    if (files.some(x => x.name === f.name)) continue;
+    files.push(f);
+  }
+  renderChips();
+}
+
+function removeFile(i) { files.splice(i, 1); renderChips(); }
+
+function renderChips() {
+  document.getElementById('chips').innerHTML = files.map((f, i) =>
+    `<span class="chip">
+      ${esc(f.name)} <span class="bytes">${fmt(f.size)}</span>
+      <button onclick="removeFile(${i})">&times;</button>
+    </span>`
+  ).join('');
+  checkReady();
+}
+
+function checkReady() {
+  document.getElementById('go').disabled = !(document.getElementById('sel').value && files.length);
+}
+
+document.getElementById('sel').addEventListener('change', () => {
+  checkReady();
+  renderParams();
+});
+
+function renderParams() {
+  const container = document.getElementById('params-container');
+  const script = document.getElementById('sel').value;
+  const def = scriptDefs[script];
+
+  if (!def || !def.params || def.params.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  let html = '<div class="params-head">Parameters</div><div class="params-grid">';
+  for (const p of def.params) {
+    html += '<div class="field">';
+    html += `<label class="field-label">${esc(p.label)}</label>`;
+
+    if (p.type === 'select') {
+      html += `<select id="param-${p.key}" data-param="${p.key}">`;
+      for (const opt of p.options) {
+        const sel = opt.value === String(p.default) ? ' selected' : '';
+        html += `<option value="${opt.value}"${sel}>${esc(opt.label)}</option>`;
+      }
+      html += '</select>';
+    } else {
+      const attrs = [
+        `type="number"`,
+        `id="param-${p.key}"`,
+        `data-param="${p.key}"`,
+        `value="${p.default}"`,
+      ];
+      if (p.step !== undefined) attrs.push(`step="${p.step}"`);
+      if (p.min !== undefined) attrs.push(`min="${p.min}"`);
+      if (p.max !== undefined) attrs.push(`max="${p.max}"`);
+      html += `<input ${attrs.join(' ')}>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function collectParams() {
+  const params = {};
+  document.querySelectorAll('[data-param]').forEach(el => {
+    params[el.dataset.param] = el.value;
+  });
+  return params;
+}
+
+function fmt(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Submit ──────────────────────────────────────
+document.getElementById('go').addEventListener('click', async () => {
+  const script = document.getElementById('sel').value;
+  if (!script || !files.length) return;
+
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+
+  const fd = new FormData();
+  fd.append('script', script);
+  fd.append('params', JSON.stringify(collectParams()));
+  files.forEach(f => fd.append('files', f));
+
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
+
+    renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
+    polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
+
+    files = [];
+    renderChips();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Analysis';
+    checkReady();
+  }
+});
+
+// ── Polling ─────────────────────────────────────
+async function poll(id) {
+  try {
+    const r = await fetch(`/api/jobs/${id}`);
+    const d = await r.json();
+    renderJob(id, d);
+    if (d.status === 'complete' || d.status === 'failed') {
+      clearInterval(polling[id]);
+      delete polling[id];
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ── Render job ──────────────────────────────────
+function renderJob(id, d) {
+  const c = document.getElementById('jlist');
+  const em = c.querySelector('.empty');
+  if (em) em.remove();
+
+  let el = document.getElementById('j-' + id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'j-' + id;
+    el.className = 'job';
+    c.prepend(el);
+  }
+
+  const active = d.status === 'running';
+  const tagCls = d.status === 'complete' ? 'tag-complete' : d.status === 'failed' ? 'tag-failed' : 'tag-running';
+
+  let dlHtml = '';
+  if (d.output_files && d.output_files.length) {
+    dlHtml = '<div class="dl-row">' + d.output_files.map(f => {
+      const ico = f.endsWith('.png') ? '&#128200;' : f.endsWith('.xlsx') ? '&#128202;' : '&#128196;';
+      return `<a class="dl-link" href="/api/download/${id}/${f}" download>${ico} ${esc(f)}</a>`;
+    }).join('') + '</div>';
+  }
+
+  let errHtml = '';
+  if (d.status === 'failed' && d.error) {
+    errHtml = `<div class="err-box">${esc(d.error)}</div>`;
+  }
+
+  el.innerHTML = `
+    <div class="job-row">
+      <span class="job-id">${esc(id)}</span>
+      <span class="tag ${tagCls}">${d.status}</span>
+    </div>
+    ${active ? '<div class="bar-track"><div class="bar-fill"></div></div>' : ''}
+    <div class="job-msg">${esc(d.message || '')}</div>
+    ${dlHtml}${errHtml}
+  `;
+
+  document.getElementById('jc').textContent = c.querySelectorAll('.job').length;
+}
+</script>
+</body>
+</html>
