@@ -15,6 +15,10 @@ Usage:
   python h2_crossover_analysis.py --demo       # built-in demo
 """
 
+def run(input_dir: str, output_dir: str) -> dict:
+    # Read CSVs from input_dir
+    # Write PNGs and Excel files to output_dir
+    # Return a summary dict
 import subprocess, sys
 
 def _ensure_deps():
