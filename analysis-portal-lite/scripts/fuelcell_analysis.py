@@ -727,7 +727,7 @@ def main():
     parser.add_argument('--folder', type=str, help='Data folder path')
     parser.add_argument('--save-dir', type=str, default='fuelcell_results')
     parser.add_argument('--area', type=float, default=5.0)
-    parser.add_argument('--loading', type=float, default=0.1,
+    parser.add_argument('--loading', type=float, default=0.2,
                         help='Cathode Pt loading (mg/cm²)')
     parser.add_argument('--thickness', type=float, default=None,
                         help='Membrane thickness (µm)')
