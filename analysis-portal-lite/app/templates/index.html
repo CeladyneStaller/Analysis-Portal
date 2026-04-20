@@ -337,9 +337,129 @@
     color: var(--text);
     text-decoration: none;
     transition: border-color 0.12s, color 0.12s;
+    cursor: pointer;
   }
 
   .dl-link:hover { border-color: var(--accent); color: var(--accent); }
+
+  .file-group {
+    display: inline-flex;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .file-group .fg-view,
+  .file-group .fg-dl {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    background: var(--surface-raised);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .file-group .fg-view {
+    border-right: 1px solid var(--border);
+  }
+
+  .file-group .fg-view:hover {
+    background: var(--accent-glow);
+    color: var(--accent);
+  }
+
+  .file-group .fg-dl {
+    padding: 5px 8px;
+    font-size: 14px;
+  }
+
+  .file-group .fg-dl:hover {
+    background: var(--accent-glow);
+    color: var(--accent);
+  }
+
+  /* ── Lightbox ───────────────────────────────── */
+
+  .lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.88);
+    backdrop-filter: blur(8px);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lightbox.open { display: flex; }
+
+  .lb-controls {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: linear-gradient(rgba(0,0,0,0.6), transparent);
+  }
+
+  .lb-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  .lb-buttons {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .lb-dl {
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    text-decoration: none;
+    padding: 4px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    transition: background 0.15s;
+  }
+
+  .lb-dl:hover {
+    background: var(--accent-strong);
+  }
+
+  .lb-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 28px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+    transition: color 0.12s;
+  }
+
+  .lb-close:hover { color: #fff; }
+
+  .lightbox img {
+    max-width: 92vw;
+    max-height: 85vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
 
   .err-box {
     margin-top: 8px;
@@ -511,6 +631,18 @@
     <div id="jlist">
       <div class="empty">No jobs yet</div>
     </div>
+  </div>
+
+  <!-- ─── Image Lightbox ──────────────────────── -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+    <div class="lb-controls">
+      <span class="lb-title" id="lb-title"></span>
+      <div class="lb-buttons">
+        <a class="lb-dl" id="lb-dl" download>&#8615; Download</a>
+        <button class="lb-close" onclick="closeLightbox()">&times;</button>
+      </div>
+    </div>
+    <img id="lb-img" src="" alt="">
   </div>
 
 </div>
@@ -810,8 +942,20 @@ function renderJob(id, d) {
   let dlHtml = '';
   if (d.output_files && d.output_files.length) {
     dlHtml = '<div class="dl-row">' + d.output_files.map(f => {
-      const ico = f.endsWith('.png') ? '&#128200;' : f.endsWith('.xlsx') ? '&#128202;' : '&#128196;';
-      return `<a class="dl-link" href="/api/download/${id}/${f}" download>${ico} ${esc(f)}</a>`;
+      const url = `/api/download/${id}/${f}`;
+      const name = f.includes('/') ? f.split('/').pop() : f;
+      const isPng = f.toLowerCase().endsWith('.png');
+      const isImg = isPng || f.toLowerCase().endsWith('.jpg') || f.toLowerCase().endsWith('.jpeg');
+
+      if (isImg) {
+        return `<span class="file-group">
+          <button class="fg-view" onclick="openLightbox('${url}','${esc(name)}')">&#128200; ${esc(name)}</button>
+          <a class="fg-dl" href="${url}" download title="Download">&#8615;</a>
+        </span>`;
+      } else {
+        const ico = f.endsWith('.xlsx') ? '&#128202;' : '&#128196;';
+        return `<a class="dl-link" href="${url}" download>${ico} ${esc(name)}</a>`;
+      }
     }).join('') + '</div>';
   }
 
@@ -832,6 +976,33 @@ function renderJob(id, d) {
 
   document.getElementById('jc').textContent = c.querySelectorAll('.job').length;
 }
+
+// ── Lightbox ────────────────────────────────────
+function openLightbox(url, name) {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lb-img');
+  const title = document.getElementById('lb-title');
+  const dl = document.getElementById('lb-dl');
+
+  img.src = url;
+  title.textContent = name;
+  dl.href = url;
+  dl.download = name;
+  lb.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox(e) {
+  if (e && e.target.tagName === 'IMG') return; // don't close when clicking the image
+  if (e && e.target.closest('.lb-controls')) return; // don't close when clicking controls
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lb-img').src = '';
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLightbox();
+});
 </script>
 </body>
 </html>
