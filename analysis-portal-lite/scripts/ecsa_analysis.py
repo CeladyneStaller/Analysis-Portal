@@ -392,7 +392,7 @@ def compute_ecsa_hupd(V, I, scan_rate, geo_area,
     v_low, v_high : float
         H_UPD integration window (V vs RHE).
     loading_mg_cm2 : float or None
-        Pt loading in mg/cm² for mass-specific ECSA.
+        Cathode Pt loading in mg/cm² for mass-specific ECSA.
     cycle : str or int
         Which cycle to analyze: 'last', 'first', 'average', or cycle number (1-indexed).
 
@@ -489,7 +489,7 @@ def compute_ecsa_co_strip(V_strip, I_strip, V_base, I_base,
     v_low, v_high : float
         CO oxidation integration window (V vs RHE).
     loading_mg_cm2 : float or None
-        Pt loading for mass-specific ECSA.
+        Cathode Pt loading for mass-specific ECSA.
     cycle_strip : str or int
         Which cycle from the stripping file ('first', 'last', int).
     cycle_base : str or int
@@ -1264,7 +1264,7 @@ def run_interactive():
     print('\n  ── Electrode Parameters ──')
     geo_area   = _prompt('Geometric area (cm²)', default=5.0)
     scan_rate  = _prompt('Scan rate (mV/s)', default=50.0) / 1000.0  # convert to V/s
-    loading    = _prompt('Pt loading (mg/cm², Enter to skip)', default=None)
+    loading    = _prompt('Cathode Pt loading (mg/cm², Enter to skip)', default=None)
 
     # ── File input ──
     print('\n  ── Data Files ──')
@@ -1577,7 +1577,7 @@ def main():
     parser.add_argument('--area', type=float, default=5.0,
                         help='Geometric electrode area in cm² (default: 5.0)')
     parser.add_argument('--loading', type=float, default=None,
-                        help='Pt loading in mg/cm² (optional)')
+                        help='Cathode Pt loading in mg/cm² (optional)')
     parser.add_argument('--v-low', type=float, default=0.05,
                         help='H_UPD lower bound in V (default: 0.05)')
     parser.add_argument('--v-high', type=float, default=0.40,
