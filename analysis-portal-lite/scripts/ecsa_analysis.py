@@ -18,30 +18,9 @@ Usage:
   python ecsa_analysis.py --file data.csv   # analyze real CV data
 """
 
-def run(input_dir: str, output_dir: str) -> dict:
-    # Read CSVs from input_dir
-    # Write PNGs and Excel files to output_dir
-    # Return a summary dict
-
-def _ensure_deps():
-    """Install missing dependencies automatically."""
-    required = ['numpy', 'scipy', 'matplotlib']
-    missing = []
-    for pkg in required:
-        try:
-            __import__(pkg)
-        except ImportError:
-            missing.append(pkg)
-    if missing:
-        print(f'Installing missing packages: {", ".join(missing)}')
-        subprocess.check_call(
-            [sys.executable, '-m', 'pip', 'install', *missing],
-            stdout=subprocess.DEVNULL
-        )
-
-_ensure_deps()
-
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from scipy.signal import savgol_filter
@@ -50,6 +29,53 @@ import argparse
 import csv
 import os
 import glob
+import subprocess
+import sys
+ 
+ 
+def run(input_dir: str, output_dir: str) -> dict:
+    """Analyze uploaded CV data for ECSA using H_UPD method (batch mode)."""
+    from pathlib import Path
+ 
+    inp = Path(input_dir)
+    out = Path(output_dir)
+    csv_files = sorted(
+        [f for f in inp.iterdir()
+         if f.suffix.lower() in ('.csv', '.txt', '.tsv', '.fcd')]
+    )
+ 
+    if not csv_files:
+        return {"status": "error", "message": "No CSV/TSV/FCD files found"}
+ 
+    # Default analysis parameters
+    scan_rate = 0.050       # V/s
+    geo_area = 5.0          # cm²
+    loading = 0.10          # mg_Pt/cm²
+    v_low = 0.08
+    v_high = 0.40
+    delimiter = ','
+    skip = 1
+    v_col = 0
+    i_col = 1
+    i_scale = 1.0
+    cycle = 'last'
+ 
+    filepaths = [str(f) for f in csv_files]
+    labels = [f.stem for f in csv_files]
+ 
+    # Run batch analysis using the existing run_batch function
+    all_results = run_batch(
+        filepaths, labels, scan_rate, geo_area, loading,
+        delimiter, skip, v_col, i_col, v_low, v_high,
+        i_scale, cycle=cycle, save_dir=str(out)
+    )
+ 
+    output_files = [f.name for f in out.iterdir() if f.is_file()]
+    return {
+        "status": "success",
+        "files_processed": len(csv_files),
+        "files_produced": output_files,
+    }
 
 # ─── Physical constants ───────────────────────────────────────────────
 Q_H_UPD = 210e-6       # C/cm²_Pt — monolayer H on polycrystalline Pt
