@@ -11,8 +11,12 @@ Usage:
   python electrolyzer_polcurve.py                  # interactive
   python electrolyzer_polcurve.py --file data.csv  # direct
 """
-
+def run(input_dir: str, output_dir: str) -> dict:
+    # Read CSVs from input_dir
+    # Write PNGs and Excel files to output_dir
+    # Return a summary dict
 import subprocess, sys
+
 
 def _ensure_deps():
     for pkg in ['numpy', 'matplotlib', 'scipy', 'openpyxl']:
