@@ -12,18 +12,18 @@ Add your scripts:
 """
 
 from scripts.example import run as example_run
-from scripts.ecsa_analysis import run as ecsa_analysis
-from scripts.eis_analysis import run as eis_analysis
-from scripts.electrolyzer_polcurve import run as electrolyzer_polcurve
-from scripts.fuelcell_analysis import run as fuelcell_analysis
-from scripts.h2_crossover_analysis import run as h2_crossover_analysis
-from scripts.polcurve_analysis import run as polcurve_analysis
+from scripts.ecsa_analysis import run as ecsa_run
+from scripts.eis_analysis import run as eis_run
+from scripts.electrolyzer_polcurve import run as electrolyzer_run
+from scripts.fuelcell_analysis import run as fuelcell_run
+from scripts.h2_crossover_analysis import run as h2x_run
+from scripts.polcurve_analysis import run as polcurve_run
 
 SCRIPT_REGISTRY = {
-    "Fuel Cell ECSA": ecsa_analysis,
-    "Fuel Cell EIS": eis_analysis,
-    "Electrolyzer Analysis (Full Run)": electrolyzer_polcurve,
-    "Fuel Cell Analysis (Full Run)": fuelcell_analysis,
-    "Fuel Cell H2X": h2_crossover_analysis,
-    "Fuel Cell Polarization Curves": polcurve_analysis,
+    "Fuel Cell ECSA": ecsa_run,
+    "Fuel Cell EIS": eis_run,
+    "Electrolyzer Analysis (Full Run)": electrolyzer_run,
+    "Fuel Cell Analysis (Full Run)": fuelcell_run,
+    "Fuel Cell H2X": h2x_run,
+    "Fuel Cell Polarization Curves": polcurve_run,
 }
