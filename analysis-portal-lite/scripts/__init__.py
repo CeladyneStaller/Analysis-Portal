@@ -88,7 +88,7 @@ SCRIPT_PARAMS = {
                      {"value": "1", "label": "FCTS"}]},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
-        {"key": "loading", "label": "Pt Loading (mg/cm²)", "type": "number",
+        {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",
          "default": 0.20, "step": 0.01, "min": 0},
     ],
 }
