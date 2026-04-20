@@ -12,6 +12,12 @@ Add your scripts:
 """
 
 from scripts.example import run as example_run
+from scripts.ecsa_analysis import run as ecsa_analysis
+from scripts.eis_analysis import run as eis_analysis
+from scripts.electrolyzer_polcurve import run as electrolyzer_polcurve
+from scripts.fuelcell_analysis import run as fuelcell_analysis
+from scripts.h2_crossover_analysis import run as h2_crossover_analysis
+from scripts.polcurve_analysis import run as polcurve_analysis
 
 SCRIPT_REGISTRY = {
     "Fuel Cell ECSA": ecsa_analysis,
