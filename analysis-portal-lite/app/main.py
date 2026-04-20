@@ -69,7 +69,12 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str) -> 
     run_fn = registry[script_name]
     result = run_fn(input_dir=input_dir, output_dir=output_dir)
 
-    output_files = [f.name for f in Path(output_dir).iterdir() if f.is_file()]
+    # Find all output files recursively (some scripts create subdirectories)
+    out = Path(output_dir)
+    output_files = [
+        str(f.relative_to(out))
+        for f in out.rglob("*") if f.is_file()
+    ]
     return {
         "output_files": output_files,
         "script_result": result or {},
@@ -222,13 +227,16 @@ async def job_status(job_id: str):
         return jobs[job_id]
 
 
-@app.get("/api/download/{job_id}/{filename}")
-async def download_result(job_id: str, filename: str):
-    # Sanitize path to prevent traversal
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(400, "Invalid filename")
+@app.get("/api/download/{job_id}/{filepath:path}")
+async def download_result(job_id: str, filepath: str):
+    # Resolve and validate path to prevent traversal
+    base = JOBS_DIR / job_id / "output"
+    file_path = (base / filepath).resolve()
 
-    file_path = JOBS_DIR / job_id / "output" / filename
+    # Ensure the resolved path is still inside the output directory
+    if not str(file_path).startswith(str(base.resolve())):
+        raise HTTPException(400, "Invalid path")
+
     if not file_path.exists():
         raise HTTPException(404, "File not found")
 
@@ -239,11 +247,11 @@ async def download_result(job_id: str, filename: str):
         "csv": "text/csv",
         "pdf": "application/pdf",
     }
-    ext = filename.rsplit(".", 1)[-1].lower()
+    ext = file_path.suffix.lstrip(".").lower()
     media_type = media_types.get(ext, "application/octet-stream")
 
     return FileResponse(
         file_path,
         media_type=media_type,
-        filename=filename,
+        filename=file_path.name,
     )
