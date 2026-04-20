@@ -166,9 +166,10 @@ async def upload_and_run(
         raise HTTPException(400, "No files uploaded")
 
     # Validate files
+    allowed_ext = ('.csv', '.txt', '.tsv', '.fcd')
     for f in files:
-        if not f.filename.lower().endswith(".csv"):
-            raise HTTPException(400, f"Only CSV files accepted, got: {f.filename}")
+        if not f.filename.lower().endswith(allowed_ext):
+            raise HTTPException(400, f"Accepted formats: CSV, TXT, TSV, FCD. Got: {f.filename}")
 
     # Create job directories
     job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
