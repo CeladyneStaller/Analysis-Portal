@@ -14,7 +14,10 @@ Add your scripts:
 from scripts.example import run as example_run
 
 SCRIPT_REGISTRY = {
-    "Example Analysis": example_run,
-    # "Polarization Curves": polarization_run,
-    # "Durability Report":   durability_run,
+    "Fuel Cell ECSA": ecsa_analysis,
+    "Fuel Cell EIS": eis_analysis,
+    "Electrolyzer Analysis (Full Run)": electrolyzer_polcurve,
+    "Fuel Cell Analysis (Full Run)": fuelcell_analysis,
+    "Fuel Cell H2X": h2_crossover_analysis,
+    "Fuel Cell Polarization Curves": polcurve_analysis,
 }
