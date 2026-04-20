@@ -483,13 +483,35 @@
 
   .result-group:last-child { margin-bottom: 0; }
 
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
   .group-label {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--accent);
-    margin-bottom: 6px;
+  }
+
+  .dl-all {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    transition: all 0.12s;
+  }
+
+  .dl-all:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .empty {
@@ -980,20 +1002,20 @@ function renderJob(id, d) {
   let dlHtml = '';
   const groups = d.output_groups;
   if (groups && Object.keys(groups).length > 0) {
-    // Render files grouped by category
     const groupNames = Object.keys(groups);
-    const showLabels = groupNames.length > 1 || groupNames[0] !== d.script;
     dlHtml = groupNames.map(label => {
       const filesInGroup = groups[label];
       if (!filesInGroup || !filesInGroup.length) return '';
-      const header = showLabels ? `<div class="group-label">${esc(label)}</div>` : '';
+      const header = `<div class="group-header">
+        <span class="group-label">${esc(label)}</span>
+        <a class="dl-all" href="/api/download-zip/${id}?group=${encodeURIComponent(label)}" download title="Download all as ZIP">&#8615; Download All</a>
+      </div>`;
       const links = '<div class="dl-row">' + filesInGroup.map(f => {
         return renderFileLink(id, f);
       }).join('') + '</div>';
       return `<div class="result-group">${header}${links}</div>`;
     }).join('');
   } else if (d.output_files && d.output_files.length) {
-    // Fallback: flat list
     dlHtml = '<div class="dl-row">' + d.output_files.map(f => {
       return renderFileLink(id, f);
     }).join('') + '</div>';
