@@ -368,7 +368,7 @@
 
   <header>
     <h1>Analysis Portal</h1>
-    <p class="sub">Upload CSVs, run analysis, download results</p>
+    <p class="sub">Upload data files, run analysis, download results</p>
   </header>
 
   <!-- ─── Upload ─────────────────────────────── -->
@@ -386,9 +386,9 @@
       <div class="field">
         <label class="field-label">Data</label>
         <div class="drop" id="drop">
-          <input type="file" id="fi" multiple accept=".csv">
+          <input type="file" id="fi" multiple accept=".csv,.txt,.tsv,.fcd">
           <div class="drop-icon">&#8593;</div>
-          <div class="drop-text">Drop CSVs here or <em>browse</em></div>
+          <div class="drop-text">Drop CSV, TXT, TSV, or FCD files here or <em>browse</em></div>
         </div>
         <div class="chips" id="chips"></div>
       </div>
@@ -457,7 +457,7 @@ fi.addEventListener('change', () => { addFiles(fi.files); fi.value = ''; });
 
 function addFiles(list) {
   for (const f of list) {
-    if (!f.name.toLowerCase().endsWith('.csv')) continue;
+    if (!['.csv','.txt','.tsv','.fcd'].some(ext => f.name.toLowerCase().endsWith(ext))) continue;
     if (files.some(x => x.name === f.name)) continue;
     files.push(f);
   }
