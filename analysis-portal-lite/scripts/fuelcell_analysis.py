@@ -691,7 +691,7 @@ def run_interactive():
     # ECSA-specific
     loading = 0.1
     if classified['ecsa']:
-        loading = _prompt('  Pt loading (mg/cm², for ECSA)', default=0.1)
+        loading = _prompt('  Cathode Pt loading (mg/cm², for ECSA)', default=0.2)
 
     # Crossover-specific
     membrane_thickness = None
@@ -715,7 +715,7 @@ def main():
     parser.add_argument('--save-dir', type=str, default='fuelcell_results')
     parser.add_argument('--area', type=float, default=5.0)
     parser.add_argument('--loading', type=float, default=0.1,
-                        help='Pt loading (mg/cm²)')
+                        help='Cathode Pt loading (mg/cm²)')
     parser.add_argument('--thickness', type=float, default=None,
                         help='Membrane thickness (µm)')
     parser.add_argument('--stand', type=int, default=0,
