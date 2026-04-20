@@ -23,8 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
 
 # ═══════════════════════════════════════════════════════════════════
 # Config
@@ -300,4 +300,49 @@ async def download_result(job_id: str, filepath: str):
         file_path,
         media_type=media_type,
         filename=file_path.name,
+    )
+
+
+@app.get("/api/download-zip/{job_id}")
+async def download_zip(job_id: str, group: str = Query(None)):
+    """Download all results (or a group) as a ZIP file."""
+    import zipfile
+    import io
+
+    with jobs_lock:
+        if job_id not in jobs:
+            raise HTTPException(404, "Job not found")
+        job = jobs[job_id]
+
+    base = JOBS_DIR / job_id / "output"
+    if not base.exists():
+        raise HTTPException(404, "Output directory not found")
+
+    # Get the file list for the requested group
+    groups = job.get("output_groups", {})
+    if group and group in groups:
+        file_list = groups[group]
+        zip_name = f"{group.lower().replace(' ', '_').replace('₂', '2')}_results.zip"
+    else:
+        file_list = job.get("output_files", [])
+        zip_name = f"results_{job_id}.zip"
+
+    if not file_list:
+        raise HTTPException(404, "No files to download")
+
+    # Build ZIP in memory
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for rel_path in file_list:
+            file_path = (base / rel_path).resolve()
+            if not str(file_path).startswith(str(base.resolve())):
+                continue
+            if file_path.exists():
+                zf.write(file_path, arcname=rel_path)
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )
