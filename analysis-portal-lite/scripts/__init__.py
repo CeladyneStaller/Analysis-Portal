@@ -120,5 +120,7 @@ SCRIPT_PARAMS = {
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",
          "default": 0.20, "step": 0.01, "min": 0},
+        {"key": "interval_s", "label": "OCV Resampling Interval (seconds)", "type": "number",
+         "default": 60.0, "step": 1, "min": 1},
     ],
 }
