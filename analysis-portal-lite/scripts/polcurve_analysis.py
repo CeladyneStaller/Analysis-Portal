@@ -1747,10 +1747,9 @@ def save_single_excel(results, filepath):
             col_end = col + n_cols - 1
 
             # Label row
-            for c in range(col, col_end + 1):
-                cell = ws2.cell(row=1, column=c, value=cyc_label if c == col else '')
-                cell.font = hdr_font
-                cell.fill = label_fill
+            cell = ws2.cell(row=1, column=col, value=cyc_label)
+            cell.font = hdr_font
+            cell.fill = label_fill
             if col_end > col:
                 ws2.merge_cells(start_row=1, start_column=col,
                                 end_row=1, end_column=col_end)
@@ -1853,10 +1852,9 @@ def save_batch_excel(all_results, summary_rows, filepath):
         col_end = col + n_cols - 1
 
         # Label row
-        for c in range(col, col_end + 1):
-            cell = ws.cell(row=data_start, column=c, value=label if c == col else '')
-            cell.font = hdr_font
-            cell.fill = label_fill
+        cell = ws.cell(row=data_start, column=col, value=label)
+        cell.font = hdr_font
+        cell.fill = label_fill
         if col_end > col:
             ws.merge_cells(start_row=data_start, start_column=col,
                            end_row=data_start, end_column=col_end)
@@ -1901,9 +1899,8 @@ def save_batch_excel(all_results, summary_rows, filepath):
             # Fallback: write representative data
             j, V = r['j'], r['V']
             col_end = col + 1
-            for c in range(col, col_end + 1):
-                cell = ws2.cell(row=1, column=c, value=label if c == col else '')
-                cell.font = hdr_font; cell.fill = label_fill
+            cell = ws2.cell(row=1, column=col, value=label)
+            cell.font = hdr_font; cell.fill = label_fill
             if col_end > col:
                 ws2.merge_cells(start_row=1, start_column=col,
                                 end_row=1, end_column=col_end)
@@ -1920,9 +1917,8 @@ def save_batch_excel(all_results, summary_rows, filepath):
                                for cyc in cycles)
         total_cycle_cols += len(cycles) - 1  # gap columns between cycles
         file_col_end = col + total_cycle_cols - 1
-        for c in range(col, file_col_end + 1):
-            cell = ws2.cell(row=1, column=c, value=label if c == col else '')
-            cell.font = hdr_font; cell.fill = label_fill
+        cell = ws2.cell(row=1, column=col, value=label)
+        cell.font = hdr_font; cell.fill = label_fill
         if file_col_end > col:
             ws2.merge_cells(start_row=1, start_column=col,
                             end_row=1, end_column=file_col_end)
@@ -1938,10 +1934,8 @@ def save_batch_excel(all_results, summary_rows, filepath):
             cyc_col_end = col + n_cols - 1
 
             # Cycle sub-label
-            for c in range(col, cyc_col_end + 1):
-                cell = ws2.cell(row=2, column=c,
-                                value=cyc_label if c == col else '')
-                cell.font = hdr_font
+            cell = ws2.cell(row=2, column=col, value=cyc_label)
+            cell.font = hdr_font
             if cyc_col_end > col:
                 ws2.merge_cells(start_row=2, start_column=col,
                                 end_row=2, end_column=cyc_col_end)
