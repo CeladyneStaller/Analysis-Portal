@@ -384,10 +384,9 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
 
     def _write_label_row(ws, row, col_start, col_end, label):
         """Write a merged label row spanning columns."""
-        for c in range(col_start, col_end + 1):
-            cell = ws.cell(row=row, column=c, value=label if c == col_start else '')
-            cell.font = hf
-            cell.fill = label_fill
+        cell = ws.cell(row=row, column=col_start, value=label)
+        cell.font = hf
+        cell.fill = label_fill
         if col_end > col_start:
             ws.merge_cells(start_row=row, start_column=col_start,
                            end_row=row, end_column=col_end)
@@ -645,10 +644,8 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                 cyc_col_end = col + n_c - 1
 
                 # Cycle sub-label
-                for c in range(col, cyc_col_end + 1):
-                    cell = ws2.cell(row=2, column=c,
-                                   value=cyc_label if c == col else '')
-                    cell.font = hf
+                cell = ws2.cell(row=2, column=col, value=cyc_label)
+                cell.font = hf
                 if cyc_col_end > col:
                     ws2.merge_cells(start_row=2, start_column=col,
                                     end_row=2, end_column=cyc_col_end)
