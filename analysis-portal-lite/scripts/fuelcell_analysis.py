@@ -670,7 +670,6 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                                  value=round(float(cyc_hfr[ri]) * ga * 1000, 2))
 
                 col = cyc_col_end + 2
-            col = col_end + 2
 
     if len(wb.sheetnames) == 0:
         ws = wb.create_sheet('No Results')
