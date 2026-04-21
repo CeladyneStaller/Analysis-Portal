@@ -1657,18 +1657,20 @@ def generate_synthetic_polcurve(geo_area=5.0, noise=0.002):
 
 def save_single_excel(results, filepath):
     """
-    Save single-file analysis to Excel with summary + curve data sheets.
+    Save single-file analysis to Excel with summary + representative data + cycle data.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     hdr_font = Font(bold=True)
     hdr_fill = PatternFill('solid', fgColor='D9E1F2')
+    label_fill = PatternFill('solid', fgColor='E2EFDA')
 
-    # ── Sheet 1: Summary ──
+    # ── Sheet 1: Summary + Representative Curve Data ──
     ws = wb.active
-    ws.title = 'Summary'
+    ws.title = 'Pol Curve Summary'
     summary = [
         ('OCV (V)', results['OCV']),
         ('Peak Power (mW/cm²)', results['peak_power_W_cm2'] * 1000),
@@ -1694,37 +1696,107 @@ def save_single_excel(results, filepath):
     ws.column_dimensions['A'].width = 25
     ws.column_dimensions['B'].width = 15
 
-    # ── Sheet 2: Pol Curve Data ──
-    ws2 = wb.create_sheet('Pol Curve Data')
-    headers = ['j (A/cm²)', 'V (V)']
+    # Representative curve data below summary
+    data_start = len(summary) + 3
+    ws.cell(row=data_start - 1, column=1, value='Representative Pol Curve').font = hdr_font
+
+    rep_headers = ['j (A/cm²)', 'V (V)']
     has_hfr = results['HFR'] is not None
     if has_hfr:
-        headers.append('HFR (mΩ·cm²)')
+        rep_headers.append('HFR (mΩ·cm²)')
     if results['V_irfree'] is not None:
-        headers.append('V_iR-free (V)')
-    headers.append('Power (mW/cm²)')
+        rep_headers.append('V_iR-free (V)')
+    rep_headers.append('Power (mW/cm²)')
 
-    for c, h in enumerate(headers, 1):
-        cell = ws2.cell(row=1, column=c, value=h)
+    for c, h in enumerate(rep_headers, 1):
+        cell = ws.cell(row=data_start, column=c, value=h)
         cell.font = hdr_font
         cell.fill = hdr_fill
         cell.alignment = Alignment(horizontal='center')
-        ws2.column_dimensions[cell.column_letter].width = 16
+        ws.column_dimensions[get_column_letter(c)].width = max(
+            ws.column_dimensions[get_column_letter(c)].width or 0, 16)
 
     j, V, P = results['j'], results['V'], results['P']
-    # Output in V-ascending order (min V first)
     order = np.argsort(V)
     for row_idx, i in enumerate(order):
+        row = data_start + 1 + row_idx
         col = 1
-        ws2.cell(row=row_idx + 2, column=col, value=round(float(j[i]), 6)); col += 1
-        ws2.cell(row=row_idx + 2, column=col, value=round(float(V[i]), 6)); col += 1
+        ws.cell(row=row, column=col, value=round(float(j[i]), 6)); col += 1
+        ws.cell(row=row, column=col, value=round(float(V[i]), 6)); col += 1
         if has_hfr:
-            ws2.cell(row=row_idx + 2, column=col,
-                     value=round(float(results['HFR_ASR'][i]) * 1000, 2)); col += 1
+            ws.cell(row=row, column=col,
+                    value=round(float(results['HFR_ASR'][i]) * 1000, 2)); col += 1
         if results['V_irfree'] is not None:
-            ws2.cell(row=row_idx + 2, column=col,
-                     value=round(float(results['V_irfree'][i]), 6)); col += 1
-        ws2.cell(row=row_idx + 2, column=col, value=round(float(P[i]) * 1000, 2))
+            ws.cell(row=row, column=col,
+                    value=round(float(results['V_irfree'][i]), 6)); col += 1
+        ws.cell(row=row, column=col, value=round(float(P[i]) * 1000, 2))
+
+    # ── Sheet 2: All Cycles Data ──
+    cycles = results.get('_cycles_raw', [])
+    if cycles:
+        ws2 = wb.create_sheet('Pol Curve Data')
+        col = 1
+        for ci, cyc in enumerate(cycles):
+            direction = cyc.get('direction', '?')
+            cycle_num = cyc.get('cycle_number', ci + 1)
+            cyc_label = f'Cycle {cycle_num} ({direction})'
+            cyc_j = cyc['j']
+            cyc_V = cyc['V']
+            cyc_hfr = cyc.get('HFR')
+            n_cols = 2 + (1 if cyc_hfr is not None else 0)
+            col_end = col + n_cols - 1
+
+            # Label row
+            for c in range(col, col_end + 1):
+                cell = ws2.cell(row=1, column=c, value=cyc_label if c == col else '')
+                cell.font = hdr_font
+                cell.fill = label_fill
+            if col_end > col:
+                ws2.merge_cells(start_row=1, start_column=col,
+                                end_row=1, end_column=col_end)
+
+            # Sub-headers
+            hdrs = ['j (A/cm²)', 'V (V)']
+            if cyc_hfr is not None:
+                hdrs.append('HFR (mΩ·cm²)')
+            for hi, h in enumerate(hdrs):
+                cell = ws2.cell(row=2, column=col + hi, value=h)
+                cell.font = hdr_font
+                cell.fill = hdr_fill
+                cell.alignment = Alignment(horizontal='center')
+                ws2.column_dimensions[get_column_letter(col + hi)].width = 16
+
+            # Data rows
+            for ri in range(len(cyc_j)):
+                cc = col
+                ws2.cell(row=ri + 3, column=cc, value=round(float(cyc_j[ri]), 6)); cc += 1
+                ws2.cell(row=ri + 3, column=cc, value=round(float(cyc_V[ri]), 6)); cc += 1
+                if cyc_hfr is not None:
+                    hfr_val = cyc_hfr[ri] if ri < len(cyc_hfr) else 0
+                    ws2.cell(row=ri + 3, column=cc,
+                             value=round(float(hfr_val) * results.get('geo_area', 5.0) * 1000, 2))
+
+            col = col_end + 2
+    else:
+        # Fallback: single sheet with representative data
+        ws2 = wb.create_sheet('Pol Curve Data')
+        for c, h in enumerate(rep_headers, 1):
+            cell = ws2.cell(row=1, column=c, value=h)
+            cell.font = hdr_font
+            cell.fill = hdr_fill
+            cell.alignment = Alignment(horizontal='center')
+            ws2.column_dimensions[cell.column_letter].width = 16
+        for row_idx, i in enumerate(order):
+            col = 1
+            ws2.cell(row=row_idx + 2, column=col, value=round(float(j[i]), 6)); col += 1
+            ws2.cell(row=row_idx + 2, column=col, value=round(float(V[i]), 6)); col += 1
+            if has_hfr:
+                ws2.cell(row=row_idx + 2, column=col,
+                         value=round(float(results['HFR_ASR'][i]) * 1000, 2)); col += 1
+            if results['V_irfree'] is not None:
+                ws2.cell(row=row_idx + 2, column=col,
+                         value=round(float(results['V_irfree'][i]), 6)); col += 1
+            ws2.cell(row=row_idx + 2, column=col, value=round(float(P[i]) * 1000, 2))
 
     wb.save(filepath)
     print(f'  Excel: {filepath}')
@@ -1732,18 +1804,20 @@ def save_single_excel(results, filepath):
 
 def save_batch_excel(all_results, summary_rows, filepath):
     """
-    Save batch analysis to Excel: summary sheet + one data sheet per file.
+    Save batch analysis to Excel: summary + representative data, cycle data per file.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     hdr_font = Font(bold=True)
     hdr_fill = PatternFill('solid', fgColor='D9E1F2')
+    label_fill = PatternFill('solid', fgColor='E2EFDA')
 
-    # ── Sheet 1: Summary ──
+    # ── Sheet 1: Pol Curve Summary (metrics + representative data) ──
     ws = wb.active
-    ws.title = 'Summary'
+    ws.title = 'Pol Curve Summary'
     if summary_rows:
         all_cols = list(summary_rows[0].keys())
         for row in summary_rows[1:]:
@@ -1765,41 +1839,135 @@ def save_batch_excel(all_results, summary_rows, filepath):
         for c in range(1, len(all_cols) + 1):
             ws.column_dimensions[ws.cell(row=1, column=c).column_letter].width = 18
 
-    # ── One data sheet per file ──
+    # Representative curve data below the summary table
+    data_start = len(summary_rows) + 4
+    ws.cell(row=data_start - 1, column=1, value='Representative Pol Curve Data').font = hdr_font
+
+    col = 1
     for r in all_results:
         label = r.get('label', 'data')
-        # Sheet name max 31 chars, no special chars
-        sheet_name = label[:31].replace('/', '-').replace('\\', '-').replace('*', '')
-        ws2 = wb.create_sheet(sheet_name)
+        j, V, P = r['j'], r['V'], r['P']
+        has_h = r.get('HFR') is not None
+        has_irfree = r.get('V_irfree') is not None
+        n_cols = 3 + int(has_h) + int(has_irfree)
+        col_end = col + n_cols - 1
 
-        headers = ['j (A/cm²)', 'V (V)']
-        has_hfr = r['HFR'] is not None
-        if has_hfr:
-            headers.append('HFR (mΩ·cm²)')
-        if r['V_irfree'] is not None:
-            headers.append('V_iR-free (V)')
-        headers.append('Power (mW/cm²)')
+        # Label row
+        for c in range(col, col_end + 1):
+            cell = ws.cell(row=data_start, column=c, value=label if c == col else '')
+            cell.font = hdr_font
+            cell.fill = label_fill
+        if col_end > col:
+            ws.merge_cells(start_row=data_start, start_column=col,
+                           end_row=data_start, end_column=col_end)
 
-        for c, h in enumerate(headers, 1):
-            cell = ws2.cell(row=1, column=c, value=h)
+        # Sub-headers
+        hdrs = ['j (A/cm²)', 'V (V)']
+        if has_h: hdrs.append('HFR (mΩ·cm²)')
+        if has_irfree: hdrs.append('V_iR-free (V)')
+        hdrs.append('Power (mW/cm²)')
+        for ci, h in enumerate(hdrs):
+            cell = ws.cell(row=data_start + 1, column=col + ci, value=h)
             cell.font = hdr_font
             cell.fill = hdr_fill
             cell.alignment = Alignment(horizontal='center')
-            ws2.column_dimensions[cell.column_letter].width = 16
+            ws.column_dimensions[get_column_letter(col + ci)].width = 16
 
-        j, V, P = r['j'], r['V'], r['P']
         order = np.argsort(V)
-        for row_idx, i in enumerate(order):
-            col = 1
-            ws2.cell(row=row_idx + 2, column=col, value=round(float(j[i]), 6)); col += 1
-            ws2.cell(row=row_idx + 2, column=col, value=round(float(V[i]), 6)); col += 1
-            if has_hfr:
-                ws2.cell(row=row_idx + 2, column=col,
-                         value=round(float(r['HFR_ASR'][i]) * 1000, 2)); col += 1
-            if r['V_irfree'] is not None:
-                ws2.cell(row=row_idx + 2, column=col,
-                         value=round(float(r['V_irfree'][i]), 6)); col += 1
-            ws2.cell(row=row_idx + 2, column=col, value=round(float(P[i]) * 1000, 2))
+        for row_idx, ri in enumerate(order):
+            row = data_start + 2 + row_idx
+            cc = col
+            ws.cell(row=row, column=cc, value=round(float(j[ri]), 6)); cc += 1
+            ws.cell(row=row, column=cc, value=round(float(V[ri]), 6)); cc += 1
+            if has_h:
+                ws.cell(row=row, column=cc,
+                        value=round(float(r['HFR_ASR'][ri]) * 1000, 2)); cc += 1
+            if has_irfree:
+                ws.cell(row=row, column=cc,
+                        value=round(float(r['V_irfree'][ri]), 6)); cc += 1
+            ws.cell(row=row, column=cc, value=round(float(P[ri]) * 1000, 2))
+
+        col = col_end + 2
+
+    # ── Sheet 2: Pol Curve Data (all cycles per file) ──
+    ws2 = wb.create_sheet('Pol Curve Data')
+    col = 1
+    for r in all_results:
+        label = r.get('label', 'data')
+        cycles = r.get('_cycles_raw', [])
+        geo = r.get('geo_area', 5.0)
+
+        if not cycles:
+            # Fallback: write representative data
+            j, V = r['j'], r['V']
+            col_end = col + 1
+            for c in range(col, col_end + 1):
+                cell = ws2.cell(row=1, column=c, value=label if c == col else '')
+                cell.font = hdr_font; cell.fill = label_fill
+            if col_end > col:
+                ws2.merge_cells(start_row=1, start_column=col,
+                                end_row=1, end_column=col_end)
+            ws2.cell(row=2, column=col, value='j (A/cm²)').font = hdr_font
+            ws2.cell(row=2, column=col+1, value='V (V)').font = hdr_font
+            for ri in range(len(j)):
+                ws2.cell(row=ri+3, column=col, value=round(float(j[ri]), 6))
+                ws2.cell(row=ri+3, column=col+1, value=round(float(V[ri]), 6))
+            col = col_end + 2
+            continue
+
+        # File-level label spanning all cycle columns
+        total_cycle_cols = sum(2 + (1 if cyc.get('HFR') is not None else 0)
+                               for cyc in cycles)
+        total_cycle_cols += len(cycles) - 1  # gap columns between cycles
+        file_col_end = col + total_cycle_cols - 1
+        for c in range(col, file_col_end + 1):
+            cell = ws2.cell(row=1, column=c, value=label if c == col else '')
+            cell.font = hdr_font; cell.fill = label_fill
+        if file_col_end > col:
+            ws2.merge_cells(start_row=1, start_column=col,
+                            end_row=1, end_column=file_col_end)
+
+        for ci, cyc in enumerate(cycles):
+            direction = cyc.get('direction', '?')
+            cycle_num = cyc.get('cycle_number', ci + 1)
+            cyc_label = f'Cycle {cycle_num} ({direction})'
+            cyc_j = cyc['j']
+            cyc_V = cyc['V']
+            cyc_hfr = cyc.get('HFR')
+            n_cols = 2 + (1 if cyc_hfr is not None else 0)
+            cyc_col_end = col + n_cols - 1
+
+            # Cycle sub-label
+            for c in range(col, cyc_col_end + 1):
+                cell = ws2.cell(row=2, column=c,
+                                value=cyc_label if c == col else '')
+                cell.font = hdr_font
+            if cyc_col_end > col:
+                ws2.merge_cells(start_row=2, start_column=col,
+                                end_row=2, end_column=cyc_col_end)
+
+            # Column headers
+            hdrs = ['j (A/cm²)', 'V (V)']
+            if cyc_hfr is not None:
+                hdrs.append('HFR (mΩ·cm²)')
+            for hi, h in enumerate(hdrs):
+                cell = ws2.cell(row=3, column=col + hi, value=h)
+                cell.font = hdr_font; cell.fill = hdr_fill
+                cell.alignment = Alignment(horizontal='center')
+                ws2.column_dimensions[get_column_letter(col + hi)].width = 16
+
+            # Data
+            for ri in range(len(cyc_j)):
+                cc = col
+                ws2.cell(row=ri + 4, column=cc,
+                         value=round(float(cyc_j[ri]), 6)); cc += 1
+                ws2.cell(row=ri + 4, column=cc,
+                         value=round(float(cyc_V[ri]), 6)); cc += 1
+                if cyc_hfr is not None and ri < len(cyc_hfr):
+                    ws2.cell(row=ri + 4, column=cc,
+                             value=round(float(cyc_hfr[ri]) * geo * 1000, 2))
+
+            col = cyc_col_end + 2  # gap between cycles
 
     wb.save(filepath)
     print(f'\n  Excel: {filepath}')
