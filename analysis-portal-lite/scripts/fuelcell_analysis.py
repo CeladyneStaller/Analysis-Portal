@@ -28,7 +28,8 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             geo_area=float(p.get('geo_area', 5.0)),
             loading=float(p.get('loading', 0.2)),
             membrane_thickness=None,
-            stand=int(p.get('stand', 0)))
+            stand=int(p.get('stand', 0)),
+            ocv_interval_s=float(p.get('interval_s', 60.0)))
 
     from pathlib import Path
     output_files = [str(f.relative_to(Path(output_dir)))
@@ -612,7 +613,7 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
-            membrane_thickness=None, stand=0):
+            membrane_thickness=None, stand=0, ocv_interval_s=60.0):
     """
     Scan folder, classify files, and run all applicable analyses.
     """
@@ -695,7 +696,7 @@ def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
                     files, geo_area, sub_dir, stand)
             elif atype == 'ocv':
                 all_results['ocv'] = run_ocv_batch(
-                    files, sub_dir)
+                    files, sub_dir, interval_s=ocv_interval_s)
 
             # Check if the analysis actually produced output files
             from pathlib import Path
