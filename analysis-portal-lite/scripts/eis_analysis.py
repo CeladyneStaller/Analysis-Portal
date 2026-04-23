@@ -538,14 +538,12 @@ def plot_eis(results, save_path=None):
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3, which='both')
 
-    fig.suptitle(f'EIS Analysis — {results["description"]}  (R² = {results["R_squared"]:.4f})',
-                 fontsize=13, fontweight='bold')
-
     from scripts.helpers.conditions import get_condition_label
     cond_label = get_condition_label(label=results.get('label', ''))
+    title = f'EIS Analysis — {results["description"]}  (R² = {results["R_squared"]:.4f})'
     if cond_label:
-        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
-                 fontsize=9, color='#555555', style='italic')
+        title += f'\n{cond_label}'
+    fig.suptitle(title, fontsize=13, fontweight='bold')
 
     fig.tight_layout()
 
