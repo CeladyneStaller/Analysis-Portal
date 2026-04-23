@@ -1501,16 +1501,14 @@ def plot_polcurve(results, save_path=None):
         ax.set_ylim(bottom=0)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle('Polarization Curve Analysis', fontsize=13, fontweight='bold')
-
-    # Add condition label as subtitle
     from scripts.helpers.conditions import get_condition_label
     cond_label = get_condition_label(
         label=results.get('label', ''),
         conditions=results.get('conditions'))
+    title = 'Polarization Curve Analysis'
     if cond_label:
-        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
-                 fontsize=9, color='#555555', style='italic')
+        title += f'\n{cond_label}'
+    fig.suptitle(title, fontsize=13, fontweight='bold')
 
     fig.tight_layout()
 
