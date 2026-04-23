@@ -723,14 +723,12 @@ def plot_hupd_analysis(results, save_path=None):
             bbox=dict(boxstyle='round,pad=0.4', fc='lightyellow', alpha=0.9))
 
     cycle_label = results['cycle_used']
-    fig.suptitle(f'ECSA Analysis — H$_{{UPD}}$ (cycle: {cycle_label})',
-                 fontsize=13, fontweight='bold')
-
     from scripts.helpers.conditions import get_condition_label
     cond_label = get_condition_label(label=results.get('label', ''))
+    title = f'ECSA Analysis — H$_{{UPD}}$ (cycle: {cycle_label})'
     if cond_label:
-        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
-                 fontsize=9, color='#555555', style='italic')
+        title += f'\n{cond_label}'
+    fig.suptitle(title, fontsize=13, fontweight='bold')
 
     fig.tight_layout()
 
