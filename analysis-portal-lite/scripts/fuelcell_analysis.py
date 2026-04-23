@@ -225,7 +225,7 @@ def run_ecsa_batch(files, geo_area, loading, save_dir, stand=0, image_ext="png")
                      loading=loading, delimiter=p['delimiter'], skip=skip,
                      v_col=v_col, i_col=i_col,
                      v_low=p['v_low'], v_high=p['v_high'],
-                     i_scale=p['i_scale'], cycle='last', save_dir=save_dir, image_ext=image_ext) or []
+                     i_scale=p['i_scale'], cycle=2, save_dir=save_dir, image_ext=image_ext) or []
 
 
 def run_eis_batch(files, geo_area, save_dir, stand=0, image_ext="png"):
