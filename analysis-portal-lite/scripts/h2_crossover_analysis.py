@@ -293,13 +293,12 @@ def plot_crossover(r, save_path=None):
     ax.set_title(f'DL Window [{r["avg_V_min"]:.2f}, {r["avg_V_max"]:.2f}] V')
     ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
 
-    fig.suptitle('H2 Crossover Analysis (CV Method)', fontsize=13, fontweight='bold')
-
     from scripts.helpers.conditions import get_condition_label
     cond_label = get_condition_label(label=r.get('label', ''))
+    title = 'H2 Crossover Analysis (CV Method)'
     if cond_label:
-        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
-                 fontsize=9, color='#555555', style='italic')
+        title += f'\n{cond_label}'
+    fig.suptitle(title, fontsize=13, fontweight='bold')
 
     fig.tight_layout()
     if save_path:
