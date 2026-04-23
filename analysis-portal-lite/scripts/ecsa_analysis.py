@@ -211,39 +211,36 @@ def extract_cycles(V, I, min_points=20):
         # Single cycle or monotonic — return entire dataset as one cycle
         return [(V, I)], turns
 
+    # Determine if the data starts near a voltage extremum (valley or peak).
+    # If the leading segment before turns[0] is a valid half-sweep, prepend
+    # index 0 as an implicit turning point so we don't lose the first cycle.
+    V_range = V.max() - V.min()
+    v_start = V[0]
+    near_min = (v_start - V.min()) < 0.15 * V_range
+    near_max = (V.max() - v_start) < 0.15 * V_range
+
+    if turns[0] >= min_points and (near_min or near_max):
+        # Data starts near an extremum with a full half-sweep before first turn
+        turns = np.concatenate(([0], turns))
+
+    # Also check if the tail after the last turn is a valid half-sweep
+    tail_len = len(V) - turns[-1]
+    if tail_len >= min_points:
+        v_end = V[-1]
+        end_near_min = (v_end - V.min()) < 0.15 * V_range
+        end_near_max = (V.max() - v_end) < 0.15 * V_range
+        if end_near_min or end_near_max:
+            turns = np.concatenate((turns, [len(V) - 1]))
+
     # Group pairs of turning points into full cycles
-    # Each cycle spans from one valley (or peak) to the next valley (or peak)
-    # That means: turns[0] → turns[2], turns[2] → turns[4], etc.
+    # Each cycle spans two half-sweeps: turns[i] → turns[i+2]
     cycles = []
-    # First partial cycle: start of data to turns[1]
-    # Only include if it starts near a turning point (within min_points)
-    if turns[0] < min_points:
-        # Data starts at a turning point — include from index 0
-        start = 0
-    else:
-        # Partial leading sweep — skip it, start from first turning point
-        start = turns[0]
-
-    # Walk through turning points in pairs
     i = 0
-    while i + 1 < len(turns):
-        cycle_start = turns[i]
-        cycle_end = turns[i + 1] if i + 2 >= len(turns) else turns[i + 2]
-
-        if i + 2 < len(turns):
-            # Full cycle: turn[i] → turn[i+2]
-            end = turns[i + 2]
-            cycles.append((V[turns[i]:end + 1].copy(),
-                           I[turns[i]:end + 1].copy()))
-            i += 2
-        else:
-            # Last pair only has one half-cycle remaining — include if
-            # the tail extends far enough past turns[i+1]
-            end = len(V)
-            if end - turns[i + 1] >= min_points:
-                cycles.append((V[turns[i]:end].copy(),
-                               I[turns[i]:end].copy()))
-            i += 2
+    while i + 2 <= len(turns) - 1:
+        start = turns[i]
+        end = turns[i + 2]
+        cycles.append((V[start:end + 1].copy(), I[start:end + 1].copy()))
+        i += 2
 
     # If no full cycles were assembled, fall back to entire dataset
     if len(cycles) == 0:
@@ -317,25 +314,42 @@ def select_cycle(cycles, choice='last'):
 def split_sweeps(V, I):
     """
     Split a single CV cycle into anodic (V-increasing) and cathodic
-    (V-decreasing) sweeps. The turning point is excluded from both
-    halves since its current belongs to the previous sweep direction.
-    """
-    dV = np.diff(V)
-    sign_changes = np.where(np.diff(np.sign(dV)))[0]
+    (V-decreasing) sweeps.
 
-    if len(sign_changes) == 0:
-        # Monotonic — determine direction from slope
-        if dV.mean() >= 0:
+    Uses the voltage extremum as the turning point, which is robust
+    against noise-induced dV sign changes that can cause the entire
+    cycle to be treated as one sweep.
+    """
+    V = np.asarray(V, dtype=float)
+    I = np.asarray(I, dtype=float)
+
+    if len(V) < 5:
+        return V, I, None, None
+
+    # Determine cycle type from start/end vs middle voltages
+    v_start = V[0]
+    v_mid_region = V[len(V) // 3: 2 * len(V) // 3]
+
+    if np.mean(v_mid_region) > v_start:
+        # Valley → Peak → Valley: split at V_max
+        turn = np.argmax(V)
+    else:
+        # Peak → Valley → Peak: split at V_min
+        turn = np.argmin(V)
+
+    # Ensure the turn isn't at the very start or end
+    if turn < 3 or turn > len(V) - 3:
+        # Monotonic — determine direction from overall slope
+        if V[-1] > V[0]:
             return V, I, None, None        # anodic
         else:
             return None, None, V, I        # cathodic
 
-    turn = sign_changes[0] + 1
     V1, I1 = V[:turn], I[:turn]           # before turning point
     V2, I2 = V[turn + 1:], I[turn + 1:]   # after turning point
 
     # Assign by sweep direction: anodic = V increasing
-    if np.mean(np.diff(V1)) >= 0:
+    if V1[-1] > V1[0]:
         return V1, I1, V2, I2   # first half is anodic
     else:
         return V2, I2, V1, I1   # second half is anodic
