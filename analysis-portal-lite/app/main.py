@@ -360,12 +360,14 @@ async def download_zip(job_id: str, group: str = Query(None)):
 
     # Get the file list for the requested group
     groups = job.get("output_groups", {})
+    sample = job.get("sample_name", "")
     if group and group in groups:
         file_list = groups[group]
-        zip_name = f"{group.lower().replace(' ', '_').replace('₂', '2')}_results.zip"
+        prefix = f"{sample}-" if sample else ""
+        zip_name = f"{prefix}{group.lower().replace(' ', '_').replace('₂', '2')}_results.zip"
     else:
         file_list = job.get("output_files", [])
-        zip_name = f"results_{job_id}.zip"
+        zip_name = f"{sample}_results.zip" if sample else f"results_{job_id}.zip"
 
     if not file_list:
         raise HTTPException(404, "No files to download")
