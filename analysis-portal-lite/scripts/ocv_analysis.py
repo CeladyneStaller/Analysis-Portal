@@ -47,8 +47,11 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     labels = [f.stem for f in files_to_process]
     interval_s = float(p.get('interval_s', 60.0))
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     datasets = run_batch(filepaths, labels, save_dir=str(output_dir),
-                         interval_s=interval_s)
+                         interval_s=interval_s, image_ext=image_ext)
 
     output_files = [str(f.relative_to(Path(output_dir)))
                     for f in Path(output_dir).rglob('*') if f.is_file()]
@@ -417,7 +420,7 @@ def plot_ocv_overlay(datasets, save_path=None):
 #  Batch Processing
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_batch(filepaths, labels, save_dir=None, interval_s=60.0):
+def run_batch(filepaths, labels, save_dir=None, interval_s=60.0, image_ext='png'):
     """
     Load, plot, and summarize multiple OCV files.
     Excludes files shorter than MIN_DURATION_MIN minutes.
@@ -462,10 +465,10 @@ def run_batch(filepaths, labels, save_dir=None, interval_s=60.0):
         datasets.append((time, voltage, lbl))
 
         # Individual plot
-        if save_dir:
+        if save_dir and image_ext:
             safe = lbl.replace(' ', '_').replace('/', '-').replace('\\', '-')
             plot_ocv(time, voltage, lbl,
-                     save_path=os.path.join(save_dir, f'ocv_{safe}.png'))
+                     save_path=os.path.join(save_dir, f'ocv_{safe}.{image_ext}'))
             plt.close()
 
     if not datasets:
@@ -474,11 +477,11 @@ def run_batch(filepaths, labels, save_dir=None, interval_s=60.0):
 
     # Overlay plot
     if len(datasets) > 1:
-        if save_dir:
+        if save_dir and image_ext:
             plot_ocv_overlay(datasets,
-                             save_path=os.path.join(save_dir, 'ocv_overlay.png'))
+                             save_path=os.path.join(save_dir, f'ocv_overlay.{image_ext}'))
             plt.close()
-        else:
+        elif not save_dir:
             plot_ocv_overlay(datasets)
             plt.show()
 

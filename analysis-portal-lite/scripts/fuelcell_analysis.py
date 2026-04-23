@@ -24,12 +24,16 @@ matplotlib.use("Agg")
 def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     """Batch orchestrator: classify and analyze all fuel cell data in a folder."""
     p = params or {}
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     info = run_all(input_dir, output_dir,
             geo_area=float(p.get('geo_area', 5.0)),
             loading=float(p.get('loading', 0.2)),
             membrane_thickness=None,
             stand=int(p.get('stand', 0)),
-            ocv_interval_s=float(p.get('interval_s', 60.0)))
+            ocv_interval_s=float(p.get('interval_s', 60.0)),
+            image_ext=image_ext)
 
     from pathlib import Path
     output_files = [str(f.relative_to(Path(output_dir)))
@@ -193,7 +197,7 @@ def _prompt(msg, default=None, cast=float):
 #  Analysis Runners
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_ecsa_batch(files, geo_area, loading, save_dir, stand=0):
+def run_ecsa_batch(files, geo_area, loading, save_dir, stand=0, image_ext="png"):
     """Run ECSA analysis on classified files. Returns list of result dicts."""
     try:
         from scripts.ecsa_analysis import run_batch
@@ -221,10 +225,10 @@ def run_ecsa_batch(files, geo_area, loading, save_dir, stand=0):
                      loading=loading, delimiter=p['delimiter'], skip=skip,
                      v_col=v_col, i_col=i_col,
                      v_low=p['v_low'], v_high=p['v_high'],
-                     i_scale=p['i_scale'], cycle='last', save_dir=save_dir) or []
+                     i_scale=p['i_scale'], cycle='last', save_dir=save_dir, image_ext=image_ext) or []
 
 
-def run_eis_batch(files, geo_area, save_dir, stand=0):
+def run_eis_batch(files, geo_area, save_dir, stand=0, image_ext="png"):
     """Run EIS analysis on classified files. Returns list of result dicts."""
     try:
         from scripts.eis_analysis import run_batch
@@ -252,10 +256,10 @@ def run_eis_batch(files, geo_area, save_dir, stand=0):
                      delimiter=p['delimiter'], skip=skip,
                      freq_col=freq_col, zreal_col=zreal_col,
                      zimag_col=zimag_col, zimag_sign=p['zimag_sign'],
-                     save_dir=save_dir) or []
+                     save_dir=save_dir, image_ext=image_ext) or []
 
 
-def run_crossover_batch(files, geo_area, membrane_thickness, save_dir, stand=0):
+def run_crossover_batch(files, geo_area, membrane_thickness, save_dir, stand=0, image_ext="png"):
     """Run H₂ crossover analysis on classified files. Returns list of result dicts."""
     try:
         from scripts.h2_crossover_analysis import run_batch
@@ -286,10 +290,10 @@ def run_crossover_batch(files, geo_area, membrane_thickness, save_dir, stand=0):
                      avg_V_min=0.35, avg_V_max=0.50,
                      membrane_thickness_um=membrane_thickness,
                      mode_col=p.get('mode_col'), mode_exclude=p.get('mode_exclude'),
-                     save_dir=save_dir) or []
+                     save_dir=save_dir, image_ext=image_ext) or []
 
 
-def run_polcurve_batch(files, geo_area, save_dir, stand=0):
+def run_polcurve_batch(files, geo_area, save_dir, stand=0, image_ext="png"):
     """Run polarization curve analysis on classified files. Returns list of result dicts."""
     try:
         from scripts.polcurve_analysis import run_batch
@@ -332,10 +336,10 @@ def run_polcurve_batch(files, geo_area, save_dir, stand=0):
                      hfr_scale=p['hfr_scale'],
                      mode_col=mode_col, mode_exclude=p.get('mode_exclude'),
                      j_scale=p.get('j_scale', 1.0), v_scale=p.get('v_scale', 1.0),
-                     save_dir=save_dir) or []
+                     save_dir=save_dir, image_ext=image_ext) or []
 
 
-def run_ocv_batch(files, save_dir, interval_s=60.0):
+def run_ocv_batch(files, save_dir, interval_s=60.0, image_ext="png"):
     """Run OCV analysis on classified files. Returns list of datasets."""
     try:
         from scripts.ocv_analysis import run_batch
@@ -347,7 +351,7 @@ def run_ocv_batch(files, save_dir, interval_s=60.0):
     labels = [f[1] for f in files]
 
     return run_batch(filepaths, labels, save_dir=save_dir,
-                     interval_s=interval_s) or []
+                     interval_s=interval_s, image_ext=image_ext) or []
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -684,7 +688,8 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
-            membrane_thickness=None, stand=0, ocv_interval_s=60.0):
+            membrane_thickness=None, stand=0, ocv_interval_s=60.0,
+            image_ext='png'):
     """
     Scan folder, classify files, and run all applicable analyses.
     """
@@ -755,19 +760,19 @@ def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
         try:
             if atype == 'ecsa':
                 all_results['ecsa'] = run_ecsa_batch(
-                    files, geo_area, loading, sub_dir, stand)
+                    files, geo_area, loading, sub_dir, stand, image_ext=image_ext)
             elif atype == 'eis':
                 all_results['eis'] = run_eis_batch(
-                    files, geo_area, sub_dir, stand)
+                    files, geo_area, sub_dir, stand, image_ext=image_ext)
             elif atype == 'crossover':
                 all_results['crossover'] = run_crossover_batch(
-                    files, geo_area, membrane_thickness, sub_dir, stand)
+                    files, geo_area, membrane_thickness, sub_dir, stand, image_ext=image_ext)
             elif atype == 'polcurve':
                 all_results['polcurve'] = run_polcurve_batch(
-                    files, geo_area, sub_dir, stand)
+                    files, geo_area, sub_dir, stand, image_ext=image_ext)
             elif atype == 'ocv':
                 all_results['ocv'] = run_ocv_batch(
-                    files, sub_dir, interval_s=ocv_interval_s)
+                    files, sub_dir, interval_s=ocv_interval_s, image_ext=image_ext)
 
             # Check if the analysis actually produced output files
             from pathlib import Path

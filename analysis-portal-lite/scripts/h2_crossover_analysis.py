@@ -50,6 +50,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     filepaths = [str(f) for f in files]
     labels = [f.stem for f in files]
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     results = run_batch(
         filepaths, labels,
         geo_area=float(p.get('geo_area', 5.0)),
@@ -62,6 +65,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         avg_V_max=float(p.get('avg_V_max', 0.50)),
         membrane_thickness_um=membrane if membrane > 0 else None,
         save_dir=str(output_dir),
+        image_ext=image_ext,
     )
 
     output_files = [str(f.relative_to(Path(output_dir))) for f in Path(output_dir).rglob('*') if f.is_file()]
@@ -429,7 +433,7 @@ def run_demo(save_dir=None):
 def run_batch(filepaths, labels, geo_area, delimiter, skip, v_col, j_col,
               current_is_total, avg_V_min, avg_V_max,
               membrane_thickness_um=None, p_h2_kPa=101.325,
-              mode_col=None, mode_exclude=None, save_dir=None):
+              mode_col=None, mode_exclude=None, save_dir=None, image_ext='png'):
     if save_dir: os.makedirs(save_dir, exist_ok=True)
     all_results = []
     print(f'\n  Processing {len(filepaths)} files...\n')
@@ -450,9 +454,9 @@ def run_batch(filepaths, labels, geo_area, delimiter, skip, v_col, j_col,
             r['label'] = lbl; all_results.append(r)
             print(f'         j_xover={r["j_xover_mA_cm2"]:.3f} mA/cm2  '
                   f'H2 flux={r["J_H2_nmol_cm2_s"]:.1f} nmol/cm2/s')
-            if save_dir:
+            if save_dir and image_ext:
                 safe = lbl.replace(' ','_').replace('/','_').replace('\\','_')
-                plot_crossover(r, save_path=os.path.join(save_dir, f'crossover_{safe}.png'))
+                plot_crossover(r, save_path=os.path.join(save_dir, f'crossover_{safe}.{image_ext}'))
                 plt.close()
         except Exception as e:
             print(f'         ERROR: {e}')

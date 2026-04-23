@@ -53,6 +53,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     filepaths = [str(f) for f in files]
     labels = [f.stem for f in files]
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     results = run_batch(
         filepaths, labels,
         model_name=p.get('model_name', 'R-RC'),
@@ -64,6 +67,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         zimag_col=2,
         zimag_sign=1,
         save_dir=str(output_dir),
+        image_ext=image_ext,
     )
 
     output_files = [str(f.relative_to(Path(output_dir))) for f in Path(output_dir).rglob('*') if f.is_file()]
@@ -796,7 +800,7 @@ def _clean_path(p):
 
 def run_batch(filepaths, labels, model_name, geo_area,
               delimiter, skip, freq_col, zreal_col, zimag_col, zimag_sign,
-              save_dir=None):
+              save_dir=None, image_ext='png'):
     """
     Batch-process multiple EIS files: fit each, generate summary CSV,
     individual fit plots, and a combined Nyquist overlay.
@@ -850,9 +854,9 @@ def run_batch(filepaths, labels, model_name, geo_area,
                   f'  R_total={r["R_total"]:.4f} Ω·cm²  R²={r["R_squared"]:.4f}')
 
             # Individual fit plot
-            if save_dir:
+            if save_dir and image_ext:
                 safe_name = lbl.replace(' ', '_').replace('/', '-').replace('\\', '-')
-                plot_eis(r, save_path=os.path.join(save_dir, f'eis_{safe_name}.png'))
+                plot_eis(r, save_path=os.path.join(save_dir, f'eis_{safe_name}.{image_ext}'))
                 plt.close()
 
             # Summary row
@@ -895,11 +899,11 @@ def run_batch(filepaths, labels, model_name, geo_area,
 
     # ── Combined Nyquist overlay ──
     overlay_labels = [r['label'] for r in all_results]
-    if save_dir:
-        overlay_path = os.path.join(save_dir, 'eis_batch_overlay.png')
+    if save_dir and image_ext:
+        overlay_path = os.path.join(save_dir, f'eis_batch_overlay.{image_ext}')
         plot_nyquist_overlay(datasets, overlay_labels, save_path=overlay_path)
         plt.close()
-    else:
+    elif not save_dir:
         plot_nyquist_overlay(datasets, overlay_labels)
         plt.show()
 

@@ -95,10 +95,13 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     filepaths = [str(f) for f in csv_files]
     labels = [f.stem for f in csv_files]
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     all_results = run_batch(
         filepaths, labels, scan_rate, geo_area, loading,
         delimiter, skip, v_col, i_col, v_low, v_high,
-        i_scale, cycle=cycle, save_dir=str(out)
+        i_scale, cycle=cycle, save_dir=str(out), image_ext=image_ext
     )
 
     output_files = [str(f.relative_to(out)) for f in out.rglob('*') if f.is_file()]
@@ -1124,7 +1127,7 @@ def plot_ecsa_overlay(all_results, save_path=None):
 
 def run_batch(filepaths, labels, scan_rate, geo_area, loading,
               delimiter, skip, v_col, i_col, v_low, v_high, i_scale,
-              cycle='last', save_dir=None):
+              cycle='last', save_dir=None, image_ext='png'):
     """
     Batch-process multiple ECSA CV files: analyze each, generate summary CSV,
     individual plots, and a combined CV overlay.
@@ -1171,9 +1174,9 @@ def run_batch(filepaths, labels, scan_rate, geo_area, loading,
                 print(f'         ECSA={r["ECSA_cm2"]:.1f} cm²_Pt')
 
             # Individual plot
-            if save_dir:
+            if save_dir and image_ext:
                 safe_name = lbl.replace(' ', '_').replace('/', '-').replace('\\', '-')
-                plot_hupd_analysis(r, save_path=os.path.join(save_dir, f'ecsa_{safe_name}.png'))
+                plot_hupd_analysis(r, save_path=os.path.join(save_dir, f'ecsa_{safe_name}.{image_ext}'))
                 plt.close()
 
             # Summary row
@@ -1222,11 +1225,11 @@ def run_batch(filepaths, labels, scan_rate, geo_area, loading,
         print(f'\n  Summary CSV: {csv_path}')
 
     # ── Combined CV overlay ──
-    if save_dir:
-        overlay_path = os.path.join(save_dir, 'ecsa_batch_overlay.png')
+    if save_dir and image_ext:
+        overlay_path = os.path.join(save_dir, f'ecsa_batch_overlay.{image_ext}')
         plot_ecsa_overlay(all_results, save_path=overlay_path)
         plt.close()
-    else:
+    elif not save_dir:
         plot_ecsa_overlay(all_results)
         plt.show()
 

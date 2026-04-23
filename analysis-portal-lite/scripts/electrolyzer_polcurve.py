@@ -69,12 +69,15 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             polcurve_file = str(max(all_files, key=lambda f: f.stat().st_size))
             eis_files = [str(f) for f in all_files if str(f) != polcurve_file]
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     try:
         analyze(polcurve_file, geo_area=geo_area, save_dir=str(out),
                 title=Path(polcurve_file).stem, T_C=T_C,
                 p_cathode_barg=p_cath, p_anode_barg=p_an,
                 eis_files=eis_files if eis_files else None,
-                eis_ref_voltage=eis_ref_v)
+                eis_ref_voltage=eis_ref_v, image_ext=image_ext)
         plt.close('all')
     except Exception as e:
         raise RuntimeError(
@@ -82,9 +85,12 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         )
 
     # Verify expected outputs
-    EXPECTED = {'analysis_data.xlsx', 'polcurve.png', 'j_vs_cycle.png',
-                'model_fit.png', 'nyquist.png', 'losses_vs_cycle.png',
-                'ir_correction.png'}
+    ext = image_ext or 'png'
+    EXPECTED = {'analysis_data.xlsx'}
+    if image_ext:
+        EXPECTED.update({f'polcurve.{ext}', f'j_vs_cycle.{ext}',
+                        f'model_fit.{ext}', f'nyquist.{ext}',
+                        f'losses_vs_cycle.{ext}', f'ir_correction.{ext}'})
     output_files = [f.name for f in out.iterdir()
                     if f.is_file() and f.name in EXPECTED]
 
@@ -1902,7 +1908,7 @@ def plot_j_and_losses_vs_cycle(cycle_nums, j_values, losses,
 
 def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             T_C=80.0, p_cathode_barg=0.0, p_anode_barg=0.0,
-            eis_files=None, eis_ref_voltage=None):
+            eis_files=None, eis_ref_voltage=None, image_ext='png'):
     """Full pipeline: load → extract → cycles → EIS → plot → fit."""
 
     # Load polcurve
@@ -1951,13 +1957,14 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     import os
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
-        polcurve_path = os.path.join(save_dir, 'polcurve.png')
-        jvc_path = os.path.join(save_dir, 'j_vs_cycle.png')
+        _ext = image_ext or 'png'
+        polcurve_path = os.path.join(save_dir, f'polcurve.{_ext}') if image_ext else None
+        jvc_path = os.path.join(save_dir, f'j_vs_cycle.{_ext}') if image_ext else None
         xlsx_path = os.path.join(save_dir, 'analysis_data.xlsx')
-        fit_path = os.path.join(save_dir, 'model_fit.png')
-        nyquist_path = os.path.join(save_dir, 'nyquist.png')
-        losses_path = os.path.join(save_dir, 'losses_vs_cycle.png')
-        ir_path = os.path.join(save_dir, 'ir_correction.png')
+        fit_path = os.path.join(save_dir, f'model_fit.{_ext}') if image_ext else None
+        nyquist_path = os.path.join(save_dir, f'nyquist.{_ext}') if image_ext else None
+        losses_path = os.path.join(save_dir, f'losses_vs_cycle.{_ext}') if image_ext else None
+        ir_path = os.path.join(save_dir, f'ir_correction.{_ext}') if image_ext else None
     else:
         polcurve_path = jvc_path = xlsx_path = fit_path = nyquist_path = losses_path = ir_path = None
 

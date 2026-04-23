@@ -82,12 +82,16 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         n = len(folders_with_data.get(fp, []))
         print(f"    {i+1}. {Path(fp).name}/ ({n} files)")
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     try:
         analyze(folder_paths, geo_area=geo_area,
                 eis_ref_voltage=eis_ref_v,
                 T_C=80.0, v_target=1.8,
                 save_dir=str(output_dir),
-                data_interval_min=data_interval)
+                data_interval_min=data_interval,
+                image_ext=image_ext)
         plt.close('all')
     except Exception as e:
         raise RuntimeError(
@@ -628,7 +632,8 @@ def export_excel(fp, t_hours=None, voltage=None, j_hold=None,
 # ═══════════════════════════════════════════════════════════════════
 
 def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
-            T_C=80.0, v_target=1.8, save_dir=None, data_interval_min=None):
+            T_C=80.0, v_target=1.8, save_dir=None, data_interval_min=None,
+            image_ext='png'):
     """
     Full durability analysis pipeline.
 
@@ -787,20 +792,23 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
     else:
         P = lambda n: None
 
+    _ext = image_ext or 'png'
+
     # ── Plots ──
     pt = [p['t_hours'] for p in pcs] if pcs else None
 
-    if t_hours is not None and deg:
-        plot_voltage_vs_time(t_hours, voltage, deg, j_hold, pc_t=pt,
-                             save_path=P('voltage_vs_time.png'))
-        plt.close('all')
-        plot_deg_rolling(deg, P('degradation_rate.png')); plt.close('all')
-    if eis_p:
-        plot_hfr_vs_time(eis_p, P('hfr_vs_time.png')); plt.close('all')
-    if pcs:
-        plot_polcurve_evolution(pcs, P('polcurve_evolution.png')); plt.close('all')
-        plot_asr_vs_j_evolution(pcs, P('asr_vs_j_evolution.png')); plt.close('all')
-        plot_loss_evolution(pcs, v_target, P('loss_evolution.png')); plt.close('all')
+    if image_ext:
+        if t_hours is not None and deg:
+            plot_voltage_vs_time(t_hours, voltage, deg, j_hold, pc_t=pt,
+                                 save_path=P(f'voltage_vs_time.{_ext}'))
+            plt.close('all')
+            plot_deg_rolling(deg, P(f'degradation_rate.{_ext}')); plt.close('all')
+        if eis_p:
+            plot_hfr_vs_time(eis_p, P(f'hfr_vs_time.{_ext}')); plt.close('all')
+        if pcs:
+            plot_polcurve_evolution(pcs, P(f'polcurve_evolution.{_ext}')); plt.close('all')
+            plot_asr_vs_j_evolution(pcs, P(f'asr_vs_j_evolution.{_ext}')); plt.close('all')
+            plot_loss_evolution(pcs, v_target, P(f'loss_evolution.{_ext}')); plt.close('all')
 
     if P('x'):
         export_excel(P('durability_data.xlsx'), t_hours, voltage, j_hold,

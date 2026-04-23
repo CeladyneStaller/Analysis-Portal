@@ -43,9 +43,18 @@ SCRIPT_SHORT = {
 # ─── Common sample_name field (inserted first for every script) ──
 _SAMPLE_FIELD = {"key": "sample_name", "label": "Sample Name", "type": "text", "default": ""}
 
+_IMAGE_FORMAT_FIELD = {"key": "image_format", "label": "Image Format", "type": "select",
+    "default": "png",
+    "options": [{"value": "png", "label": "PNG"},
+                {"value": "svg", "label": "SVG"},
+                {"value": "pdf", "label": "PDF"},
+                {"value": "tiff", "label": "TIFF"},
+                {"value": "none", "label": "No Images"}]}
+
 SCRIPT_PARAMS = {
     "Fuel Cell ECSA": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "stand", "label": "Test Stand", "type": "select", "default": "0",
          "options": [{"value": "0", "label": "Scribner"},
                      {"value": "1", "label": "FCTS"}]},
@@ -66,6 +75,7 @@ SCRIPT_PARAMS = {
     ],
     "EIS Analysis": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "model_name", "label": "Equivalent Circuit Model", "type": "select",
@@ -76,6 +86,7 @@ SCRIPT_PARAMS = {
     ],
     "H2 Crossover": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "avg_V_min", "label": "Averaging Window Low (V)", "type": "number",
@@ -87,6 +98,7 @@ SCRIPT_PARAMS = {
     ],
     "FC Polarization Curve": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "tafel_j_min", "label": "Tafel Region j_min (A/cm²)", "type": "number",
@@ -96,11 +108,13 @@ SCRIPT_PARAMS = {
     ],
     "OCV Analysis": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "interval_s", "label": "Resampling Interval (seconds)", "type": "number",
          "default": 60.0, "step": 1, "min": 1},
     ],
     "Electrolyzer Pol Curve": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "cell_id", "label": "Cell ID (for folder scan)", "type": "text",
          "default": "a1"},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
@@ -116,6 +130,7 @@ SCRIPT_PARAMS = {
     ],
     "Electrolyzer Durability": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 25.0, "step": 0.1, "min": 0.1},
         {"key": "eis_ref_voltage", "label": "EIS Reference Voltage (V)",
@@ -125,6 +140,7 @@ SCRIPT_PARAMS = {
     ],
     "Fuel Cell Full Analysis": [
         _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
         {"key": "stand", "label": "Test Stand", "type": "select", "default": "0",
          "options": [{"value": "0", "label": "Scribner"},
                      {"value": "1", "label": "FCTS"}]},

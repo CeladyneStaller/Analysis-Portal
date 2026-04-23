@@ -54,6 +54,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     filepaths = [str(f) for f in files]
     labels = [f.stem for f in files]
 
+    from scripts.helpers.conditions import img_ext_from_params
+    image_ext = img_ext_from_params(p)
+
     results = run_batch(
         filepaths, labels,
         geo_area=float(p.get('geo_area', 5.0)),
@@ -66,6 +69,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         tafel_j_min=float(p.get('tafel_j_min', 0.01)),
         tafel_j_max=float(p.get('tafel_j_max', 0.10)),
         save_dir=str(output_dir),
+        image_ext=image_ext,
     )
 
     output_files = [str(f.relative_to(Path(output_dir))) for f in Path(output_dir).rglob('*') if f.is_file()]
@@ -2042,7 +2046,7 @@ def run_batch(filepaths, labels, geo_area,
               current_is_total, tafel_j_min, tafel_j_max,
               condition_cols=None, hfr_scale=1.0, save_dir=None,
               mode_col=None, mode_exclude=None,
-              j_scale=1.0, v_scale=1.0):
+              j_scale=1.0, v_scale=1.0, image_ext='png'):
     """
     Batch-process multiple polarization curve files.
     """
@@ -2122,9 +2126,9 @@ def run_batch(filepaths, labels, geo_area,
                 print(f'         Conditions: {cond_str}')
 
             # Individual plot
-            if save_dir:
+            if save_dir and image_ext:
                 safe_name = lbl.replace(' ', '_').replace('/', '-').replace('\\', '-')
-                plot_polcurve(r, save_path=os.path.join(save_dir, f'polcurve_{safe_name}.png'))
+                plot_polcurve(r, save_path=os.path.join(save_dir, f'polcurve_{safe_name}.{image_ext}'))
                 plt.close()
 
             # Summary row
@@ -2177,11 +2181,11 @@ def run_batch(filepaths, labels, geo_area,
         save_batch_excel(all_results, summary_rows, xlsx_path)
 
     # ── Combined overlay ──
-    if save_dir:
-        overlay_path = os.path.join(save_dir, 'polcurve_batch_overlay.png')
+    if save_dir and image_ext:
+        overlay_path = os.path.join(save_dir, f'polcurve_batch_overlay.{image_ext}')
         plot_polcurve_overlay(all_results, save_path=overlay_path)
         plt.close()
-    else:
+    elif not save_dir:
         plot_polcurve_overlay(all_results)
         plt.show()
 

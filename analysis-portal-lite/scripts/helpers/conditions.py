@@ -197,3 +197,19 @@ def get_condition_label(filepath=None, label=None, conditions=None,
         final = file_cond
 
     return format_condition_label(final, compact=compact)
+
+
+def img_ext_from_params(params):
+    """Extract image extension from params dict. Returns ext string or None for 'no images'."""
+    fmt = (params or {}).get('image_format', 'png')
+    if fmt == 'none':
+        return None
+    return fmt
+
+
+def img_path(save_dir, name, ext):
+    """Build image save path, or return None if ext is None (no images)."""
+    import os
+    if ext is None or save_dir is None:
+        return None
+    return os.path.join(save_dir, f'{name}.{ext}')
