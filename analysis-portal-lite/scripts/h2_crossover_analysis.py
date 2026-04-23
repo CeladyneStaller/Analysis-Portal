@@ -294,6 +294,13 @@ def plot_crossover(r, save_path=None):
     ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
 
     fig.suptitle('H2 Crossover Analysis (CV Method)', fontsize=13, fontweight='bold')
+
+    from scripts.helpers.conditions import get_condition_label
+    cond_label = get_condition_label(label=r.get('label', ''))
+    if cond_label:
+        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
+                 fontsize=9, color='#555555', style='italic')
+
     fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=200, bbox_inches='tight')

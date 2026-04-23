@@ -540,6 +540,13 @@ def plot_eis(results, save_path=None):
 
     fig.suptitle(f'EIS Analysis — {results["description"]}  (R² = {results["R_squared"]:.4f})',
                  fontsize=13, fontweight='bold')
+
+    from scripts.helpers.conditions import get_condition_label
+    cond_label = get_condition_label(label=results.get('label', ''))
+    if cond_label:
+        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
+                 fontsize=9, color='#555555', style='italic')
+
     fig.tight_layout()
 
     if save_path:
@@ -557,6 +564,8 @@ def plot_nyquist_overlay(datasets, labels=None, save_path=None):
     datasets : list of (freq, Z_real, Z_imag) tuples
     labels : list of str or None
     """
+    from scripts.helpers.conditions import get_condition_label
+
     fig, ax = plt.subplots(figsize=(8, 6))
     cmap = plt.cm.viridis
     n = len(datasets)
@@ -564,7 +573,9 @@ def plot_nyquist_overlay(datasets, labels=None, save_path=None):
 
     for i, (freq, Zr, Zi) in enumerate(datasets):
         lbl = labels[i] if labels else f'Dataset {i+1}'
-        ax.plot(Zr, -Zi, 'o-', color=colors[i], ms=4, lw=1.2, alpha=0.8, label=lbl)
+        cond = get_condition_label(label=lbl, compact=True)
+        legend_lbl = f'{lbl}\n  {cond}' if cond else lbl
+        ax.plot(Zr, -Zi, 'o-', color=colors[i], ms=4, lw=1.2, alpha=0.8, label=legend_lbl)
 
     ax.set_xlabel("Z' (Ω·cm²)")
     ax.set_ylabel("−Z'' (Ω·cm²)")

@@ -351,6 +351,12 @@ def plot_ocv(time, voltage, label, save_path=None):
     ax.set_xlabel(t_label)
     ax.set_ylabel('Voltage (V)')
     ax.set_title(f'OCV vs Time — {label}')
+
+    from scripts.helpers.conditions import get_condition_label
+    cond_label = get_condition_label(label=label)
+    if cond_label:
+        ax.set_title(f'OCV vs Time — {label}\n{cond_label}', fontsize=11)
+
     ax.grid(True, alpha=0.3)
 
     # Annotate start and end voltage
@@ -368,6 +374,8 @@ def plot_ocv(time, voltage, label, save_path=None):
 
 def plot_ocv_overlay(datasets, save_path=None):
     """Plot multiple OCV curves overlaid on one figure."""
+    from scripts.helpers.conditions import get_condition_label
+
     fig, ax = plt.subplots(figsize=(10, 6))
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(datasets), 1)))
 
@@ -379,8 +387,10 @@ def plot_ocv_overlay(datasets, save_path=None):
             t_plot = time / 60
         else:
             t_plot = time
+        cond = get_condition_label(label=label, compact=True)
+        legend_lbl = f'{label} ({voltage[-1]:.4f} V)\n  {cond}' if cond else f'{label} ({voltage[-1]:.4f} V)'
         ax.plot(t_plot, voltage, '-', color=colors[i], lw=1.5, alpha=0.8,
-                label=f'{label} ({voltage[-1]:.4f} V)')
+                label=legend_lbl)
 
     # Use time unit from longest dataset
     max_dur = max(d[0][-1] for d in datasets)

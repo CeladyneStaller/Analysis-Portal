@@ -1502,6 +1502,16 @@ def plot_polcurve(results, save_path=None):
         ax.grid(True, alpha=0.3)
 
     fig.suptitle('Polarization Curve Analysis', fontsize=13, fontweight='bold')
+
+    # Add condition label as subtitle
+    from scripts.helpers.conditions import get_condition_label
+    cond_label = get_condition_label(
+        label=results.get('label', ''),
+        conditions=results.get('conditions'))
+    if cond_label:
+        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
+                 fontsize=9, color='#555555', style='italic')
+
     fig.tight_layout()
 
     if save_path:
@@ -1512,6 +1522,8 @@ def plot_polcurve(results, save_path=None):
 
 def plot_polcurve_overlay(all_results, save_path=None):
     """Overlay multiple polarization curves."""
+    from scripts.helpers.conditions import get_condition_label
+
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
     n = len(all_results)
     cmap = plt.cm.viridis
@@ -1521,7 +1533,9 @@ def plot_polcurve_overlay(all_results, save_path=None):
     ax = axes[0]
     for i, r in enumerate(all_results):
         lbl = r.get('label', f'File {i+1}')
-        ax.plot(r['j'], r['V'], 'o-', color=colors[i], ms=3, lw=1.2, label=lbl)
+        cond = get_condition_label(label=lbl, conditions=r.get('conditions'), compact=True)
+        legend_lbl = f'{lbl}\n  {cond}' if cond else lbl
+        ax.plot(r['j'], r['V'], 'o-', color=colors[i], ms=3, lw=1.2, label=legend_lbl)
     ax.set_xlabel('Current density (A/cm²)')
     ax.set_ylabel('Voltage (V)')
     ax.set_title('Polarization Curves')
@@ -1533,7 +1547,9 @@ def plot_polcurve_overlay(all_results, save_path=None):
     ax = axes[1]
     for i, r in enumerate(all_results):
         lbl = r.get('label', f'File {i+1}')
-        ax.plot(r['j'], r['P'] * 1000, '^-', color=colors[i], ms=3, lw=1.2, label=lbl)
+        cond = get_condition_label(label=lbl, conditions=r.get('conditions'), compact=True)
+        legend_lbl = f'{lbl}\n  {cond}' if cond else lbl
+        ax.plot(r['j'], r['P'] * 1000, '^-', color=colors[i], ms=3, lw=1.2, label=legend_lbl)
     ax.set_xlabel('Current density (A/cm²)')
     ax.set_ylabel('Power density (mW/cm²)')
     ax.set_title('Power Density')

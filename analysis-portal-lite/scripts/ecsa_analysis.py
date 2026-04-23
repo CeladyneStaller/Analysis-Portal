@@ -725,6 +725,13 @@ def plot_hupd_analysis(results, save_path=None):
     cycle_label = results['cycle_used']
     fig.suptitle(f'ECSA Analysis — H$_{{UPD}}$ (cycle: {cycle_label})',
                  fontsize=13, fontweight='bold')
+
+    from scripts.helpers.conditions import get_condition_label
+    cond_label = get_condition_label(label=results.get('label', ''))
+    if cond_label:
+        fig.text(0.5, 0.97, cond_label, ha='center', va='top',
+                 fontsize=9, color='#555555', style='italic')
+
     fig.tight_layout()
 
     if save_path:
@@ -1086,6 +1093,8 @@ def plot_ecsa_overlay(all_results, save_path=None):
     """
     Overlay full CVs from multiple ECSA analyses on a single plot.
     """
+    from scripts.helpers.conditions import get_condition_label
+
     fig, ax = plt.subplots(figsize=(8, 6))
     n = len(all_results)
     cmap = plt.cm.viridis
@@ -1097,7 +1106,9 @@ def plot_ecsa_overlay(all_results, save_path=None):
         geo = r['geo_area']
         j_raw = I_raw / geo * 1e3  # mA/cm²
         lbl = r.get('label', f'File {i+1}')
-        ax.plot(V_raw, j_raw, '-', color=colors[i], lw=1.2, alpha=0.8, label=lbl)
+        cond = get_condition_label(label=lbl, compact=True)
+        legend_lbl = f'{lbl}\n  {cond}' if cond else lbl
+        ax.plot(V_raw, j_raw, '-', color=colors[i], lw=1.2, alpha=0.8, label=legend_lbl)
 
     ax.axhline(0, color='k', lw=0.5)
     ax.set_xlabel('E vs RHE (V)')
