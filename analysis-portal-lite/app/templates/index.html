@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Analysis Portal</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -1082,26 +1083,28 @@ function readDirectoryEntry(dirEntry, basePath) {
   function readBatch() {
     reader.readEntries(entries => {
       if (entries.length === 0) {
-        // Done reading — process all file entries
-        let pending = allEntries.filter(e => e.isFile).length;
+        // Done reading — process only data file entries
+        const fileEntries = allEntries.filter(e => e.isFile &&
+          DATA_EXTENSIONS.some(ext => e.name.toLowerCase().endsWith(ext)));
+        let pending = fileEntries.length;
         if (pending === 0) { autoPopulateSampleName(); renderChips(); checkReady(); return; }
-        allEntries.forEach(entry => {
-          if (entry.isFile) {
-            entry.file(f => {
-              const path = basePath + '/' + entry.fullPath.split('/').slice(2).join('/');
-              const relPath = entry.fullPath.replace(/^\//, '');
-              files.push({ file: f, path: relPath });
-              pending--;
-              if (pending === 0) { autoPopulateSampleName(); renderChips(); checkReady(); }
-            });
-          } else if (entry.isDirectory) {
-            readDirectoryEntry(entry, basePath);
-          }
+        fileEntries.forEach(entry => {
+          entry.file(f => {
+            const path = basePath + '/' + entry.fullPath.split('/').slice(2).join('/');
+            const relPath = entry.fullPath.replace(/^\//, '');
+            files.push({ file: f, path: relPath });
+            pending--;
+            if (pending === 0) { autoPopulateSampleName(); renderChips(); checkReady(); }
+          });
+        });
+        // Also recurse into subdirectories
+        allEntries.filter(e => e.isDirectory).forEach(entry => {
+          readDirectoryEntry(entry, basePath);
         });
         return;
       }
       allEntries.push(...entries);
-      readBatch(); // readEntries may return partial results
+      readBatch();
     });
   }
   readBatch();
@@ -1117,10 +1120,14 @@ function addFiles(list) {
   renderChips();
 }
 
+const DATA_EXTENSIONS = ['.csv', '.txt', '.tsv', '.fcd'];
+
 function addFolderFiles(list) {
   files = [];
   for (const f of list) {
     const path = f.webkitRelativePath || f.name;
+    // Only include data files — skip images, tiffs, etc.
+    if (!DATA_EXTENSIONS.some(ext => f.name.toLowerCase().endsWith(ext))) continue;
     files.push({ file: f, path: path });
   }
   autoPopulateSampleName();
@@ -1474,6 +1481,18 @@ function fmt(b) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+// ── Zip helper ──────────────────────────────────
+async function buildZipBlob(fileList, progressFn) {
+  const zip = new JSZip();
+  for (const f of fileList) {
+    zip.file(f.path, f.file);
+  }
+  return await zip.generateAsync(
+    { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+    meta => { if (progressFn) progressFn(meta.percent); }
+  );
+}
+
 // ── Submit ──────────────────────────────────────
 document.getElementById('go').addEventListener('click', async () => {
   const script = document.getElementById('sel').value;
@@ -1481,42 +1500,63 @@ document.getElementById('go').addEventListener('click', async () => {
 
   const btn = document.getElementById('go');
   btn.disabled = true;
-  btn.textContent = 'Uploading…';
 
   try {
     const isSeq = SEQUENTIAL_FOLDER_SCRIPTS.includes(script);
 
+    // Determine if we should zip (folder/multi modes with many files)
+    const shouldZip = files.length > 10 || uploadMode !== 'files';
+
     if (uploadMode === 'multi' && samples.length > 0) {
       // Multi-sample: single upload, multiple jobs
+      btn.textContent = shouldZip ? 'Compressing…' : 'Uploading…';
       const fd = new FormData();
       fd.append('script', script);
       fd.append('manifest', JSON.stringify(buildMultiManifest()));
-      files.forEach(f => fd.append('files', f.file, f.path));
+
+      if (shouldZip) {
+        const zipBlob = await buildZipBlob(files, pct => {
+          btn.textContent = `Compressing… ${Math.round(pct)}%`;
+        });
+        fd.append('zipfile', zipBlob, 'upload.zip');
+        btn.textContent = 'Uploading…';
+      } else {
+        files.forEach(f => fd.append('files', f.file, f.path));
+      }
 
       const r = await fetch('/api/upload-multi', { method: 'POST', body: fd });
       const d = await r.json();
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
-      // Track each job
       (d.jobs || []).forEach(j => {
         renderJob(j.job_id, { status: 'running', message: `Running ${script} on ${j.sample_name}…`, script: script });
         polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
       });
 
-      files = [];
-      samples = [];
+      files = []; samples = [];
       document.getElementById('sample-container').style.display = 'none';
       renderChips();
+
     } else if (uploadMode === 'folder' && isSeq && orderedFolders.length > 0) {
       // Sequential folder ordering: single job with folder_order param
       if (!files.length) return;
+      btn.textContent = shouldZip ? 'Compressing…' : 'Uploading…';
       const params = collectParams();
       params.folder_order = orderedFolders.map(f => f.folder);
 
       const fd = new FormData();
       fd.append('script', script);
       fd.append('params', JSON.stringify(params));
-      files.forEach(f => fd.append('files', f.file, f.path));
+
+      if (shouldZip) {
+        const zipBlob = await buildZipBlob(files, pct => {
+          btn.textContent = `Compressing… ${Math.round(pct)}%`;
+        });
+        fd.append('zipfile', zipBlob, 'upload.zip');
+        btn.textContent = 'Uploading…';
+      } else {
+        files.forEach(f => fd.append('files', f.file, f.path));
+      }
 
       const r = await fetch('/api/upload', { method: 'POST', body: fd });
       const d = await r.json();
@@ -1525,17 +1565,28 @@ document.getElementById('go').addEventListener('click', async () => {
       renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
-      files = [];
-      orderedFolders = [];
+      files = []; orderedFolders = [];
       document.getElementById('folder-order-container').style.display = 'none';
       renderChips();
+
     } else {
       // Single job: files or folder mode
       if (!files.length) return;
+      btn.textContent = shouldZip ? 'Compressing…' : 'Uploading…';
+
       const fd = new FormData();
       fd.append('script', script);
       fd.append('params', JSON.stringify(collectParams()));
-      files.forEach(f => fd.append('files', f.file, f.path));
+
+      if (shouldZip) {
+        const zipBlob = await buildZipBlob(files, pct => {
+          btn.textContent = `Compressing… ${Math.round(pct)}%`;
+        });
+        fd.append('zipfile', zipBlob, 'upload.zip');
+        btn.textContent = 'Uploading…';
+      } else {
+        files.forEach(f => fd.append('files', f.file, f.path));
+      }
 
       const r = await fetch('/api/upload', { method: 'POST', body: fd });
       const d = await r.json();
