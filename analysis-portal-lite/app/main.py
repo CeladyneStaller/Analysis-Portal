@@ -31,7 +31,7 @@ from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Streamin
 # ═══════════════════════════════════════════════════════════════════
 
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "500"))
 JOB_TTL_HOURS = int(os.getenv("JOB_TTL_HOURS", "24"))
 JOBS_DIR = Path(os.getenv("JOBS_DIR", "/tmp/analysis-portal-jobs"))
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
@@ -219,13 +219,15 @@ async def list_scripts():
 async def upload_and_run(
     script: str = Form(...),
     params: str = Form("{}"),
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(None),
+    zipfile: UploadFile = File(None),
 ):
     import json
+    import zipfile as zipmod
     from scripts import SCRIPT_REGISTRY
     if script not in SCRIPT_REGISTRY:
         raise HTTPException(400, f"Unknown script: {script}")
-    if not files:
+    if not files and not zipfile:
         raise HTTPException(400, "No files uploaded")
 
     # Parse params JSON
@@ -234,15 +236,6 @@ async def upload_and_run(
     except json.JSONDecodeError:
         user_params = {}
 
-    # Validate: at least one recognized data file
-    allowed_ext = ('.csv', '.txt', '.tsv', '.fcd')
-    data_files = [f for f in files if f.filename.lower().endswith(allowed_ext)
-                  or '/' in f.filename]  # folder uploads pass through
-    if not data_files and not any('/' in f.filename for f in files):
-        has_any_data = any(f.filename.lower().endswith(allowed_ext) for f in files)
-        if not has_any_data:
-            raise HTTPException(400, "No recognized data files (CSV, TXT, TSV, FCD)")
-
     # Create job directories
     job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
     input_dir = JOBS_DIR / job_id / "input"
@@ -250,23 +243,41 @@ async def upload_and_run(
     input_dir.mkdir(parents=True)
     output_dir.mkdir(parents=True)
 
-    # Save uploaded files, preserving folder structure from paths
     filenames = []
-    for f in files:
-        content = await f.read()
-        if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
-            shutil.rmtree(JOBS_DIR / job_id)
-            raise HTTPException(413, f"{f.filename} exceeds {MAX_UPLOAD_MB}MB limit")
 
-        # filename may contain path separators (e.g. "folder/sub/file.csv")
-        safe_path = Path(f.filename)
-        # Security: prevent path traversal
-        if '..' in safe_path.parts:
-            continue
-        dest = input_dir / safe_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(content)
-        filenames.append(f.filename)
+    if zipfile and zipfile.filename:
+        # ── Zip upload: extract preserving folder structure ──
+        zip_bytes = await zipfile.read()
+        import io
+        with zipmod.ZipFile(io.BytesIO(zip_bytes), 'r') as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                safe_path = Path(info.filename)
+                if '..' in safe_path.parts:
+                    continue
+                dest = input_dir / safe_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(zf.read(info))
+                filenames.append(info.filename)
+    elif files:
+        # ── Individual file upload ──
+        for f in files:
+            content = await f.read()
+            if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+                shutil.rmtree(JOBS_DIR / job_id)
+                raise HTTPException(413, f"{f.filename} exceeds {MAX_UPLOAD_MB}MB limit")
+            safe_path = Path(f.filename)
+            if '..' in safe_path.parts:
+                continue
+            dest = input_dir / safe_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
+            filenames.append(f.filename)
+
+    if not filenames:
+        shutil.rmtree(JOBS_DIR / job_id)
+        raise HTTPException(400, "No files received")
 
     # Register job
     with jobs_lock:
@@ -385,7 +396,8 @@ async def download_zip(job_id: str, group: str = Query(None)):
 async def upload_multi(
     script: str = Form(...),
     manifest: str = Form(...),
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(None),
+    zipfile: UploadFile = File(None),
 ):
     """
     Upload all files from a parent folder and split into per-sample jobs.
@@ -394,6 +406,7 @@ async def upload_multi(
     [{"folder": "Parent/BOL", "sample_name": "BOL", "params": {...}}, ...]
     """
     import json
+    import zipfile as zipmod
     from scripts import SCRIPT_REGISTRY
 
     if script not in SCRIPT_REGISTRY:
@@ -409,17 +422,35 @@ async def upload_multi(
 
     # Read all file contents into memory, grouped by sample folder
     file_data = {}  # folder_prefix → [(relative_path, bytes)]
-    for f in files:
-        content = await f.read()
-        if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
-            raise HTTPException(413, f"{f.filename} exceeds {MAX_UPLOAD_MB}MB limit")
 
-        # Match file to sample by folder prefix
-        for sample in samples:
-            folder = sample["folder"]
-            if f.filename == folder or f.filename.startswith(folder + "/"):
-                file_data.setdefault(folder, []).append((f.filename, content))
-                break
+    if zipfile and zipfile.filename:
+        # ── Zip upload: extract and group ──
+        import io
+        zip_bytes = await zipfile.read()
+        with zipmod.ZipFile(io.BytesIO(zip_bytes), 'r') as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                fname = info.filename
+                content = zf.read(info)
+                for sample in samples:
+                    folder = sample["folder"]
+                    if fname == folder or fname.startswith(folder + "/"):
+                        file_data.setdefault(folder, []).append((fname, content))
+                        break
+    elif files:
+        # ── Individual file upload ──
+        for f in files:
+            content = await f.read()
+            if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+                raise HTTPException(413, f"{f.filename} exceeds {MAX_UPLOAD_MB}MB limit")
+            for sample in samples:
+                folder = sample["folder"]
+                if f.filename == folder or f.filename.startswith(folder + "/"):
+                    file_data.setdefault(folder, []).append((f.filename, content))
+                    break
+    else:
+        raise HTTPException(400, "No files uploaded")
 
     # Create one job per sample
     job_results = []
