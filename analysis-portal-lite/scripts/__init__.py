@@ -68,9 +68,11 @@ SCRIPT_PARAMS = {
          "default": 0.08, "step": 0.01, "min": 0},
         {"key": "v_high", "label": "H_UPD Upper Bound (V vs RHE)", "type": "number",
          "default": 0.40, "step": 0.01, "min": 0},
-        {"key": "cycle", "label": "Cycle to Analyze", "type": "select", "default": "last",
-         "options": [{"value": "last", "label": "Last (most stable)"},
+        {"key": "cycle", "label": "Cycle to Analyze", "type": "select", "default": "2",
+         "options": [{"value": "2", "label": "Second"},
+                     {"value": "last", "label": "Last"},
                      {"value": "first", "label": "First"},
+                     {"value": "3", "label": "Third"},
                      {"value": "average", "label": "Average all"}]},
     ],
     "EIS Analysis": [
