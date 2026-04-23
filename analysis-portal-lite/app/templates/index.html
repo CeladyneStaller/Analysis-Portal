@@ -535,6 +535,31 @@
     color: var(--accent);
   }
 
+  .dl-all-job {
+    margin-bottom: 10px;
+  }
+
+  .dl-all-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+
+  .dl-all-btn:hover {
+    background: var(--accent-strong);
+    color: #fff;
+  }
+
   .empty {
     text-align: center;
     padding: 28px;
@@ -1680,6 +1705,14 @@ function renderJob(id, d) {
     errHtml = `<div class="err-box">${esc(d.error)}</div>`;
   }
 
+  // Download All button for the entire job
+  let dlAllHtml = '';
+  if (d.output_files && d.output_files.length > 0 && d.status === 'complete') {
+    dlAllHtml = `<div class="dl-all-job">
+      <a class="dl-all-btn" href="/api/download-zip/${id}" download>&#8615; Download All Results</a>
+    </div>`;
+  }
+
   const sampleLabel = d.sample_name ? `<span class="job-sample">${esc(d.sample_name)}</span>` : '';
   const scriptLabel = d.script ? `<span class="job-script">${esc(d.script)}</span>` : '';
 
@@ -1690,7 +1723,7 @@ function renderJob(id, d) {
     </div>
     ${active ? '<div class="bar-track"><div class="bar-fill"></div></div>' : ''}
     <div class="job-msg">${esc(d.message || '')}</div>
-    ${dlHtml}${errHtml}
+    ${dlAllHtml}${dlHtml}${errHtml}
   `;
 
   document.getElementById('jc').textContent = c.querySelectorAll('.job').length;
