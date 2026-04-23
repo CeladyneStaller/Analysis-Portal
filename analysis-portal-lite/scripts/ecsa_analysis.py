@@ -314,42 +314,25 @@ def select_cycle(cycles, choice='last'):
 def split_sweeps(V, I):
     """
     Split a single CV cycle into anodic (V-increasing) and cathodic
-    (V-decreasing) sweeps.
-
-    Uses the voltage extremum as the turning point, which is robust
-    against noise-induced dV sign changes that can cause the entire
-    cycle to be treated as one sweep.
+    (V-decreasing) sweeps. The turning point is excluded from both
+    halves since its current belongs to the previous sweep direction.
     """
-    V = np.asarray(V, dtype=float)
-    I = np.asarray(I, dtype=float)
+    dV = np.diff(V)
+    sign_changes = np.where(np.diff(np.sign(dV)))[0]
 
-    if len(V) < 5:
-        return V, I, None, None
-
-    # Determine cycle type from start/end vs middle voltages
-    v_start = V[0]
-    v_mid_region = V[len(V) // 3: 2 * len(V) // 3]
-
-    if np.mean(v_mid_region) > v_start:
-        # Valley → Peak → Valley: split at V_max
-        turn = np.argmax(V)
-    else:
-        # Peak → Valley → Peak: split at V_min
-        turn = np.argmin(V)
-
-    # Ensure the turn isn't at the very start or end
-    if turn < 3 or turn > len(V) - 3:
-        # Monotonic — determine direction from overall slope
-        if V[-1] > V[0]:
+    if len(sign_changes) == 0:
+        # Monotonic — determine direction from slope
+        if dV.mean() >= 0:
             return V, I, None, None        # anodic
         else:
             return None, None, V, I        # cathodic
 
+    turn = sign_changes[0] + 1
     V1, I1 = V[:turn], I[:turn]           # before turning point
     V2, I2 = V[turn + 1:], I[turn + 1:]   # after turning point
 
     # Assign by sweep direction: anodic = V increasing
-    if V1[-1] > V1[0]:
+    if np.mean(np.diff(V1)) >= 0:
         return V1, I1, V2, I2   # first half is anodic
     else:
         return V2, I2, V1, I1   # second half is anodic
