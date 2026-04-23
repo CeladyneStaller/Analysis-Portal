@@ -211,39 +211,36 @@ def extract_cycles(V, I, min_points=20):
         # Single cycle or monotonic — return entire dataset as one cycle
         return [(V, I)], turns
 
+    # Determine if the data starts near a voltage extremum (valley or peak).
+    # If the leading segment before turns[0] is a valid half-sweep, prepend
+    # index 0 as an implicit turning point so we don't lose the first cycle.
+    V_range = V.max() - V.min()
+    v_start = V[0]
+    near_min = (v_start - V.min()) < 0.15 * V_range
+    near_max = (V.max() - v_start) < 0.15 * V_range
+
+    if turns[0] >= min_points and (near_min or near_max):
+        # Data starts near an extremum with a full half-sweep before first turn
+        turns = np.concatenate(([0], turns))
+
+    # Also check if the tail after the last turn is a valid half-sweep
+    tail_len = len(V) - turns[-1]
+    if tail_len >= min_points:
+        v_end = V[-1]
+        end_near_min = (v_end - V.min()) < 0.15 * V_range
+        end_near_max = (V.max() - v_end) < 0.15 * V_range
+        if end_near_min or end_near_max:
+            turns = np.concatenate((turns, [len(V) - 1]))
+
     # Group pairs of turning points into full cycles
-    # Each cycle spans from one valley (or peak) to the next valley (or peak)
-    # That means: turns[0] → turns[2], turns[2] → turns[4], etc.
+    # Each cycle spans two half-sweeps: turns[i] → turns[i+2]
     cycles = []
-    # First partial cycle: start of data to turns[1]
-    # Only include if it starts near a turning point (within min_points)
-    if turns[0] < min_points:
-        # Data starts at a turning point — include from index 0
-        start = 0
-    else:
-        # Partial leading sweep — skip it, start from first turning point
-        start = turns[0]
-
-    # Walk through turning points in pairs
     i = 0
-    while i + 1 < len(turns):
-        cycle_start = turns[i]
-        cycle_end = turns[i + 1] if i + 2 >= len(turns) else turns[i + 2]
-
-        if i + 2 < len(turns):
-            # Full cycle: turn[i] → turn[i+2]
-            end = turns[i + 2]
-            cycles.append((V[turns[i]:end + 1].copy(),
-                           I[turns[i]:end + 1].copy()))
-            i += 2
-        else:
-            # Last pair only has one half-cycle remaining — include if
-            # the tail extends far enough past turns[i+1]
-            end = len(V)
-            if end - turns[i + 1] >= min_points:
-                cycles.append((V[turns[i]:end].copy(),
-                               I[turns[i]:end].copy()))
-            i += 2
+    while i + 2 <= len(turns) - 1:
+        start = turns[i]
+        end = turns[i + 2]
+        cycles.append((V[start:end + 1].copy(), I[start:end + 1].copy()))
+        i += 2
 
     # If no full cycles were assembled, fall back to entire dataset
     if len(cycles) == 0:
