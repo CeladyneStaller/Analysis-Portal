@@ -1014,17 +1014,32 @@ let scriptDefs = {};  // name → {description, params}
   } catch(e) { console.error(e); }
 })();
 
-// ── Recover jobs on page reload ─────────────────
+// ── Session job tracking ────────────────────────
+function saveJobId(id) {
+  const ids = JSON.parse(sessionStorage.getItem('myJobIds') || '[]');
+  if (!ids.includes(id)) ids.push(id);
+  sessionStorage.setItem('myJobIds', JSON.stringify(ids));
+}
+
+function getMyJobIds() {
+  return JSON.parse(sessionStorage.getItem('myJobIds') || '[]');
+}
+
+// ── Recover own jobs on page reload ─────────────
 (async () => {
   try {
-    const r = await fetch('/api/jobs');
-    const d = await r.json();
-    (d.jobs || []).forEach(j => {
-      renderJob(j.job_id, j);
-      if (j.status === 'running') {
-        polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
-      }
-    });
+    const ids = getMyJobIds();
+    for (const id of ids) {
+      try {
+        const r = await fetch(`/api/jobs/${id}`);
+        if (!r.ok) continue;
+        const j = await r.json();
+        renderJob(j.job_id, j);
+        if (j.status === 'running') {
+          polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
+        }
+      } catch(e) { /* job expired or deleted */ }
+    }
   } catch(e) { console.error(e); }
 })();
 
@@ -1554,6 +1569,7 @@ document.getElementById('go').addEventListener('click', async () => {
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
       (d.jobs || []).forEach(j => {
+        saveJobId(j.job_id);
         renderJob(j.job_id, { status: 'running', message: `Running ${script} on ${j.sample_name}…`, script: script });
         polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
       });
@@ -1587,6 +1603,7 @@ document.getElementById('go').addEventListener('click', async () => {
       const d = await r.json();
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
+      saveJobId(d.job_id);
       renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
@@ -1617,6 +1634,7 @@ document.getElementById('go').addEventListener('click', async () => {
       const d = await r.json();
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
+      saveJobId(d.job_id);
       renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
