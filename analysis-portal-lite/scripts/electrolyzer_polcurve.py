@@ -255,13 +255,83 @@ def load_data(filepath):
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Control mode detection
+# ═══════════════════════════════════════════════════════════════════
+
+def detect_control_mode(data, cols):
+    """
+    Auto-detect whether the polcurve is potentiostatic or galvanostatic.
+
+    Strategy:
+      1. If step_name column exists and contains 'constant potential' or
+         'constant current', use that.
+      2. Otherwise, compare the staircase-ness of V vs I: the controlled
+         variable will have discrete steps with low intra-step variance,
+         while the response variable will drift/ramp within each step.
+
+    Returns 'potentiostatic' or 'galvanostatic'.
+    """
+    # Method 1: step name column
+    if cols.get('step_name_col') is not None:
+        names = data[cols['step_name_col']]
+        unique_lower = set(n.lower().strip() for n in names)
+        has_potential = any('constant potential' in n for n in unique_lower)
+        has_current = any('constant current' in n for n in unique_lower)
+        if has_potential and not has_current:
+            return 'potentiostatic'
+        if has_current and not has_potential:
+            return 'galvanostatic'
+        # If both or neither, fall through to statistical detection
+
+    # Method 2: compare staircase quality of V vs I
+    V = data[cols['v_col']]
+    I = data[cols['i_col']]
+
+    v_step = _detect_step(V)
+    i_step = _detect_step(I)
+
+    if v_step is not None and i_step is None:
+        return 'potentiostatic'
+    if i_step is not None and v_step is None:
+        return 'galvanostatic'
+
+    # Both have steps — compare coefficient of variation within segments
+    # The controlled variable will have lower CV within each step
+    def _intra_step_cv(signal, n_seg=50):
+        """Compute mean coefficient of variation within equal-length segments."""
+        clean = signal[~np.isnan(signal)]
+        if len(clean) < n_seg * 10:
+            return 1.0
+        seg_len = len(clean) // n_seg
+        cvs = []
+        for i in range(n_seg):
+            seg = clean[i * seg_len:(i + 1) * seg_len]
+            mu = np.mean(seg)
+            if abs(mu) > 1e-9:
+                cvs.append(np.std(seg) / abs(mu))
+        return np.median(cvs) if cvs else 1.0
+
+    cv_v = _intra_step_cv(V)
+    cv_i = _intra_step_cv(I)
+
+    # The controlled variable has lower intra-segment variation
+    if cv_v < cv_i:
+        return 'potentiostatic'
+    else:
+        return 'galvanostatic'
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Dwell extraction
 # ═══════════════════════════════════════════════════════════════════
 
-def extract_dwells_from_steps(data, cols, geo_area):
+def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
     """
     Use step/repeat columns to define dwells. Extract representative
     (V, j) from the stable tail of each dwell.
+
+    mode: 'potentiostatic' (V controlled, I response) or
+          'galvanostatic' (I controlled, V response)
 
     Returns list of dicts: [{'V': float, 'j': float, 'step': int, 'repeat': int}, ...]
     """
@@ -290,17 +360,15 @@ def extract_dwells_from_steps(data, cols, geo_area):
     polcurve_step_names = None
     if cols['step_name_col'] is not None:
         names = data[cols['step_name_col']]
-        # Collect unique step names
         unique_names = set(names)
-        has_potential = any('constant potential' in n.lower() for n in unique_names)
-        has_current = any('constant current' in n.lower() for n in unique_names)
 
-        if has_potential:
-            # Prefer potentiostatic setpoints for polcurve
-            polcurve_step_names = {'constant potential'}
-        elif has_current:
-            polcurve_step_names = {'constant current'}
-        # If neither, include all steps
+        if mode == 'potentiostatic':
+            if any('constant potential' in n.lower() for n in unique_names):
+                polcurve_step_names = {'constant potential'}
+        elif mode == 'galvanostatic':
+            if any('constant current' in n.lower() for n in unique_names):
+                polcurve_step_names = {'constant current'}
+        # If no matching step names, include all steps
 
     dwells = []
     for (s, r), start, end in segments:
@@ -316,38 +384,64 @@ def extract_dwells_from_steps(data, cols, geo_area):
             if not any(psn in sname for psn in polcurve_step_names):
                 continue
 
-        # Extract representative V and I from stable tail
+        # Extract representative V and I based on control mode
         V_seg = V_raw[start:end]
         I_seg = I_raw[start:end]
 
-        # Voltage: controlled variable → mean of segment
-        V_sp = np.nanmean(V_seg)
-
-        # Current: response variable → find stable tail
-        # Walk backwards to find where current stabilizes
-        n = len(I_seg)
-        stable_start = n - 1
-        for k in range(n - 2, max(0, n // 2) - 1, -1):
-            tail = I_seg[k:]
-            tail_clean = tail[~np.isnan(tail)]
-            if len(tail_clean) < 2:
+        if mode == 'galvanostatic':
+            # Current is controlled → mean of segment
+            I_clean = I_seg[~np.isnan(I_seg)]
+            if len(I_clean) == 0:
                 continue
-            t_mean = np.mean(tail_clean)
-            t_std = np.std(tail_clean)
-            if t_std > max(0.03 * abs(t_mean), 0.001):
-                break
-            stable_start = k
+            j_rep = np.mean(I_clean) / geo_area
 
-        # Average last 20 stable points
-        n_tail = min(20, n - stable_start)
-        tail_sl = slice(n - n_tail, n)
-        I_tail = I_seg[tail_sl]
-        I_tail = I_tail[~np.isnan(I_tail)]
-        if len(I_tail) == 0:
-            continue
+            # Voltage is response → find stable tail
+            n = len(V_seg)
+            stable_start = n - 1
+            for k in range(n - 2, max(0, n // 2) - 1, -1):
+                tail = V_seg[k:]
+                tail_clean = tail[~np.isnan(tail)]
+                if len(tail_clean) < 2:
+                    continue
+                t_mean = np.mean(tail_clean)
+                t_std = np.std(tail_clean)
+                if t_std > max(0.03 * abs(t_mean), 0.001):
+                    break
+                stable_start = k
 
-        I_rep = np.mean(I_tail)
-        j_rep = I_rep / geo_area
+            n_tail = min(20, n - stable_start)
+            V_tail = V_seg[n - n_tail:n]
+            V_tail = V_tail[~np.isnan(V_tail)]
+            if len(V_tail) == 0:
+                continue
+            V_sp = np.mean(V_tail)
+        else:
+            # Potentiostatic: Voltage is controlled → mean of segment
+            V_sp = np.nanmean(V_seg)
+
+            # Current is response → find stable tail
+            n = len(I_seg)
+            stable_start = n - 1
+            for k in range(n - 2, max(0, n // 2) - 1, -1):
+                tail = I_seg[k:]
+                tail_clean = tail[~np.isnan(tail)]
+                if len(tail_clean) < 2:
+                    continue
+                t_mean = np.mean(tail_clean)
+                t_std = np.std(tail_clean)
+                if t_std > max(0.03 * abs(t_mean), 0.001):
+                    break
+                stable_start = k
+
+            n_tail = min(20, n - stable_start)
+            tail_sl = slice(n - n_tail, n)
+            I_tail = I_seg[tail_sl]
+            I_tail = I_tail[~np.isnan(I_tail)]
+            if len(I_tail) == 0:
+                continue
+
+            I_rep = np.mean(I_tail)
+            j_rep = I_rep / geo_area
 
         dwells.append({
             'V': V_sp,
@@ -361,27 +455,34 @@ def extract_dwells_from_steps(data, cols, geo_area):
     return dwells
 
 
-def extract_dwells_generic(data, cols, geo_area):
+def extract_dwells_generic(data, cols, geo_area, mode='potentiostatic'):
     """
     Fallback when no step/repeat columns exist.
-    Uses voltage-stability grouping (same approach as the fuel cell script).
+    Uses stability grouping on the controlled variable.
+
+    mode: 'potentiostatic' (group by V stability) or
+          'galvanostatic' (group by I stability)
     """
     V_raw = data[cols['v_col']]
     I_raw = data[cols['i_col']]
 
-    # Detect voltage step size
-    step_size = _detect_step(V_raw)
-    if step_size is None:
-        step_size = _detect_step(I_raw)
+    # Choose grouping signal based on mode
+    if mode == 'galvanostatic':
+        group_signal = I_raw
+    else:
+        group_signal = V_raw
+
+    # Detect step size from the controlled variable
+    step_size = _detect_step(group_signal)
 
     if step_size and step_size > 0:
         af, rf = step_size * 0.25, 0.01
     else:
-        ds = np.abs(np.diff(V_raw[~np.isnan(V_raw)]))
+        ds = np.abs(np.diff(group_signal[~np.isnan(group_signal)]))
         ne = np.percentile(ds, 50) if len(ds) > 0 else 0.01
         af, rf = max(ne * 10, 0.003), 0.03
 
-    signal = V_raw
+    signal = group_signal
     grps, gs, gm, gc = [], 0, signal[0], 1
     for i in range(1, len(signal)):
         if np.isnan(signal[i]):
@@ -404,18 +505,38 @@ def extract_dwells_generic(data, cols, geo_area):
         if n < 10:
             continue
 
-        V_sp = np.nanmean(V_raw[start:end])
-        I_seg = I_raw[start:end]
+        if mode == 'galvanostatic':
+            # Current is controlled → mean of segment
+            I_seg = I_raw[start:end]
+            I_clean = I_seg[~np.isnan(I_seg)]
+            if len(I_clean) == 0:
+                continue
+            j_rep = np.mean(I_clean) / geo_area
 
-        n_tail = min(20, n)
-        I_tail = I_seg[n - n_tail:n]
-        I_tail = I_tail[~np.isnan(I_tail)]
-        if len(I_tail) == 0:
-            continue
+            # Voltage is response → stable tail
+            V_seg = V_raw[start:end]
+            n_tail = min(20, n)
+            V_tail = V_seg[n - n_tail:n]
+            V_tail = V_tail[~np.isnan(V_tail)]
+            if len(V_tail) == 0:
+                continue
+            V_rep = np.mean(V_tail)
+        else:
+            # Voltage is controlled → mean of segment
+            V_rep = np.nanmean(V_raw[start:end])
+
+            # Current is response → stable tail
+            I_seg = I_raw[start:end]
+            n_tail = min(20, n)
+            I_tail = I_seg[n - n_tail:n]
+            I_tail = I_tail[~np.isnan(I_tail)]
+            if len(I_tail) == 0:
+                continue
+            j_rep = np.mean(I_tail) / geo_area
 
         dwells.append({
-            'V': V_sp,
-            'j': np.mean(I_tail) / geo_area,
+            'V': V_rep,
+            'j': j_rep,
             'step': 0,
             'repeat': len(dwells),
             'n_pts': n,
@@ -455,64 +576,63 @@ def _detect_step(signal):
 #  Cycle detection
 # ═══════════════════════════════════════════════════════════════════
 
-def detect_cycles(dwells):
+def detect_cycles(dwells, mode='potentiostatic'):
     """
     Group dwells into polcurve cycles.
 
-    A cycle is a sequence of dwells with monotonically changing voltage
-    setpoints. A new cycle starts when:
-      - Voltage drops significantly (return to low V after high V)
-      - A gap in repeat numbering (indicates a separator step)
+    For potentiostatic mode, cycle boundaries are detected from voltage
+    resets. For galvanostatic mode, from current density resets.
 
-    Dwells with V below the polcurve range (e.g. recovery holds at
-    ~1.25 V while the sweep goes 1.40–1.80 V) are treated as cycle
-    boundaries.
+    A cycle is a sequence of dwells with monotonically changing setpoints.
+    Dwells below the sweep range (e.g. recovery holds) are treated as
+    cycle boundaries.
 
     Returns list of cycles, each a list of dwell dicts sorted by V.
     """
     if not dwells:
         return []
 
-    # Find boundary voltage by looking for the largest gap in sorted setpoints
-    # This separates recovery/baseline dwells (e.g. 1.25 V) from polcurve
-    # setpoints (e.g. 1.40–1.80 V)
-    voltages = np.array(sorted(set(round(d['V'], 3) for d in dwells)))
+    # Choose the controlled variable for cycle detection
+    if mode == 'galvanostatic':
+        setpoints = np.array(sorted(set(round(d['j'], 4) for d in dwells)))
+        get_sp = lambda d: d['j']
+    else:
+        setpoints = np.array(sorted(set(round(d['V'], 3) for d in dwells)))
+        get_sp = lambda d: d['V']
 
-    if len(voltages) < 3:
+    if len(setpoints) < 3:
         return [sorted(dwells, key=lambda d: d['V'])]
 
-    gaps = np.diff(voltages)
+    gaps = np.diff(setpoints)
     median_gap = np.median(gaps)
     largest_gap_idx = np.argmax(gaps)
     largest_gap = gaps[largest_gap_idx]
 
     # Boundary gap must be significantly larger than typical step spacing
-    # (at least 3× median gap AND > 50 mV absolute)
-    if largest_gap > max(3.0 * median_gap, 0.05):
-        v_boundary = voltages[largest_gap_idx] + largest_gap * 0.5
+    if largest_gap > max(3.0 * median_gap, 0.05 if mode == 'potentiostatic' else 0.01):
+        sp_boundary = setpoints[largest_gap_idx] + largest_gap * 0.5
     else:
-        v_boundary = voltages.min() - 0.01  # no boundary, keep everything
+        sp_boundary = setpoints.min() - 0.01
 
-    # Determine polcurve voltage range (above boundary)
-    pc_voltages = voltages[voltages > v_boundary]
-    if len(pc_voltages) < 2:
-        pc_voltages = voltages
-    v_lo = pc_voltages.min()
-    v_hi = pc_voltages.max()
-    v_span = v_hi - v_lo
+    # Determine sweep range (above boundary)
+    pc_sp = setpoints[setpoints > sp_boundary]
+    if len(pc_sp) < 2:
+        pc_sp = setpoints
+    sp_lo = pc_sp.min()
+    sp_hi = pc_sp.max()
+    sp_span = sp_hi - sp_lo
 
     # Walk through dwells, grouping into cycles.
     # A new cycle starts when:
-    #   1. Voltage drops back toward the bottom of the sweep after having
-    #      been in the upper half (voltage reset)
+    #   1. Setpoint drops back toward the bottom of the sweep (reset)
     #   2. Step number changes
-    #   3. Dwell is below the boundary voltage (baseline/recovery)
+    #   3. Dwell is below the boundary (baseline/recovery)
     cycles = []
     current_cycle = []
 
     for i, d in enumerate(dwells):
         # Skip baseline/recovery dwells
-        if d['V'] < v_boundary:
+        if get_sp(d) < sp_boundary:
             if len(current_cycle) >= 3:
                 cycles.append(current_cycle)
             current_cycle = []
@@ -527,9 +647,8 @@ def detect_cycles(dwells):
                     cycles.append(current_cycle)
                 current_cycle = []
 
-            # Voltage reset: V drops by more than 30% of the polcurve span
-            # (e.g. from 1.80 V back to 1.40 V when span is 0.40 V)
-            elif d['V'] < prev['V'] - 0.30 * v_span:
+            # Setpoint reset: drops by more than 30% of sweep span
+            elif get_sp(d) < get_sp(prev) - 0.30 * sp_span:
                 if len(current_cycle) >= 3:
                     cycles.append(current_cycle)
                 current_cycle = []
@@ -1928,13 +2047,18 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     if cols['time_col']:   print(f"    Time    : '{cols['time_col']}'")
     print(f"\n  Cell area : {geo_area:.2f} cm²")
 
+    # Detect control mode
+    mode = detect_control_mode(data, cols)
+    print(f"  Control mode: {mode}")
+
     # Extract dwells
     if cols['step_col'] and cols['repeat_col']:
-        dwells = extract_dwells_from_steps(data, cols, geo_area)
+        dwells = extract_dwells_from_steps(data, cols, geo_area, mode=mode)
         print(f"  Dwells extracted: {len(dwells)} (from step/repeat structure)")
     else:
-        dwells = extract_dwells_generic(data, cols, geo_area)
-        print(f"  Dwells extracted: {len(dwells)} (from voltage grouping)")
+        dwells = extract_dwells_generic(data, cols, geo_area, mode=mode)
+        grouping = 'current' if mode == 'galvanostatic' else 'voltage'
+        print(f"  Dwells extracted: {len(dwells)} (from {grouping} grouping)")
 
     if not dwells:
         print("  ERROR: No valid dwells found.")
@@ -1945,7 +2069,7 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     gc.collect()
 
     # Detect cycles
-    cycles = detect_cycles(dwells)
+    cycles = detect_cycles(dwells, mode=mode)
     print(f"  Cycles detected: {len(cycles)}")
     for i, cyc in enumerate(cycles):
         V_lo, V_hi = min(d['V'] for d in cyc), max(d['V'] for d in cyc)
