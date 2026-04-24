@@ -281,7 +281,15 @@ def detect_control_mode(data, cols):
             return 'potentiostatic'
         if has_current and not has_potential:
             return 'galvanostatic'
-        # If both or neither, fall through to statistical detection
+        if has_potential and has_current:
+            # Both present — the dominant type (more segments) is the polcurve
+            # The minority type is typically recovery/baseline holds
+            n_potential = sum(1 for n in names if 'constant potential' in n.lower())
+            n_current = sum(1 for n in names if 'constant current' in n.lower())
+            if n_current > n_potential:
+                return 'galvanostatic'
+            else:
+                return 'potentiostatic'
 
     # Method 2: compare staircase quality of V vs I
     V = data[cols['v_col']]
@@ -330,10 +338,12 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
     Use step/repeat columns to define dwells. Extract representative
     (V, j) from the stable tail of each dwell.
 
-    mode: 'potentiostatic' (V controlled, I response) or
-          'galvanostatic' (I controlled, V response)
+    mode: 'potentiostatic' (V controlled, I response),
+          'galvanostatic' (I controlled, V response), or
+          'dual' (extract both, tagged with dwell['mode'])
 
-    Returns list of dicts: [{'V': float, 'j': float, 'step': int, 'repeat': int}, ...]
+    Returns list of dicts: [{'V': float, 'j': float, 'step': int, 'repeat': int,
+                             'mode': str, 't_mid': float}, ...]
     """
     V_raw = data[cols['v_col']]
     I_raw = data[cols['i_col']]
@@ -342,6 +352,10 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
     has_time = cols['time_col'] is not None
     if has_time:
         T_raw = data[cols['time_col']]
+
+    has_names = cols['step_name_col'] is not None
+    if has_names:
+        names = data[cols['step_name_col']]
 
     # Identify unique (step, repeat) segments in time order
     segments = []
@@ -356,20 +370,8 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
             seg_start = i
     segments.append((cur_key, seg_start, len(step)))
 
-    # Determine which step names to include for polcurve
-    polcurve_step_names = None
-    if cols['step_name_col'] is not None:
-        names = data[cols['step_name_col']]
-        unique_names = set(names)
-
-        if mode == 'potentiostatic':
-            if any('constant potential' in n.lower() for n in unique_names):
-                polcurve_step_names = {'constant potential'}
-        elif mode == 'galvanostatic':
-            if any('constant current' in n.lower() for n in unique_names):
-                polcurve_step_names = {'constant current'}
-        # If no matching step names, include all steps
-
+    # For dual mode, detect the mode of each segment from step name
+    # For single mode, filter to matching step names
     dwells = []
     for (s, r), start, end in segments:
         n_pts = end - start
@@ -378,17 +380,31 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
         if n_pts < 10:
             continue
 
-        # Filter by step name
-        if polcurve_step_names is not None:
+        # Determine the mode for this segment
+        if mode == 'dual' and has_names:
             sname = names[start].lower().strip()
-            if not any(psn in sname for psn in polcurve_step_names):
-                continue
+            if 'constant current' in sname:
+                seg_mode = 'galvanostatic'
+            elif 'constant potential' in sname:
+                seg_mode = 'potentiostatic'
+            else:
+                continue  # skip unknown step types
+        elif mode == 'dual':
+            seg_mode = 'potentiostatic'  # fallback
+        else:
+            seg_mode = mode
+            # Filter by step name for single mode
+            if has_names:
+                sname = names[start].lower().strip()
+                if mode == 'galvanostatic' and 'constant current' not in sname:
+                    continue
+                if mode == 'potentiostatic' and 'constant potential' not in sname:
+                    continue
 
-        # Extract representative V and I based on control mode
         V_seg = V_raw[start:end]
         I_seg = I_raw[start:end]
 
-        if mode == 'galvanostatic':
+        if seg_mode == 'galvanostatic':
             # Current is controlled → mean of segment
             I_clean = I_seg[~np.isnan(I_seg)]
             if len(I_clean) == 0:
@@ -443,6 +459,13 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
             I_rep = np.mean(I_tail)
             j_rep = I_rep / geo_area
 
+        # For dual/potentiostatic mode, skip recovery holds:
+        # segments with only 1 distinct setpoint and short duration
+        if seg_mode == 'potentiostatic' and mode == 'dual':
+            # Recovery holds have very low |j| at a fixed V
+            if abs(j_rep) < 0.001 and n_pts < 200:
+                continue
+
         dwells.append({
             'V': V_sp,
             'j': j_rep,
@@ -450,6 +473,7 @@ def extract_dwells_from_steps(data, cols, geo_area, mode='potentiostatic'):
             'repeat': r,
             'n_pts': n_pts,
             't_mid': float(np.nanmean(T_raw[start:end])) if has_time else None,
+            'mode': seg_mode,
         })
 
     return dwells
@@ -603,16 +627,23 @@ def detect_cycles(dwells, mode='potentiostatic'):
     if len(setpoints) < 3:
         return [sorted(dwells, key=lambda d: d['V'])]
 
-    gaps = np.diff(setpoints)
-    median_gap = np.median(gaps)
-    largest_gap_idx = np.argmax(gaps)
-    largest_gap = gaps[largest_gap_idx]
-
-    # Boundary gap must be significantly larger than typical step spacing
-    if largest_gap > max(3.0 * median_gap, 0.05 if mode == 'potentiostatic' else 0.01):
-        sp_boundary = setpoints[largest_gap_idx] + largest_gap * 0.5
+    # For potentiostatic mode, find boundary between recovery holds and
+    # polcurve setpoints (e.g., 1.25V recovery vs 1.40-1.80V sweep).
+    # For galvanostatic mode, skip boundary detection — current setpoints
+    # span a log scale where gap-based boundary finding doesn't work,
+    # and recovery holds are already filtered by step name.
+    if mode == 'galvanostatic':
+        sp_boundary = setpoints.min() - 0.001  # keep everything
     else:
-        sp_boundary = setpoints.min() - 0.01
+        gaps = np.diff(setpoints)
+        median_gap = np.median(gaps)
+        largest_gap_idx = np.argmax(gaps)
+        largest_gap = gaps[largest_gap_idx]
+
+        if largest_gap > max(3.0 * median_gap, 0.05):
+            sp_boundary = setpoints[largest_gap_idx] + largest_gap * 0.5
+        else:
+            sp_boundary = setpoints.min() - 0.01
 
     # Determine sweep range (above boundary)
     pc_sp = setpoints[setpoints > sp_boundary]
@@ -666,9 +697,50 @@ def detect_cycles(dwells, mode='potentiostatic'):
     return cycles
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Plotting
-# ═══════════════════════════════════════════════════════════════════
+def detect_cycles_dual(dwells):
+    """
+    For dual-mode data: split dwells by mode, detect cycles independently,
+    then merge and number chronologically by elapsed time.
+
+    Returns list of cycles (each a list of dwell dicts sorted by V).
+    Each cycle's dwells carry a 'cycle_label' tag ('CC' or 'CP').
+    The returned list is ordered by median elapsed time of each cycle.
+    """
+    # Split by mode
+    galv_dwells = [d for d in dwells if d.get('mode') == 'galvanostatic']
+    pots_dwells = [d for d in dwells if d.get('mode') == 'potentiostatic']
+
+    # Detect cycles in each set independently
+    galv_cycles = detect_cycles(galv_dwells, mode='galvanostatic') if galv_dwells else []
+    pots_cycles = detect_cycles(pots_dwells, mode='potentiostatic') if pots_dwells else []
+
+    # Tag cycles and compute timing
+    tagged = []
+    for cyc in galv_cycles:
+        t_mid = _cycle_time(cyc)
+        for d in cyc:
+            d['cycle_label'] = 'CC'
+        tagged.append((t_mid, cyc))
+    for cyc in pots_cycles:
+        t_mid = _cycle_time(cyc)
+        for d in cyc:
+            d['cycle_label'] = 'CP'
+        tagged.append((t_mid, cyc))
+
+    # Sort by median elapsed time for chronological numbering
+    tagged.sort(key=lambda x: x[0] if x[0] is not None else 0)
+    cycles = [cyc for _, cyc in tagged]
+
+    print(f"    Galvanostatic (CC): {len(galv_cycles)} cycles from {len(galv_dwells)} dwells")
+    print(f"    Potentiostatic (CP): {len(pots_cycles)} cycles from {len(pots_dwells)} dwells")
+
+    return cycles
+
+
+def _cycle_time(cyc):
+    """Median elapsed time for a cycle's dwells."""
+    times = [d['t_mid'] for d in cyc if d.get('t_mid') is not None]
+    return float(np.median(times)) if times else None
 
 def plot_cycles(cycles, geo_area, title=None, save_path=None):
     """
@@ -686,8 +758,13 @@ def plot_cycles(cycles, geo_area, title=None, save_path=None):
     for i, cyc in enumerate(cycles):
         j_arr = np.array([d['j'] for d in cyc])
         V_arr = np.array([d['V'] for d in cyc])
+        mode_tag = cyc[0].get('cycle_label', '') if cyc else ''
         label = f'Cycle {i + 1}'
-        ax.plot(j_arr, V_arr, 'o-', ms=4, lw=1.2, color=cmap[i], label=label)
+        if mode_tag:
+            label += f' ({mode_tag})'
+        marker = 's' if mode_tag == 'CP' else 'o'
+        ax.plot(j_arr, V_arr, marker=marker, linestyle='-', ms=4, lw=1.2,
+                color=cmap[i], label=label)
 
     ax.set_xlabel('Current density  j  [A/cm²]', fontsize=12)
     ax.set_ylabel('Cell voltage  V  [V]', fontsize=12)
@@ -717,36 +794,96 @@ def plot_cycles(cycles, geo_area, title=None, save_path=None):
     return fig
 
 
-def extract_j_at_voltage(cycles, v_target, v_tol=0.015):
+def select_analysis_voltage(cycles, candidates=None, min_coverage=0.6):
+    """
+    Choose the primary analysis voltage based on cycle coverage.
+
+    If more than (1 - min_coverage) of cycles don't reach the first
+    candidate, fall back to the next. Returns the first candidate
+    with sufficient coverage.
+
+    Parameters
+    ----------
+    cycles : list of cycles
+    candidates : list of voltages in preference order (default [1.8, 1.7])
+    min_coverage : fraction of cycles that must reach the voltage
+
+    Returns
+    -------
+    v_primary : float — the chosen analysis voltage
+    """
+    if candidates is None:
+        candidates = [1.8, 1.7, 1.6]
+
+    n_total = len(cycles)
+    if n_total == 0:
+        return candidates[0]
+
+    for v in candidates:
+        n_reach = sum(1 for cyc in cycles if max(d['V'] for d in cyc) >= v - 0.02)
+        frac = n_reach / n_total
+        if frac >= min_coverage:
+            return v
+
+    # Nothing met the threshold — use the lowest candidate
+    return candidates[-1]
+
+
+def extract_j_at_voltage(cycles, v_target, v_tol=0.015, interpolate=True):
     """
     Extract current density at a target voltage from each cycle.
 
-    Uses the dwell closest to v_target (within v_tol). If no dwell
-    is within tolerance, that cycle returns NaN.
+    For measured data: uses the dwell closest to v_target (within v_tol).
+    For interpolated data (when interpolate=True): if v_target falls within
+    the cycle's voltage range but no dwell is within v_tol, linearly
+    interpolates j from the two surrounding dwells.
 
     Returns
     -------
     cycle_nums : array of cycle numbers (1-indexed)
     j_values   : array of j at v_target for each cycle
+    is_interp  : array of bool — True if interpolated, False if measured
     """
     cycle_nums = []
     j_values = []
+    is_interp = []
 
     for i, cyc in enumerate(cycles):
-        best_j = np.nan
-        best_dv = v_tol + 1  # start outside tolerance
+        V_arr = np.array([d['V'] for d in cyc])
+        j_arr = np.array([d['j'] for d in cyc])
+        is_galv = cyc[0].get('mode', '') == 'galvanostatic'
 
-        for d in cyc:
-            dv = abs(d['V'] - v_target)
-            if dv < best_dv:
-                best_dv = dv
-                best_j = d['j']
+        # Sort by voltage for interpolation
+        order = np.argsort(V_arr)
+        V_sorted = V_arr[order]
+        j_sorted = j_arr[order]
 
-        if best_dv <= v_tol:
-            cycle_nums.append(i + 1)
-            j_values.append(best_j)
+        if is_galv and interpolate and len(V_sorted) >= 2:
+            # Galvanostatic: j values are discrete setpoints, so a "direct
+            # match" always returns the same setpoint and hides degradation.
+            # Always interpolate to get a continuous j(V) value.
+            if V_sorted.min() <= v_target <= V_sorted.max():
+                j_interp = float(np.interp(v_target, V_sorted, j_sorted))
+                cycle_nums.append(i + 1)
+                j_values.append(j_interp)
+                is_interp.append(True)
+        else:
+            # Potentiostatic or non-interpolating: check for direct match first
+            dv = np.abs(V_sorted - v_target)
+            best_idx = np.argmin(dv)
 
-    return np.array(cycle_nums), np.array(j_values)
+            if dv[best_idx] <= v_tol:
+                cycle_nums.append(i + 1)
+                j_values.append(j_sorted[best_idx])
+                is_interp.append(False)
+            elif interpolate and V_sorted.min() < v_target < V_sorted.max():
+                j_interp = float(np.interp(v_target, V_sorted, j_sorted))
+                cycle_nums.append(i + 1)
+                j_values.append(j_interp)
+                is_interp.append(True)
+        # else: target outside cycle range — skip
+
+    return np.array(cycle_nums), np.array(j_values), np.array(is_interp)
 
 
 def detect_stabilization(cycle_nums, j_values, n_stable=5,
@@ -812,20 +949,30 @@ def plot_j_vs_cycle(cycles, v_targets, save_path=None):
     stable_cycles = []
 
     for k, vt in enumerate(v_targets):
-        cn, jv = extract_j_at_voltage(cycles, vt)
+        cn, jv, interp = extract_j_at_voltage(cycles, vt)
         if len(cn) == 0:
             print(f"  No data at V = {vt:.3f} V")
             continue
         c = colors[k % len(colors)]
         m = markers[k % len(markers)]
-        ax.plot(cn, jv, f'{m}-', color=c, ms=5, lw=1.2,
-                label=f'j @ {vt:.2f} V')
+
+        # Plot measured points (solid)
+        meas = ~interp
+        if meas.any():
+            ax.plot(cn[meas], jv[meas], marker=m, linestyle='none', color=c,
+                    ms=5, label=f'j @ {vt:.2f} V')
+        # Plot interpolated points (open markers)
+        if interp.any():
+            ax.plot(cn[interp], jv[interp], marker=m, linestyle='none', color=c,
+                    ms=5, fillstyle='none', markeredgewidth=1.2,
+                    label=f'j @ {vt:.2f} V (interp)')
+        # Connecting line through all points
+        ax.plot(cn, jv, '-', color=c, lw=1.0, alpha=0.5)
 
         # Detect stabilization
         sc = detect_stabilization(cn, jv)
         if sc is not None:
             stable_cycles.append((vt, sc))
-            # Mark the stabilization point on the curve
             sc_idx = np.where(cn == sc)[0]
             if len(sc_idx) > 0:
                 ax.plot(sc, jv[sc_idx[0]], '*', color=c, ms=14,
@@ -834,6 +981,7 @@ def plot_j_vs_cycle(cycles, v_targets, save_path=None):
 
     ax.set_xlabel('Cycle number', fontsize=12)
     ax.set_ylabel('Current density  j  [A/cm²]', fontsize=12)
+    ax.ticklabel_format(axis='y', useOffset=False)
     ax.set_xlim(left=0)
     ax.grid(True, alpha=0.3)
     ax.set_title('Current Density vs. Cycle', fontsize=12, fontweight='bold')
@@ -879,37 +1027,49 @@ def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
     # ── Sheet 1: Polcurve Data ──
     ws = wb.active
     ws.title = "Polcurve Data"
-    ws.append(['Cycle', 'V_setpoint [V]', 'j [A/cm²]', 'Step', 'Repeat'])
+    ws.append(['Cycle', 'Mode', 'V_setpoint [V]', 'j [A/cm²]', 'Step', 'Repeat'])
     for i, cyc in enumerate(cycles):
+        mode_tag = cyc[0].get('cycle_label', '') if cyc else ''
         for d in cyc:
-            ws.append([i + 1, round(d['V'], 4), round(d['j'], 6),
+            ws.append([i + 1, mode_tag, round(d['V'], 4), round(d['j'], 6),
                        d['step'], d['repeat']])
 
     # ── Sheet 2: j vs Cycle ──
     ws2 = wb.create_sheet("j vs Cycle")
-    header = ['Cycle']
+    header = ['Cycle', 'Mode']
     for vt in v_targets:
         header.append(f'j @ {vt:.2f} V [A/cm²]')
+        header.append(f'Source ({vt:.2f} V)')
     ws2.append(header)
 
-    # Extract j at each target voltage
+    # Build mode lookup
+    cycle_modes = {}
+    for i, cyc in enumerate(cycles):
+        cycle_modes[i + 1] = cyc[0].get('cycle_label', '') if cyc else ''
+
+    # Extract j at each target voltage (with interpolation info)
     j_at_v = {}
+    interp_at_v = {}
     for vt in v_targets:
-        cn, jv = extract_j_at_voltage(cycles, vt)
+        cn, jv, interp = extract_j_at_voltage(cycles, vt)
         j_at_v[vt] = dict(zip(cn.astype(int), jv))
+        interp_at_v[vt] = dict(zip(cn.astype(int), interp))
 
     all_cycle_nums = sorted(set().union(*(j_at_v[vt].keys() for vt in v_targets)))
     for cn in all_cycle_nums:
-        row = [cn]
+        row = [cn, cycle_modes.get(cn, '')]
         for vt in v_targets:
-            row.append(round(j_at_v[vt].get(cn, float('nan')), 6))
+            j_val = j_at_v[vt].get(cn, float('nan'))
+            is_int = interp_at_v[vt].get(cn, False)
+            row.append(round(j_val, 6) if not np.isnan(j_val) else '')
+            row.append('interpolated' if is_int else 'measured')
         ws2.append(row)
 
     # Add stability info
     ws2.append([])
     ws2.append(['Stability Detection'])
     for vt in v_targets:
-        cn_arr, jv_arr = extract_j_at_voltage(cycles, vt)
+        cn_arr, jv_arr, _ = extract_j_at_voltage(cycles, vt)
         sc = detect_stabilization(cn_arr, jv_arr)
         ws2.append([f'{vt:.2f} V', f'Stable @ cycle {sc}' if sc else 'Not stabilized'])
 
@@ -1401,13 +1561,22 @@ def plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped, save_path=None):
     # ── Left axis: j at target voltages ──
     stable_cycles = []
     for k, vt in enumerate(v_targets):
-        cn, jv = extract_j_at_voltage(cycles, vt)
+        cn, jv, interp = extract_j_at_voltage(cycles, vt)
         if len(cn) == 0:
             continue
         c = colors_j[k % len(colors_j)]
         m = markers_j[k % len(markers_j)]
-        ax1.plot(cn, jv, f'{m}-', color=c, ms=5, lw=1.2,
-                 label=f'j @ {vt:.2f} V')
+
+        # Measured (solid) and interpolated (open)
+        meas = ~interp
+        if meas.any():
+            ax1.plot(cn[meas], jv[meas], marker=m, linestyle='none', color=c,
+                     ms=5, label=f'j @ {vt:.2f} V')
+        if interp.any():
+            ax1.plot(cn[interp], jv[interp], marker=m, linestyle='none', color=c,
+                     ms=5, fillstyle='none', markeredgewidth=1.2,
+                     label=f'j @ {vt:.2f} V (interp)')
+        ax1.plot(cn, jv, '-', color=c, lw=1.0, alpha=0.5)
 
         sc = detect_stabilization(cn, jv)
         if sc is not None:
@@ -1420,6 +1589,7 @@ def plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped, save_path=None):
     ax1.set_xlabel('Cycle number', fontsize=12)
     ax1.set_ylabel('Current density  j  [A/cm²]', fontsize=12, color='#1f77b4')
     ax1.tick_params(axis='y', labelcolor='#1f77b4')
+    ax1.ticklabel_format(axis='y', useOffset=False)
     ax1.set_xlim(left=0)
     ax1.grid(True, alpha=0.3)
 
@@ -1688,6 +1858,11 @@ def fit_polcurve(j_data, V_data, T_C=80.0, p_cathode_barg=0.0,
     j_fit = j_data[mask]
     V_fit = V_data[mask]
 
+    if len(j_fit) < 3:
+        print(f"  Skipping model fit: only {len(j_fit)} points with j > 0 "
+              f"(need >= 3). j range: {j_data.min():.4f} to {j_data.max():.4f}")
+        return None
+
     def model(j, x):
         return _electrolyzer_model(j, x, E, T_K)
 
@@ -1910,14 +2085,22 @@ def extract_losses_vs_cycle(cycles, v_target, T_C=80.0,
         j_arr = np.array([d['j'] for d in cyc])
         V_arr = np.array([d['V'] for d in cyc])
 
-        # Find j at target voltage
-        best_j, best_dv = None, v_tol + 1
-        for d in cyc:
-            dv = abs(d['V'] - v_target)
-            if dv < best_dv:
-                best_dv = dv
-                best_j = d['j']
-        if best_dv > v_tol or best_j is None:
+        # Find j at target voltage — try direct match, then interpolation
+        order = np.argsort(V_arr)
+        V_sorted = V_arr[order]
+        j_sorted = j_arr[order]
+
+        dv = np.abs(V_sorted - v_target)
+        best_idx = np.argmin(dv)
+
+        if dv[best_idx] <= v_tol:
+            best_j = j_sorted[best_idx]
+        elif V_sorted.min() < v_target < V_sorted.max():
+            best_j = float(np.interp(v_target, V_sorted, j_sorted))
+        else:
+            continue
+
+        if best_j is None or best_j <= 0:
             continue
 
         # Fit this cycle (silent)
@@ -1978,6 +2161,7 @@ def plot_j_and_losses_vs_cycle(cycle_nums, j_values, losses,
     ax1.set_ylabel(f'Current density at {v_target:.2f} V  [A/cm²]',
                    fontsize=12, color='#1f77b4')
     ax1.tick_params(axis='y', labelcolor='#1f77b4')
+    ax1.ticklabel_format(axis='y', useOffset=False)
     ax1.set_xlim(left=0)
 
     # ── Right axis: losses ──
@@ -2055,10 +2239,34 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     mode = detect_control_mode(data, cols)
     print(f"  Control mode: {mode}")
 
+    # Check for dual mode (both CC and CP in same file)
+    is_dual = False
+    if cols.get('step_name_col') is not None:
+        names = data[cols['step_name_col']]
+        unique_lower = set(n.lower().strip() for n in names)
+        has_potential = any('constant potential' in n for n in unique_lower)
+        has_current = any('constant current' in n for n in unique_lower)
+        if has_potential and has_current:
+            # Check if CP segments are real polcurves (multiple distinct V setpoints)
+            # vs just recovery holds (single V)
+            cp_voltages = set()
+            for n_val, v_val in zip(names, data[cols['v_col']]):
+                if 'constant potential' in n_val.lower():
+                    cp_voltages.add(round(v_val, 2))
+            if len(cp_voltages) > 2:
+                is_dual = True
+                print(f"  Dual mode detected: CC + CP polcurves in same file")
+
     # Extract dwells
     if cols['step_col'] and cols['repeat_col']:
-        dwells = extract_dwells_from_steps(data, cols, geo_area, mode=mode)
-        print(f"  Dwells extracted: {len(dwells)} (from step/repeat structure)")
+        if is_dual:
+            dwells = extract_dwells_from_steps(data, cols, geo_area, mode='dual')
+            n_cc = sum(1 for d in dwells if d.get('mode') == 'galvanostatic')
+            n_cp = sum(1 for d in dwells if d.get('mode') == 'potentiostatic')
+            print(f"  Dwells extracted: {len(dwells)} ({n_cc} CC + {n_cp} CP)")
+        else:
+            dwells = extract_dwells_from_steps(data, cols, geo_area, mode=mode)
+            print(f"  Dwells extracted: {len(dwells)} (from step/repeat structure)")
     else:
         dwells = extract_dwells_generic(data, cols, geo_area, mode=mode)
         grouping = 'current' if mode == 'galvanostatic' else 'voltage'
@@ -2073,13 +2281,25 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     gc.collect()
 
     # Detect cycles
-    cycles = detect_cycles(dwells, mode=mode)
+    if is_dual:
+        cycles = detect_cycles_dual(dwells)
+    else:
+        cycles = detect_cycles(dwells, mode=mode)
     print(f"  Cycles detected: {len(cycles)}")
     for i, cyc in enumerate(cycles):
         V_lo, V_hi = min(d['V'] for d in cyc), max(d['V'] for d in cyc)
         j_lo, j_hi = min(d['j'] for d in cyc), max(d['j'] for d in cyc)
-        print(f"    Cycle {i+1:3d}: {len(cyc):2d} pts, "
+        mode_tag = cyc[0].get('cycle_label', '')
+        tag_str = f' [{mode_tag}]' if mode_tag else ''
+        print(f"    Cycle {i+1:3d}{tag_str}: {len(cyc):2d} pts, "
               f"V = {V_lo:.3f}–{V_hi:.3f} V, j = {j_lo:.3f}–{j_hi:.3f} A/cm²")
+
+    # ── Select analysis voltage ──
+    v_primary = select_analysis_voltage(cycles, candidates=[1.8, 1.7, 1.6])
+    v_secondary = 1.7 if v_primary == 1.8 else (1.6 if v_primary == 1.7 else 1.5)
+    v_targets = [v_primary, v_secondary]
+    print(f"  Analysis voltage: {v_primary:.2f} V "
+          f"(secondary: {v_secondary:.2f} V)")
 
     # Resolve output paths
     import os
@@ -2196,25 +2416,23 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     # ── Plot j and HFR vs cycle ──
     if len(cycles) >= 2:
         if eis_mapped:
-            # Dual-axis: j + HFR
-            plot_j_and_hfr_vs_cycle(cycles, [1.8, 1.7], eis_mapped,
+            plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped,
                                      save_path=jvc_path)
         else:
-            # j only
-            plot_j_vs_cycle(cycles, [1.8, 1.7], save_path=jvc_path)
+            plot_j_vs_cycle(cycles, v_targets, save_path=jvc_path)
         plt.close('all')
 
-    # ── Loss breakdown vs cycle at 1.8 V ──
+    # ── Loss breakdown vs cycle ──
     loss_data = None
     if len(cycles) >= 3:
         cn_loss, j_loss, losses = extract_losses_vs_cycle(
-            cycles, v_target=1.8, T_C=T_C,
+            cycles, v_target=v_primary, T_C=T_C,
             p_cathode_barg=p_cathode_barg, p_anode_barg=p_anode_barg,
             fix_ASR=fix_ASR)
         if len(cn_loss) >= 2:
             loss_data = (cn_loss, j_loss, losses)
             plot_j_and_losses_vs_cycle(cn_loss, j_loss, losses,
-                                       v_target=1.8, save_path=losses_path)
+                                       v_target=v_primary, save_path=losses_path)
             plt.close('all')
 
     # ── Fit last complete cycle ──
@@ -2241,13 +2459,17 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                               p_cathode_barg=p_cathode_barg,
                               p_anode_barg=p_anode_barg,
                               fix_ASR=fix_ASR)
-            print_fit_summary(fr)
-            plot_fit(fr, save_path=fit_path)
-            plt.close('all')
+            if fr is not None:
+                print_fit_summary(fr)
+                if fit_path:
+                    plot_fit(fr, save_path=fit_path)
+                    plt.close('all')
+            else:
+                print("  Model fit skipped — insufficient data points")
 
     # ── Export Excel ──
     if xlsx_path:
-        export_excel(xlsx_path, cycles, v_targets=[1.8, 1.7],
+        export_excel(xlsx_path, cycles, v_targets=v_targets,
                      eis_mapped=eis_mapped if eis_mapped else None,
                      loss_data=loss_data, fit_result=fr,
                      eis_results=eis_results_for_export if eis_results_for_export else None,
