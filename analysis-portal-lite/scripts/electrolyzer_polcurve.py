@@ -1759,6 +1759,18 @@ def extract_hfr(eis, geo_area=5.0):
         hfr = zre[min_idx]
         f_hfr = freq[min_idx]
 
+    # Sanity check: if the intercept frequency is below 1500 Hz,
+    # the crossing is likely between arcs (cathode/anode) rather than
+    # the true high-frequency ohmic intercept. Fall back to Z' at ~1000 Hz.
+    if f_hfr < 1500:
+        idx_1k = np.argmin(np.abs(freq - 1000.0))
+        hfr_fallback = zre[idx_1k]
+        f_fallback = freq[idx_1k]
+        print(f"    HFR intercept at {f_hfr:.0f} Hz is below 1500 Hz — "
+              f"likely between arcs. Using Z' at {f_fallback:.0f} Hz instead.")
+        hfr = hfr_fallback
+        f_hfr = f_fallback
+
     asr = hfr * geo_area
     asr_m = asr * 1000
 
@@ -1803,7 +1815,84 @@ def plot_nyquist(eis, hfr_result, geo_area=5.0, save_path=None):
     return fig
 
 
+def plot_eis_for_ir_correction(eis_at_j, geo_area=5.0, cycle_num=None,
+                                save_path=None):
+    """
+    Two-panel figure showing EIS data used for iR correction:
+      Left  — Overlaid Nyquist curves colored by current density, HFR marked
+      Right — ASR (HFR) vs current density
+    """
+    if not eis_at_j:
+        return None
 
+    n = len(eis_at_j)
+    cmap = plt.cm.viridis(np.linspace(0.1, 0.9, n))
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), dpi=120,
+                                    gridspec_kw={'width_ratios': [1.3, 1]})
+
+    ttl = 'EIS for iR Correction'
+    if cycle_num is not None:
+        ttl += f' — Cycle {cycle_num}'
+    fig.suptitle(ttl, fontsize=12, fontweight='bold')
+
+    # ── Left: Nyquist curves ──
+    for i, e in enumerate(eis_at_j):
+        eis = e.get('eis_data')
+        if eis is None:
+            continue
+        zre = eis['zre'] * geo_area * 1000   # mΩ·cm²
+        zim = eis['zim'] * geo_area * 1000
+
+        ax1.plot(zre, zim, 'o-', ms=3, lw=1.0, color=cmap[i],
+                 label=f'j = {e["j"]:.3f} A/cm²')
+
+        # Mark HFR intercept
+        hfr_asr = e['asr_mohm_cm2']
+        ax1.plot(hfr_asr, 0, 's', ms=7, color=cmap[i],
+                 markeredgecolor='k', markeredgewidth=0.6, zorder=5)
+
+    ax1.axhline(0, color='k', lw=0.5, alpha=0.5)
+    ax1.set_xlabel("Z'  [mΩ·cm²]", fontsize=11)
+    ax1.set_ylabel("-Z''  [mΩ·cm²]", fontsize=11)
+    ax1.set_title('Nyquist Plots', fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_aspect('equal', adjustable='datalim')
+
+    if n <= 12:
+        ax1.legend(fontsize=7, loc='upper left', ncol=1)
+    else:
+        sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis,
+                                    norm=plt.Normalize(
+                                        eis_at_j[0]['j'], eis_at_j[-1]['j']))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax1, pad=0.02, fraction=0.04)
+        cbar.set_label('j  [A/cm²]', fontsize=9)
+
+    # ── Right: ASR vs j ──
+    j_vals = [e['j'] for e in eis_at_j]
+    asr_vals = [e['asr_mohm_cm2'] for e in eis_at_j]
+
+    ax2.plot(j_vals, asr_vals, 'o-', ms=7, lw=1.5, color='#d62728',
+             markeredgecolor='k', markeredgewidth=0.5)
+    ax2.set_xlabel('Current density  j  [A/cm²]', fontsize=11)
+    ax2.set_ylabel('ASR (HFR)  [mΩ·cm²]', fontsize=11)
+    ax2.set_title('HFR vs. Current Density', fontsize=10)
+    ax2.set_xlim(left=0)
+    ax2.grid(True, alpha=0.3)
+    ax2.ticklabel_format(axis='y', useOffset=False)
+
+    for j, asr in zip(j_vals, asr_vals):
+        ax2.annotate(f'{asr:.1f}', (j, asr), textcoords='offset points',
+                     xytext=(5, 5), fontsize=7, color='#666')
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+        print(f"  Plot saved: {save_path}")
+    else:
+        plt.show()
+    return fig
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2098,6 +2187,7 @@ def detect_current_dependent_eis(eis_results, cycles, v_tol=0.03):
                     'asr_mohm_cm2': er['asr_mohm_cm2'],
                     'hfr_ohm': er['hfr_ohm'],
                     'dc_v_eis': v_eis,
+                    'eis_data': er['eis_data'],
                 })
 
         eis_at_j.sort(key=lambda x: x['j'])
@@ -2845,19 +2935,28 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             }
             ir_data_list.append(ir_entry)
 
-            # Save per-group plot
+            # Save per-group plots
             if image_ext and save_dir:
                 import os
                 _ext = image_ext
                 if len(eis_groups) == 1:
                     ir_save = os.path.join(save_dir, f'ir_correction.{_ext}')
+                    eis_save = os.path.join(save_dir, f'eis_for_ir.{_ext}')
                 else:
                     ir_save = os.path.join(save_dir,
                                            f'ir_correction_cycle{cd_cyc_idx + 1}.{_ext}')
+                    eis_save = os.path.join(save_dir,
+                                            f'eis_for_ir_cycle{cd_cyc_idx + 1}.{_ext}')
                 plot_ir_correction(
                     j_p, V_p, V_irf, j_h, asr_h, asr_i,
                     cycle_label=f'iR Correction — Cycle {cd_cyc_idx + 1}',
                     save_path=ir_save)
+                plt.close('all')
+
+                plot_eis_for_ir_correction(
+                    eis_at_j, geo_area=geo_area,
+                    cycle_num=cd_cyc_idx + 1,
+                    save_path=eis_save)
                 plt.close('all')
 
     # Legacy single ir_data for export (use first group if available)
