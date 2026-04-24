@@ -654,10 +654,10 @@ def detect_cycles(dwells, mode='potentiostatic'):
     sp_span = sp_hi - sp_lo
 
     # Walk through dwells, grouping into cycles.
-    # A new cycle starts when:
-    #   1. Setpoint drops back toward the bottom of the sweep (reset)
-    #   2. Step number changes
-    #   3. Dwell is below the boundary (baseline/recovery)
+    # For potentiostatic: step changes and voltage resets mark boundaries.
+    # For galvanostatic: only current density resets mark boundaries
+    #   (step numbers often change every dwell since each setpoint is a
+    #    separate step in the potentiostat program).
     cycles = []
     current_cycle = []
 
@@ -672,17 +672,22 @@ def detect_cycles(dwells, mode='potentiostatic'):
         if current_cycle:
             prev = current_cycle[-1]
 
-            # Different step → new cycle
-            if d['step'] != prev['step']:
-                if len(current_cycle) >= 3:
-                    cycles.append(current_cycle)
-                current_cycle = []
-
-            # Setpoint reset: drops by more than 30% of sweep span
-            elif get_sp(d) < get_sp(prev) - 0.30 * sp_span:
-                if len(current_cycle) >= 3:
-                    cycles.append(current_cycle)
-                current_cycle = []
+            if mode == 'galvanostatic':
+                # Galvanostatic: only use j reset as cycle boundary
+                if get_sp(d) < get_sp(prev) - 0.30 * sp_span:
+                    if len(current_cycle) >= 3:
+                        cycles.append(current_cycle)
+                    current_cycle = []
+            else:
+                # Potentiostatic: step changes and V resets
+                if d['step'] != prev['step']:
+                    if len(current_cycle) >= 3:
+                        cycles.append(current_cycle)
+                    current_cycle = []
+                elif get_sp(d) < get_sp(prev) - 0.30 * sp_span:
+                    if len(current_cycle) >= 3:
+                        cycles.append(current_cycle)
+                    current_cycle = []
 
         current_cycle.append(d)
 
