@@ -886,6 +886,66 @@ def extract_j_at_voltage(cycles, v_target, v_tol=0.015, interpolate=True):
     return np.array(cycle_nums), np.array(j_values), np.array(is_interp)
 
 
+# ── Galvanostatic analysis helpers ────────────────────────────────
+
+def select_analysis_current(cycles, candidates=None, min_coverage=0.6):
+    """
+    Choose the primary analysis current density for galvanostatic data.
+    Picks the highest j that ≥ min_coverage fraction of cycles reach.
+    """
+    if candidates is None:
+        candidates = [5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0]
+    n_total = len(cycles)
+    if n_total == 0:
+        return candidates[-1]
+    for j in candidates:
+        n_reach = sum(1 for cyc in cycles
+                      if max(d['j'] for d in cyc) >= j * 0.95)
+        if n_reach / n_total >= min_coverage:
+            return j
+    return candidates[-1]
+
+
+def extract_v_at_current(cycles, j_target, j_tol=0.005, interpolate=True):
+    """
+    Extract voltage at a target current density from each cycle.
+
+    For galvanostatic data, j values are discrete setpoints so direct
+    matching works well. Falls back to interpolation if needed.
+
+    Returns
+    -------
+    cycle_nums : array of cycle numbers (1-indexed)
+    v_values   : array of V at j_target
+    is_interp  : array of bool
+    """
+    cycle_nums = []
+    v_values = []
+    is_interp = []
+
+    for i, cyc in enumerate(cycles):
+        j_arr = np.array([d['j'] for d in cyc])
+        V_arr = np.array([d['V'] for d in cyc])
+        order = np.argsort(j_arr)
+        j_sorted = j_arr[order]
+        V_sorted = V_arr[order]
+
+        dj = np.abs(j_sorted - j_target)
+        best_idx = np.argmin(dj)
+
+        if dj[best_idx] <= j_tol * j_target + 0.001:
+            cycle_nums.append(i + 1)
+            v_values.append(V_sorted[best_idx])
+            is_interp.append(False)
+        elif interpolate and j_sorted.min() < j_target < j_sorted.max():
+            v_interp = float(np.interp(j_target, j_sorted, V_sorted))
+            cycle_nums.append(i + 1)
+            v_values.append(v_interp)
+            is_interp.append(True)
+
+    return np.array(cycle_nums), np.array(v_values), np.array(is_interp)
+
+
 def detect_stabilization(cycle_nums, j_values, n_stable=5,
                          n_lookback=10, threshold_pct=1.0):
     """
@@ -1003,11 +1063,282 @@ def plot_j_vs_cycle(cycles, v_targets, save_path=None):
     return fig
 
 
+# ── Galvanostatic-specific plots ──────────────────────────────────
+
+def plot_v_vs_cycle(cycles, j_targets, save_path=None):
+    """
+    Plot voltage at specified current densities vs cycle number.
+    Galvanostatic counterpart to plot_j_vs_cycle.
+    """
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=120)
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+    markers = ['o', 's', '^', 'D', 'v']
+
+    stable_cycles = []
+
+    for k, jt in enumerate(j_targets):
+        cn, vv, interp = extract_v_at_current(cycles, jt)
+        if len(cn) == 0:
+            print(f"  No data at j = {jt:.3f} A/cm²")
+            continue
+        c = colors[k % len(colors)]
+        m = markers[k % len(markers)]
+
+        meas = ~interp
+        if meas.any():
+            ax.plot(cn[meas], vv[meas], marker=m, linestyle='none', color=c,
+                    ms=5, label=f'V @ {jt:.2f} A/cm²')
+        if interp.any():
+            ax.plot(cn[interp], vv[interp], marker=m, linestyle='none', color=c,
+                    ms=5, fillstyle='none', markeredgewidth=1.2,
+                    label=f'V @ {jt:.2f} A/cm² (interp)')
+        ax.plot(cn, vv, '-', color=c, lw=1.0, alpha=0.5)
+
+        sc = detect_stabilization(cn, vv)
+        if sc is not None:
+            stable_cycles.append((jt, sc))
+            sc_idx = np.where(cn == sc)[0]
+            if len(sc_idx) > 0:
+                ax.plot(sc, vv[sc_idx[0]], '*', color=c, ms=14,
+                        markeredgecolor='k', markeredgewidth=0.8, zorder=6)
+            print(f"  Stabilization at {jt:.2f} A/cm²: cycle {sc}")
+
+    ax.set_xlabel('Cycle number', fontsize=12)
+    ax.set_ylabel('Cell voltage  V  [V]', fontsize=12)
+    ax.ticklabel_format(axis='y', useOffset=False)
+    ax.set_xlim(left=0)
+    ax.grid(True, alpha=0.3)
+    ax.set_title('Voltage vs. Cycle', fontsize=12, fontweight='bold')
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center',
+               bbox_to_anchor=(0.5, -0.02), ncol=min(len(handles), 4),
+               fontsize=9, frameon=True, fancybox=True)
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.18)
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+        print(f"  Plot saved: {save_path}")
+    else:
+        plt.show()
+    return fig
+
+
+def plot_v_and_hfr_vs_cycle(cycles, j_targets, eis_mapped, save_path=None):
+    """
+    Dual-axis: V at j targets (left) and ASR from HFR (right) vs cycle.
+    Galvanostatic counterpart to plot_j_and_hfr_vs_cycle.
+    """
+    fig, ax1 = plt.subplots(figsize=(10, 5.5), dpi=120)
+    ax2 = ax1.twinx()
+
+    colors_v = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    markers_v = ['o', 's', '^', 'D']
+
+    for k, jt in enumerate(j_targets):
+        cn, vv, interp = extract_v_at_current(cycles, jt)
+        if len(cn) == 0:
+            continue
+        c = colors_v[k % len(colors_v)]
+        m = markers_v[k % len(markers_v)]
+
+        meas = ~interp
+        if meas.any():
+            ax1.plot(cn[meas], vv[meas], marker=m, linestyle='none', color=c,
+                     ms=5, label=f'V @ {jt:.2f} A/cm²')
+        if interp.any():
+            ax1.plot(cn[interp], vv[interp], marker=m, linestyle='none', color=c,
+                     ms=5, fillstyle='none', markeredgewidth=1.2,
+                     label=f'V @ {jt:.2f} A/cm² (interp)')
+        ax1.plot(cn, vv, '-', color=c, lw=1.0, alpha=0.5)
+
+    ax1.set_xlabel('Cycle number', fontsize=12)
+    ax1.set_ylabel('Cell voltage  V  [V]', fontsize=12, color='#1f77b4')
+    ax1.tick_params(axis='y', labelcolor='#1f77b4')
+    ax1.ticklabel_format(axis='y', useOffset=False)
+    ax1.set_xlim(left=0)
+    ax1.grid(True, alpha=0.3)
+
+    # Right axis: ASR
+    eis_cn = [e['cycle'] for e in eis_mapped]
+    eis_asr = [e['asr_mohm_cm2'] for e in eis_mapped]
+    ax2.plot(eis_cn, eis_asr, 'v--', color='#9467bd', ms=5, lw=1.2,
+             label='ASR (HFR)', alpha=0.8)
+    ax2.set_ylabel('ASR  [mΩ·cm²]', fontsize=12, color='#9467bd')
+    ax2.tick_params(axis='y', labelcolor='#9467bd')
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    fig.legend(lines1 + lines2, labels1 + labels2,
+               loc='lower center', bbox_to_anchor=(0.5, -0.02),
+               ncol=min(len(lines1) + len(lines2), 5), fontsize=9,
+               frameon=True, fancybox=True)
+
+    ax1.set_title('Voltage & HFR vs. Cycle', fontsize=12, fontweight='bold')
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.18)
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+        print(f"  Plot saved: {save_path}")
+    else:
+        plt.show()
+    return fig
+
+
+def extract_losses_at_current(cycles, j_target, T_C=80.0,
+                               p_cathode_barg=0.0, p_anode_barg=0.0,
+                               fix_ASR=None):
+    """
+    Fit each complete cycle and extract V + loss breakdown at j_target.
+    Galvanostatic counterpart to extract_losses_vs_cycle.
+    """
+    from scipy.optimize import least_squares
+
+    T_K = T_C + 273.15
+    E = E_rev(T_C, p_cathode_barg, p_anode_barg)
+
+    max_pts = max(len(c) for c in cycles) if cycles else 0
+    min_pts = max(5, int(max_pts * 0.8))
+
+    cycle_nums = []
+    v_values = []
+    losses = {'eta_anode_mV': [], 'eta_cathode_mV': [],
+              'V_ohmic_mV': [], 'V_mt_mV': []}
+
+    n_fittable = sum(1 for c in cycles if len(c) >= min_pts)
+    print(f"\n  Fitting {n_fittable} cycles "
+          f"for loss tracking at {j_target:.2f} A/cm²...")
+
+    for ci, cyc in enumerate(cycles):
+        if len(cyc) < min_pts:
+            continue
+
+        j_arr = np.array([d['j'] for d in cyc])
+        V_arr = np.array([d['V'] for d in cyc])
+
+        # Check cycle reaches the target j
+        if j_arr.max() < j_target * 0.95:
+            continue
+
+        # Filter j > 0
+        mask = j_arr > 0
+        j_fit = j_arr[mask]
+        V_fit = V_arr[mask]
+        if len(j_fit) < 3:
+            continue
+
+        def model(j, x):
+            return _electrolyzer_model(j, x, E, T_K)
+
+        x0 = [70.0, -7.0, 0.5, -3.0, 0.0]
+        lo = [10.0, -12.0, 0.2, -6.0, 0.0]
+        hi = [500.0, -3.0, 2.0, -0.5, 0.05]
+        if fix_ASR is not None:
+            x0[0], lo[0], hi[0] = fix_ASR, fix_ASR - 0.01, fix_ASR + 0.01
+
+        try:
+            res = least_squares(lambda x: model(j_fit, x) - V_fit, x0,
+                                bounds=(lo, hi), method='trf',
+                                loss='soft_l1', f_scale=0.01)
+        except Exception:
+            continue
+
+        if not res.success:
+            continue
+
+        xf = res.x
+        j0a, j0c = 10**xf[1], 10**xf[3]
+        ba = (_R * T_K) / (xf[2] * _n_e * _F)
+        bc = (_R * T_K) / (0.5 * _n_e * _F)
+
+        # Compute losses at j_target
+        eta_a = ba * np.log10(j_target / j0a) if j_target > j0a else 0.0
+        eta_c = bc * np.log10(j_target / j0c) if j_target > j0c else 0.0
+        v_ohm = j_target * xf[0] / 1000.0
+        v_mt = xf[4] * j_target**2
+
+        # Get V at j_target (from model)
+        V_at_j = float(model(np.array([j_target]), xf)[0])
+
+        cycle_nums.append(ci + 1)
+        v_values.append(V_at_j)
+        losses['eta_anode_mV'].append(eta_a * 1000)
+        losses['eta_cathode_mV'].append(eta_c * 1000)
+        losses['V_ohmic_mV'].append(v_ohm * 1000)
+        losses['V_mt_mV'].append(v_mt * 1000)
+
+    for k in losses:
+        losses[k] = np.array(losses[k])
+    print(f"    {len(cycle_nums)} cycles fitted successfully")
+
+    return cycle_nums, v_values, losses
+
+
+def plot_v_and_losses_vs_cycle(cycle_nums, v_values, losses,
+                                j_target, save_path=None):
+    """
+    Dual-axis: V at target j (left) and losses (right) vs cycle.
+    Galvanostatic counterpart to plot_j_and_losses_vs_cycle.
+    """
+    fig, ax1 = plt.subplots(figsize=(10, 6), dpi=120)
+    ax2 = ax1.twinx()
+
+    ax1.plot(cycle_nums, v_values, 'o-', color='#1f77b4', ms=5, lw=1.5,
+             label=f'V @ {j_target:.2f} A/cm²')
+    ax1.set_xlabel('Cycle number', fontsize=12)
+    ax1.set_ylabel(f'Cell voltage at {j_target:.2f} A/cm²  [V]',
+                   fontsize=12, color='#1f77b4')
+    ax1.tick_params(axis='y', labelcolor='#1f77b4')
+    ax1.ticklabel_format(axis='y', useOffset=False)
+    ax1.set_xlim(left=0)
+
+    loss_styles = [
+        ('V_ohmic_mV',      'Ohmic',            '#4CAF50', 's-'),
+        ('eta_anode_mV',    'η anode (OER)',     '#FF5722', '^-'),
+        ('eta_cathode_mV',  'η cathode (HER)',   '#FF9800', 'v-'),
+        ('V_mt_mV',         'Mass transport',    '#9C27B0', 'D-'),
+    ]
+
+    for key, label, color, fmt in loss_styles:
+        vals = losses[key]
+        if len(vals) > 0 and np.max(vals) < 0.1:
+            continue
+        ax2.plot(cycle_nums, vals, fmt, color=color, ms=4, lw=1.2,
+                 label=label, alpha=0.85)
+
+    eta_total = losses['eta_anode_mV'] + losses['eta_cathode_mV']
+    ax2.plot(cycle_nums, eta_total, 'p-', color='#d62728', ms=5, lw=1.5,
+             label='η kinetic (total)', alpha=0.85)
+
+    ax2.set_ylabel('Voltage loss  [mV]', fontsize=12)
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    fig.legend(lines1 + lines2, labels1 + labels2,
+               loc='lower center', bbox_to_anchor=(0.5, -0.02),
+               ncol=len(lines1) + len(lines2), fontsize=9,
+               frameon=True, fancybox=True)
+
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title(f'Voltage & Losses at {j_target:.2f} A/cm² vs. Cycle',
+                  fontsize=12, fontweight='bold')
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.18)
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+        print(f"  Plot saved: {save_path}")
+    else:
+        plt.show()
+    return fig
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Data export
 # ═══════════════════════════════════════════════════════════════════
 
-def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
+def export_excel(filepath, cycles, v_targets=[1.8, 1.7], j_targets=None,
                  eis_mapped=None, loss_data=None, fit_result=None,
                  eis_results=None, ir_data=None, geo_area=5.0):
     """
@@ -1015,9 +1346,9 @@ def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
 
     Sheets:
       - Polcurve Data: cycle, V, j for every setpoint in every cycle
-      - j vs Cycle: cycle number, j at each target voltage, stability info
+      - j vs Cycle / V vs Cycle: tracking at target voltages or currents
       - HFR vs Cycle: cycle number, ASR from EIS (if available)
-      - Losses vs Cycle: per-cycle fitted loss breakdown at target voltage
+      - Losses vs Cycle: per-cycle fitted loss breakdown
       - Model Fit: last cycle fit — data, model, residuals, components
       - EIS: frequency, Z', -Z'' for each EIS measurement
     """
@@ -1047,31 +1378,72 @@ def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
     for i, cyc in enumerate(cycles):
         cycle_modes[i + 1] = cyc[0].get('cycle_label', '') if cyc else ''
 
-    # Extract j at each target voltage (with interpolation info)
-    j_at_v = {}
-    interp_at_v = {}
-    for vt in v_targets:
-        cn, jv, interp = extract_j_at_voltage(cycles, vt)
-        j_at_v[vt] = dict(zip(cn.astype(int), jv))
-        interp_at_v[vt] = dict(zip(cn.astype(int), interp))
+    if j_targets:
+        # ── Galvanostatic: V vs Cycle sheet ──
+        ws2 = wb.create_sheet("V vs Cycle")
+        header = ['Cycle', 'Mode']
+        for jt in j_targets:
+            header.append(f'V @ {jt:.2f} A/cm² [V]')
+            header.append(f'Source ({jt:.2f} A/cm²)')
+        ws2.append(header)
 
-    all_cycle_nums = sorted(set().union(*(j_at_v[vt].keys() for vt in v_targets)))
-    for cn in all_cycle_nums:
-        row = [cn, cycle_modes.get(cn, '')]
+        v_at_j = {}
+        interp_at_j = {}
+        for jt in j_targets:
+            cn, vv, interp = extract_v_at_current(cycles, jt)
+            v_at_j[jt] = dict(zip(cn.astype(int), vv))
+            interp_at_j[jt] = dict(zip(cn.astype(int), interp))
+
+        all_cycle_nums = sorted(set().union(*(v_at_j[jt].keys() for jt in j_targets)))
+        for cn in all_cycle_nums:
+            row = [cn, cycle_modes.get(cn, '')]
+            for jt in j_targets:
+                v_val = v_at_j[jt].get(cn, float('nan'))
+                is_int = interp_at_j[jt].get(cn, False)
+                row.append(round(v_val, 4) if not np.isnan(v_val) else '')
+                row.append('interpolated' if is_int else 'measured')
+            ws2.append(row)
+
+        ws2.append([])
+        ws2.append(['Stability Detection'])
+        for jt in j_targets:
+            cn_arr, vv_arr, _ = extract_v_at_current(cycles, jt)
+            sc = detect_stabilization(cn_arr, vv_arr)
+            ws2.append([f'{jt:.2f} A/cm²',
+                        f'Stable @ cycle {sc}' if sc else 'Not stabilized'])
+    else:
+        # ── Potentiostatic: j vs Cycle sheet ──
+        ws2 = wb.create_sheet("j vs Cycle")
+        header = ['Cycle', 'Mode']
         for vt in v_targets:
-            j_val = j_at_v[vt].get(cn, float('nan'))
-            is_int = interp_at_v[vt].get(cn, False)
-            row.append(round(j_val, 6) if not np.isnan(j_val) else '')
-            row.append('interpolated' if is_int else 'measured')
-        ws2.append(row)
+            header.append(f'j @ {vt:.2f} V [A/cm²]')
+            header.append(f'Source ({vt:.2f} V)')
+        ws2.append(header)
 
-    # Add stability info
-    ws2.append([])
-    ws2.append(['Stability Detection'])
-    for vt in v_targets:
-        cn_arr, jv_arr, _ = extract_j_at_voltage(cycles, vt)
-        sc = detect_stabilization(cn_arr, jv_arr)
-        ws2.append([f'{vt:.2f} V', f'Stable @ cycle {sc}' if sc else 'Not stabilized'])
+        j_at_v = {}
+        interp_at_v = {}
+        for vt in v_targets:
+            cn, jv, interp = extract_j_at_voltage(cycles, vt)
+            j_at_v[vt] = dict(zip(cn.astype(int), jv))
+            interp_at_v[vt] = dict(zip(cn.astype(int), interp))
+
+        all_cycle_nums = sorted(set().union(*(j_at_v[vt].keys() for vt in v_targets)))
+        for cn in all_cycle_nums:
+            row = [cn, cycle_modes.get(cn, '')]
+            for vt in v_targets:
+                j_val = j_at_v[vt].get(cn, float('nan'))
+                is_int = interp_at_v[vt].get(cn, False)
+                row.append(round(j_val, 6) if not np.isnan(j_val) else '')
+                row.append('interpolated' if is_int else 'measured')
+            ws2.append(row)
+
+        ws2.append([])
+        ws2.append(['Stability Detection'])
+        for vt in v_targets:
+            cn_arr, jv_arr, _ = extract_j_at_voltage(cycles, vt)
+            sc = detect_stabilization(cn_arr, jv_arr)
+            ws2.append([f'{vt:.2f} V',
+                        f'Stable @ cycle {sc}' if sc else 'Not stabilized'])
 
     # ── Sheet 3: HFR vs Cycle ──
     if eis_mapped:
@@ -1083,17 +1455,23 @@ def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
 
     # ── Sheet 4: Losses vs Cycle ──
     if loss_data is not None:
-        cn_loss, j_loss, losses = loss_data
+        cn_loss, dep_values, losses = loss_data
         if len(cn_loss) > 0:
             ws4 = wb.create_sheet("Losses vs Cycle")
-            ws4.append(['Cycle', 'j [A/cm²]',
+            if j_targets:
+                dep_label = 'V [V]'
+                dep_round = 4
+            else:
+                dep_label = 'j [A/cm²]'
+                dep_round = 6
+            ws4.append(['Cycle', dep_label,
                         'η_anode [mV]', 'η_cathode [mV]', 'η_kinetic_total [mV]',
                         'V_ohmic [mV]', 'V_mt [mV]'])
             for i in range(len(cn_loss)):
                 eta_total = losses['eta_anode_mV'][i] + losses['eta_cathode_mV'][i]
                 ws4.append([
                     int(cn_loss[i]),
-                    round(j_loss[i], 6),
+                    round(dep_values[i], dep_round),
                     round(losses['eta_anode_mV'][i], 2),
                     round(losses['eta_cathode_mV'][i], 2),
                     round(eta_total, 2),
@@ -1182,26 +1560,34 @@ def export_excel(filepath, cycles, v_targets=[1.8, 1.7],
 
     # ── Sheet 7: iR Correction ──
     if ir_data is not None:
+        # ir_data can be a list of per-cycle dicts or a single dict (legacy)
+        ir_list = ir_data if isinstance(ir_data, list) else [ir_data]
         ws7 = wb.create_sheet("iR Correction")
-        ws7.append(['j [A/cm²]', 'V_raw [V]', 'V_iR-free [V]',
-                    'ASR_interp [mΩ·cm²]', 'iR_drop [mV]'])
-        for i in range(len(ir_data['j_pol'])):
-            j_val = ir_data['j_pol'][i]
-            ir_drop = j_val * ir_data['asr_interp'][i]  # mV
-            ws7.append([
-                round(j_val, 6),
-                round(ir_data['V_pol'][i], 5),
-                round(ir_data['V_irfree'][i], 5),
-                round(ir_data['asr_interp'][i], 2),
-                round(ir_drop, 2),
-            ])
-        # Add HFR measurement points
-        ws7.append([])
-        ws7.append(['HFR Measurements'])
-        ws7.append(['j [A/cm²]', 'ASR [mΩ·cm²]'])
-        for i in range(len(ir_data['j_hfr'])):
-            ws7.append([round(ir_data['j_hfr'][i], 6),
-                        round(ir_data['asr_hfr'][i], 2)])
+
+        for gi, ir_entry in enumerate(ir_list):
+            if gi > 0:
+                ws7.append([])  # blank row between groups
+
+            cyc_label = ir_entry.get('cycle_num', gi + 1)
+            ws7.append([f'Cycle {cyc_label}'])
+            ws7.append(['j [A/cm²]', 'V_raw [V]', 'V_iR-free [V]',
+                        'ASR_interp [mΩ·cm²]', 'iR_drop [mV]'])
+            for i in range(len(ir_entry['j_pol'])):
+                j_val = ir_entry['j_pol'][i]
+                ir_drop = j_val * ir_entry['asr_interp'][i]
+                ws7.append([
+                    round(j_val, 6),
+                    round(ir_entry['V_pol'][i], 5),
+                    round(ir_entry['V_irfree'][i], 5),
+                    round(ir_entry['asr_interp'][i], 2),
+                    round(ir_drop, 2),
+                ])
+            ws7.append([])
+            ws7.append(['HFR Measurements'])
+            ws7.append(['j [A/cm²]', 'ASR [mΩ·cm²]'])
+            for i in range(len(ir_entry['j_hfr'])):
+                ws7.append([round(ir_entry['j_hfr'][i], 6),
+                            round(ir_entry['asr_hfr'][i], 2)])
 
     wb.save(filepath)
     print(f"  Data exported: {filepath}")
@@ -1630,84 +2016,104 @@ def plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped, save_path=None):
 
 def detect_current_dependent_eis(eis_results, cycles, v_tol=0.03):
     """
-    Detect if EIS measurements were taken at multiple voltages during
-    a polcurve cycle (current-dependent EIS).
+    Match each EIS measurement to its nearest polcurve cycle by elapsed time,
+    then identify cycles with current-dependent EIS (≥3 distinct DC voltages).
+
+    EIS at low DC voltage (~1.25V, recovery holds) are excluded.
 
     Returns
     -------
-    is_current_dep : bool
-    eis_at_j : list of dicts with 'j', 'V', 'asr_mohm_cm2', 'hfr_ohm'
-        EIS measurements matched to polcurve j values, sorted by j
-    cycle_idx : int or None
-        Index of the polcurve cycle the EIS corresponds to
+    groups : list of dicts, each with:
+        'cycle_idx' : int — index into cycles list
+        'eis_at_j'  : list of {'j', 'V', 'asr_mohm_cm2', 'hfr_ohm', 'dc_v_eis'}
     """
     if not eis_results or not cycles:
-        return False, [], None
+        return []
 
-    # Get unique DC voltages across all EIS files
-    dc_voltages = [er['dc_v_mean'] for er in eis_results
-                   if er['dc_v_mean'] is not None]
-    if len(dc_voltages) < 2:
-        return False, [], None
+    # Filter: only EIS above ~1.30V (exclude recovery holds at ~1.25V)
+    valid = [er for er in eis_results
+             if er.get('dc_v_mean') is not None
+             and er.get('t_eis') is not None
+             and er['dc_v_mean'] > 1.30]
+    if len(valid) < 3:
+        return []
 
-    # Check if they span a significant voltage range (> 100 mV)
-    v_span = max(dc_voltages) - min(dc_voltages)
-    if v_span < 0.10:
-        return False, [], None
-
-    # Find which polcurve cycle these EIS are closest to
-    # Use the first EIS measurement's time to find the cycle
-    t_eis_mean = np.mean([er['t_eis'] for er in eis_results
-                          if er['t_eis'] is not None])
-
-    # Find cycle with start time closest after the EIS block
-    best_cyc_idx = None
+    # Build cycle time ranges
+    cycle_times = []
     for ci, cyc in enumerate(cycles):
         times = [d.get('t_mid') for d in cyc if d.get('t_mid') is not None]
-        if times and min(times) > t_eis_mean:
-            best_cyc_idx = ci
-            break
-    if best_cyc_idx is None:
-        best_cyc_idx = len(cycles) - 1
+        if times:
+            cycle_times.append((ci, min(times), max(times)))
 
-    ref_cyc = cycles[best_cyc_idx]
+    if not cycle_times:
+        return []
 
-    # Match each EIS to a polcurve j by DC voltage
-    eis_at_j = []
-    for er in eis_results:
-        v_eis = er['dc_v_mean']
-        if v_eis is None:
+    # Assign each EIS to the nearest polcurve cycle by elapsed time
+    from collections import defaultdict
+    eis_by_cycle = defaultdict(list)
+
+    for er in valid:
+        t_eis = er['t_eis']
+        best_ci = None
+        best_dist = float('inf')
+        for ci, t_start, t_end in cycle_times:
+            if t_start <= t_eis <= t_end:
+                dist = 0  # EIS falls within cycle
+            else:
+                dist = min(abs(t_eis - t_start), abs(t_eis - t_end))
+            if dist < best_dist:
+                best_dist = dist
+                best_ci = ci
+        if best_ci is not None:
+            eis_by_cycle[best_ci].append(er)
+
+    # For each cycle, check if it has current-dependent EIS (≥3 unique voltages)
+    results = []
+    for ci, eis_list in sorted(eis_by_cycle.items()):
+        unique_v = set(round(er['dc_v_mean'], 2) for er in eis_list)
+        if len(unique_v) < 3:
             continue
 
-        # Find the polcurve dwell closest in voltage
-        best_d = None
-        best_dv = v_tol + 1
-        for d in ref_cyc:
-            dv = abs(d['V'] - v_eis)
-            if dv < best_dv:
-                best_dv = dv
-                best_d = d
+        ref_cyc = cycles[ci]
 
-        if best_d is not None and best_dv <= v_tol:
-            eis_at_j.append({
-                'j': best_d['j'],
-                'V': best_d['V'],
-                'asr_mohm_cm2': er['asr_mohm_cm2'],
-                'hfr_ohm': er['hfr_ohm'],
-                'dc_v_eis': v_eis,
+        # Match each EIS to a polcurve dwell by DC voltage
+        eis_at_j = []
+        for er in eis_list:
+            v_eis = er['dc_v_mean']
+            best_d, best_dv = None, v_tol + 1
+            for d in ref_cyc:
+                dv = abs(d['V'] - v_eis)
+                if dv < best_dv:
+                    best_dv = dv
+                    best_d = d
+            if best_d is not None and best_dv <= v_tol:
+                eis_at_j.append({
+                    'j': best_d['j'],
+                    'V': best_d['V'],
+                    'asr_mohm_cm2': er['asr_mohm_cm2'],
+                    'hfr_ohm': er['hfr_ohm'],
+                    'dc_v_eis': v_eis,
+                })
+
+        eis_at_j.sort(key=lambda x: x['j'])
+
+        if len(eis_at_j) >= 3:
+            results.append({
+                'cycle_idx': ci,
+                'eis_at_j': eis_at_j,
             })
 
-    # Sort by j
-    eis_at_j.sort(key=lambda x: x['j'])
+    if results:
+        print(f"\n  Current-dependent EIS: {len(results)} set(s) detected")
+        for gi, g in enumerate(results):
+            cyc_num = g['cycle_idx'] + 1
+            pts = len(g['eis_at_j'])
+            asr_range = (min(e['asr_mohm_cm2'] for e in g['eis_at_j']),
+                         max(e['asr_mohm_cm2'] for e in g['eis_at_j']))
+            print(f"    Set {gi+1}: {pts} pts matched to cycle {cyc_num}, "
+                  f"ASR = {asr_range[0]:.1f}–{asr_range[1]:.1f} mΩ·cm²")
 
-    is_current_dep = len(eis_at_j) >= 3
-    if is_current_dep:
-        print(f"\n  Current-dependent EIS detected ({len(eis_at_j)} points):")
-        for e in eis_at_j:
-            print(f"    V = {e['V']:.3f} V, j = {e['j']:.3f} A/cm², "
-                  f"ASR = {e['asr_mohm_cm2']:.1f} mΩ·cm²")
-
-    return is_current_dep, eis_at_j, best_cyc_idx
+    return results
 
 
 def compute_ir_corrected_polcurve(j_pol, V_pol, eis_at_j, geo_area=5.0):
@@ -2294,12 +2700,32 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
         print(f"    Cycle {i+1:3d}{tag_str}: {len(cyc):2d} pts, "
               f"V = {V_lo:.3f}–{V_hi:.3f} V, j = {j_lo:.3f}–{j_hi:.3f} A/cm²")
 
-    # ── Select analysis voltage ──
-    v_primary = select_analysis_voltage(cycles, candidates=[1.8, 1.7, 1.6])
-    v_secondary = 1.7 if v_primary == 1.8 else (1.6 if v_primary == 1.7 else 1.5)
-    v_targets = [v_primary, v_secondary]
-    print(f"  Analysis voltage: {v_primary:.2f} V "
-          f"(secondary: {v_secondary:.2f} V)")
+    # ── Select analysis targets based on mode ──
+    is_galv = (mode == 'galvanostatic')
+
+    if is_galv:
+        j_primary = select_analysis_current(cycles)
+        # Secondary: next lower candidate or half of primary
+        j_candidates = [5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0]
+        j_secondary = None
+        for jc in j_candidates:
+            if jc < j_primary:
+                j_secondary = jc
+                break
+        # If primary ≤ 2.0, only plot one curve
+        if j_primary <= 2.0:
+            j_targets_galv = [j_primary]
+        else:
+            j_targets_galv = [j_primary] + ([j_secondary] if j_secondary else [])
+        v_targets = [1.8, 1.7]  # kept for Excel fallback
+        print(f"  Analysis current: {j_primary:.2f} A/cm²"
+              + (f" (secondary: {j_secondary:.2f} A/cm²)" if j_secondary and len(j_targets_galv) > 1 else ""))
+    else:
+        v_primary = select_analysis_voltage(cycles, candidates=[1.8, 1.7, 1.6])
+        v_secondary = 1.7 if v_primary == 1.8 else (1.6 if v_primary == 1.7 else 1.5)
+        v_targets = [v_primary, v_secondary]
+        print(f"  Analysis voltage: {v_primary:.2f} V "
+              f"(secondary: {v_secondary:.2f} V)")
 
     # Resolve output paths
     import os
@@ -2384,56 +2810,93 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             eis_results_for_export = eis_results_for_tracking
             plt.close('all')
 
-    # ── Current-dependent EIS → iR correction ──
-    ir_data = None
+    # ── Current-dependent EIS → iR correction per cycle ──
+    ir_data_list = []
     if eis_files_list and eis_results:
-        is_cd, eis_at_j, cd_cyc_idx = detect_current_dependent_eis(
-            eis_results, cycles)
-        if is_cd and eis_at_j:
-            # Get the polcurve data for the matched cycle
+        eis_groups = detect_current_dependent_eis(eis_results, cycles)
+        for gi, group in enumerate(eis_groups):
+            cd_cyc_idx = group['cycle_idx']
+            eis_at_j = group['eis_at_j']
+
             ref_cyc = cycles[cd_cyc_idx]
             j_pol = np.array([d['j'] for d in ref_cyc])
             V_pol = np.array([d['V'] for d in ref_cyc])
-            # Only use polcurve points within the EIS j range
             mask = j_pol > 0
             j_pol, V_pol = j_pol[mask], V_pol[mask]
 
             j_p, V_p, V_irf, j_h, asr_h, asr_i = compute_ir_corrected_polcurve(
                 j_pol, V_pol, eis_at_j, geo_area=geo_area)
 
-            ir_data = {'j_pol': j_p, 'V_pol': V_p, 'V_irfree': V_irf,
-                       'j_hfr': j_h, 'asr_hfr': asr_h, 'asr_interp': asr_i}
+            if len(j_p) == 0 or len(j_h) == 0:
+                print(f"  Skipping iR correction for cycle {cd_cyc_idx + 1}: "
+                      f"no valid polcurve points in EIS range")
+                continue
 
-            if len(j_p) > 0 and len(j_h) > 0 and ir_path:
+            ir_entry = {
+                'cycle_idx': cd_cyc_idx,
+                'cycle_num': cd_cyc_idx + 1,
+                'j_pol': j_p, 'V_pol': V_p, 'V_irfree': V_irf,
+                'j_hfr': j_h, 'asr_hfr': asr_h, 'asr_interp': asr_i,
+            }
+            ir_data_list.append(ir_entry)
+
+            # Save per-group plot
+            if image_ext and save_dir:
+                import os
+                _ext = image_ext
+                if len(eis_groups) == 1:
+                    ir_save = os.path.join(save_dir, f'ir_correction.{_ext}')
+                else:
+                    ir_save = os.path.join(save_dir,
+                                           f'ir_correction_cycle{cd_cyc_idx + 1}.{_ext}')
                 plot_ir_correction(
                     j_p, V_p, V_irf, j_h, asr_h, asr_i,
                     cycle_label=f'iR Correction — Cycle {cd_cyc_idx + 1}',
-                    save_path=ir_path)
+                    save_path=ir_save)
                 plt.close('all')
-            elif len(j_p) == 0:
-                print("  Skipping iR correction plot: no valid polcurve points in EIS range")
 
-    # ── Plot j and HFR vs cycle ──
+    # Legacy single ir_data for export (use first group if available)
+    ir_data = ir_data_list if ir_data_list else None
+
+    # ── Plot j/V and HFR vs cycle ──
     if len(cycles) >= 2:
-        if eis_mapped:
-            plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped,
-                                     save_path=jvc_path)
+        if is_galv:
+            if eis_mapped:
+                plot_v_and_hfr_vs_cycle(cycles, j_targets_galv, eis_mapped,
+                                         save_path=jvc_path)
+            else:
+                plot_v_vs_cycle(cycles, j_targets_galv, save_path=jvc_path)
         else:
-            plot_j_vs_cycle(cycles, v_targets, save_path=jvc_path)
+            if eis_mapped:
+                plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped,
+                                         save_path=jvc_path)
+            else:
+                plot_j_vs_cycle(cycles, v_targets, save_path=jvc_path)
         plt.close('all')
 
     # ── Loss breakdown vs cycle ──
     loss_data = None
     if len(cycles) >= 3:
-        cn_loss, j_loss, losses = extract_losses_vs_cycle(
-            cycles, v_target=v_primary, T_C=T_C,
-            p_cathode_barg=p_cathode_barg, p_anode_barg=p_anode_barg,
-            fix_ASR=fix_ASR)
-        if len(cn_loss) >= 2:
-            loss_data = (cn_loss, j_loss, losses)
-            plot_j_and_losses_vs_cycle(cn_loss, j_loss, losses,
-                                       v_target=v_primary, save_path=losses_path)
-            plt.close('all')
+        if is_galv:
+            cn_loss, v_loss, losses = extract_losses_at_current(
+                cycles, j_target=j_primary, T_C=T_C,
+                p_cathode_barg=p_cathode_barg, p_anode_barg=p_anode_barg,
+                fix_ASR=fix_ASR)
+            if len(cn_loss) >= 2:
+                loss_data = (cn_loss, v_loss, losses)
+                plot_v_and_losses_vs_cycle(cn_loss, v_loss, losses,
+                                            j_target=j_primary, save_path=losses_path)
+                plt.close('all')
+        else:
+            cn_loss, j_loss, losses = extract_losses_vs_cycle(
+                cycles, v_target=v_primary, T_C=T_C,
+                p_cathode_barg=p_cathode_barg, p_anode_barg=p_anode_barg,
+                fix_ASR=fix_ASR)
+            if len(cn_loss) >= 2:
+                loss_data = (cn_loss, j_loss, losses)
+                plot_j_and_losses_vs_cycle(cn_loss, j_loss, losses,
+                                           v_target=v_primary, save_path=losses_path)
+                plt.close('all')
 
     # ── Fit last complete cycle ──
     fr = None
@@ -2470,6 +2933,7 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     # ── Export Excel ──
     if xlsx_path:
         export_excel(xlsx_path, cycles, v_targets=v_targets,
+                     j_targets=j_targets_galv if is_galv else None,
                      eis_mapped=eis_mapped if eis_mapped else None,
                      loss_data=loss_data, fit_result=fr,
                      eis_results=eis_results_for_export if eis_results_for_export else None,
