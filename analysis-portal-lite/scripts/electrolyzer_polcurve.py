@@ -1577,6 +1577,10 @@ def plot_ir_correction(j_pol, V_pol, V_irfree, j_hfr, asr_hfr, asr_interp,
       Center — ASR (HFR) vs current density
       Right — iR drop vs current density
     """
+    if len(j_pol) == 0 or len(j_hfr) == 0:
+        print("  Skipping iR correction plot: empty data arrays")
+        return None
+
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 5.5), dpi=120)
     ttl = cycle_label or 'Current-Dependent EIS Analysis'
     fig.suptitle(ttl, fontsize=12, fontweight='bold')
@@ -2180,11 +2184,14 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             ir_data = {'j_pol': j_p, 'V_pol': V_p, 'V_irfree': V_irf,
                        'j_hfr': j_h, 'asr_hfr': asr_h, 'asr_interp': asr_i}
 
-            plot_ir_correction(
-                j_p, V_p, V_irf, j_h, asr_h, asr_i,
-                cycle_label=f'iR Correction — Cycle {cd_cyc_idx + 1}',
-                save_path=ir_path)
-            plt.close('all')
+            if len(j_p) > 0 and len(j_h) > 0 and ir_path:
+                plot_ir_correction(
+                    j_p, V_p, V_irf, j_h, asr_h, asr_i,
+                    cycle_label=f'iR Correction — Cycle {cd_cyc_idx + 1}',
+                    save_path=ir_path)
+                plt.close('all')
+            elif len(j_p) == 0:
+                print("  Skipping iR correction plot: no valid polcurve points in EIS range")
 
     # ── Plot j and HFR vs cycle ──
     if len(cycles) >= 2:
