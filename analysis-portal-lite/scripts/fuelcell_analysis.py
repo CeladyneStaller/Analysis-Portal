@@ -579,11 +579,11 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
             j, V, P = r['j'], r['V'], r['P']
             has_h = r.get('HFR') is not None
             has_irfree = r.get('V_irfree') is not None
-            n_cols = 3 + int(has_h) + int(has_irfree)
+            n_cols = 4 + int(has_h) + int(has_irfree)  # j_A, j_mA, V, [HFR], [iRfree], Power
             col_end = col + n_cols - 1
             _write_label_row(ws, data_start, col, col_end, label)
 
-            hdrs = ['j (A/cm²)', 'V (V)']
+            hdrs = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
             if has_h: hdrs.append('HFR (mΩ·cm²)')
             if has_irfree: hdrs.append('V_iR-free (V)')
             hdrs.append('Power (mW/cm²)')
@@ -598,6 +598,7 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                 row = data_start + 2 + row_idx
                 cc = col
                 ws.cell(row=row, column=cc, value=round(float(j[ri]), 6)); cc += 1
+                ws.cell(row=row, column=cc, value=round(float(j[ri]) * 1000, 3)); cc += 1
                 ws.cell(row=row, column=cc, value=round(float(V[ri]), 6)); cc += 1
                 if has_h:
                     ws.cell(row=row, column=cc,
@@ -620,18 +621,20 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
             if not cycles:
                 # Fallback: write representative data
                 j, V = r['j'], r['V']
-                col_end = col + 1
+                col_end = col + 2  # j_A, j_mA, V
                 _write_label_row(ws2, 1, col, col_end, label)
                 ws2.cell(row=2, column=col, value='j (A/cm²)').font = hf
-                ws2.cell(row=2, column=col+1, value='V (V)').font = hf
+                ws2.cell(row=2, column=col+1, value='j (mA/cm²)').font = hf
+                ws2.cell(row=2, column=col+2, value='V (V)').font = hf
                 for ri in range(len(j)):
                     ws2.cell(row=ri+3, column=col, value=round(float(j[ri]), 6))
-                    ws2.cell(row=ri+3, column=col+1, value=round(float(V[ri]), 6))
+                    ws2.cell(row=ri+3, column=col+1, value=round(float(j[ri]) * 1000, 3))
+                    ws2.cell(row=ri+3, column=col+2, value=round(float(V[ri]), 6))
                 col = col_end + 2
                 continue
 
             # File label spanning all cycle columns
-            total_cols = sum(2 + (1 if cyc.get('HFR') is not None else 0)
+            total_cols = sum(3 + (1 if cyc.get('HFR') is not None else 0)
                              for cyc in cycles)
             total_cols += len(cycles) - 1  # gap columns
             file_col_end = col + total_cols - 1
@@ -644,7 +647,7 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                 cyc_j = cyc['j']
                 cyc_V = cyc['V']
                 cyc_hfr = cyc.get('HFR')
-                n_c = 2 + (1 if cyc_hfr is not None else 0)
+                n_c = 3 + (1 if cyc_hfr is not None else 0)  # j_A, j_mA, V, [HFR]
                 cyc_col_end = col + n_c - 1
 
                 # Cycle sub-label
@@ -654,7 +657,7 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                     ws2.merge_cells(start_row=2, start_column=col,
                                     end_row=2, end_column=cyc_col_end)
 
-                hdrs = ['j (A/cm²)', 'V (V)']
+                hdrs = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
                 if cyc_hfr is not None:
                     hdrs.append('HFR (mΩ·cm²)')
                 for hi, h in enumerate(hdrs):
@@ -667,6 +670,8 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
                     cc = col
                     ws2.cell(row=ri+4, column=cc,
                              value=round(float(cyc_j[ri]), 6)); cc += 1
+                    ws2.cell(row=ri+4, column=cc,
+                             value=round(float(cyc_j[ri]) * 1000, 3)); cc += 1
                     ws2.cell(row=ri+4, column=cc,
                              value=round(float(cyc_V[ri]), 6)); cc += 1
                     if cyc_hfr is not None and ri < len(cyc_hfr):
