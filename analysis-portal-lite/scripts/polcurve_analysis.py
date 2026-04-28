@@ -1718,7 +1718,7 @@ def save_single_excel(results, filepath):
     data_start = len(summary) + 3
     ws.cell(row=data_start - 1, column=1, value='Representative Pol Curve').font = hdr_font
 
-    rep_headers = ['j (A/cm²)', 'V (V)']
+    rep_headers = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
     has_hfr = results['HFR'] is not None
     if has_hfr:
         rep_headers.append('HFR (mΩ·cm²)')
@@ -1740,6 +1740,7 @@ def save_single_excel(results, filepath):
         row = data_start + 1 + row_idx
         col = 1
         ws.cell(row=row, column=col, value=round(float(j[i]), 6)); col += 1
+        ws.cell(row=row, column=col, value=round(float(j[i]) * 1000, 3)); col += 1
         ws.cell(row=row, column=col, value=round(float(V[i]), 6)); col += 1
         if has_hfr:
             ws.cell(row=row, column=col,
@@ -1761,7 +1762,7 @@ def save_single_excel(results, filepath):
             cyc_j = cyc['j']
             cyc_V = cyc['V']
             cyc_hfr = cyc.get('HFR')
-            n_cols = 2 + (1 if cyc_hfr is not None else 0)
+            n_cols = 3 + (1 if cyc_hfr is not None else 0)  # j_A, j_mA, V, [HFR]
             col_end = col + n_cols - 1
 
             # Label row
@@ -1773,7 +1774,7 @@ def save_single_excel(results, filepath):
                                 end_row=1, end_column=col_end)
 
             # Sub-headers
-            hdrs = ['j (A/cm²)', 'V (V)']
+            hdrs = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
             if cyc_hfr is not None:
                 hdrs.append('HFR (mΩ·cm²)')
             for hi, h in enumerate(hdrs):
@@ -1787,6 +1788,7 @@ def save_single_excel(results, filepath):
             for ri in range(len(cyc_j)):
                 cc = col
                 ws2.cell(row=ri + 3, column=cc, value=round(float(cyc_j[ri]), 6)); cc += 1
+                ws2.cell(row=ri + 3, column=cc, value=round(float(cyc_j[ri]) * 1000, 3)); cc += 1
                 ws2.cell(row=ri + 3, column=cc, value=round(float(cyc_V[ri]), 6)); cc += 1
                 if cyc_hfr is not None:
                     hfr_val = cyc_hfr[ri] if ri < len(cyc_hfr) else 0
@@ -1806,6 +1808,7 @@ def save_single_excel(results, filepath):
         for row_idx, i in enumerate(order):
             col = 1
             ws2.cell(row=row_idx + 2, column=col, value=round(float(j[i]), 6)); col += 1
+            ws2.cell(row=row_idx + 2, column=col, value=round(float(j[i]) * 1000, 3)); col += 1
             ws2.cell(row=row_idx + 2, column=col, value=round(float(V[i]), 6)); col += 1
             if has_hfr:
                 ws2.cell(row=row_idx + 2, column=col,
@@ -1866,7 +1869,7 @@ def save_batch_excel(all_results, summary_rows, filepath):
         j, V, P = r['j'], r['V'], r['P']
         has_h = r.get('HFR') is not None
         has_irfree = r.get('V_irfree') is not None
-        n_cols = 3 + int(has_h) + int(has_irfree)
+        n_cols = 4 + int(has_h) + int(has_irfree)  # j_A, j_mA, V, [HFR], [iRfree], Power
         col_end = col + n_cols - 1
 
         # Label row
@@ -1878,7 +1881,7 @@ def save_batch_excel(all_results, summary_rows, filepath):
                            end_row=data_start, end_column=col_end)
 
         # Sub-headers
-        hdrs = ['j (A/cm²)', 'V (V)']
+        hdrs = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
         if has_h: hdrs.append('HFR (mΩ·cm²)')
         if has_irfree: hdrs.append('V_iR-free (V)')
         hdrs.append('Power (mW/cm²)')
@@ -1894,6 +1897,7 @@ def save_batch_excel(all_results, summary_rows, filepath):
             row = data_start + 2 + row_idx
             cc = col
             ws.cell(row=row, column=cc, value=round(float(j[ri]), 6)); cc += 1
+            ws.cell(row=row, column=cc, value=round(float(j[ri]) * 1000, 3)); cc += 1
             ws.cell(row=row, column=cc, value=round(float(V[ri]), 6)); cc += 1
             if has_h:
                 ws.cell(row=row, column=cc,
@@ -1916,22 +1920,24 @@ def save_batch_excel(all_results, summary_rows, filepath):
         if not cycles:
             # Fallback: write representative data
             j, V = r['j'], r['V']
-            col_end = col + 1
+            col_end = col + 2  # j_A, j_mA, V
             cell = ws2.cell(row=1, column=col, value=label)
             cell.font = hdr_font; cell.fill = label_fill
             if col_end > col:
                 ws2.merge_cells(start_row=1, start_column=col,
                                 end_row=1, end_column=col_end)
             ws2.cell(row=2, column=col, value='j (A/cm²)').font = hdr_font
-            ws2.cell(row=2, column=col+1, value='V (V)').font = hdr_font
+            ws2.cell(row=2, column=col+1, value='j (mA/cm²)').font = hdr_font
+            ws2.cell(row=2, column=col+2, value='V (V)').font = hdr_font
             for ri in range(len(j)):
                 ws2.cell(row=ri+3, column=col, value=round(float(j[ri]), 6))
-                ws2.cell(row=ri+3, column=col+1, value=round(float(V[ri]), 6))
+                ws2.cell(row=ri+3, column=col+1, value=round(float(j[ri]) * 1000, 3))
+                ws2.cell(row=ri+3, column=col+2, value=round(float(V[ri]), 6))
             col = col_end + 2
             continue
 
         # File-level label spanning all cycle columns
-        total_cycle_cols = sum(2 + (1 if cyc.get('HFR') is not None else 0)
+        total_cycle_cols = sum(3 + (1 if cyc.get('HFR') is not None else 0)
                                for cyc in cycles)
         total_cycle_cols += len(cycles) - 1  # gap columns between cycles
         file_col_end = col + total_cycle_cols - 1
@@ -1948,7 +1954,7 @@ def save_batch_excel(all_results, summary_rows, filepath):
             cyc_j = cyc['j']
             cyc_V = cyc['V']
             cyc_hfr = cyc.get('HFR')
-            n_cols = 2 + (1 if cyc_hfr is not None else 0)
+            n_cols = 3 + (1 if cyc_hfr is not None else 0)  # j_A, j_mA, V, [HFR]
             cyc_col_end = col + n_cols - 1
 
             # Cycle sub-label
@@ -1959,7 +1965,7 @@ def save_batch_excel(all_results, summary_rows, filepath):
                                 end_row=2, end_column=cyc_col_end)
 
             # Column headers
-            hdrs = ['j (A/cm²)', 'V (V)']
+            hdrs = ['j (A/cm²)', 'j (mA/cm²)', 'V (V)']
             if cyc_hfr is not None:
                 hdrs.append('HFR (mΩ·cm²)')
             for hi, h in enumerate(hdrs):
@@ -1973,6 +1979,8 @@ def save_batch_excel(all_results, summary_rows, filepath):
                 cc = col
                 ws2.cell(row=ri + 4, column=cc,
                          value=round(float(cyc_j[ri]), 6)); cc += 1
+                ws2.cell(row=ri + 4, column=cc,
+                         value=round(float(cyc_j[ri]) * 1000, 3)); cc += 1
                 ws2.cell(row=ri + 4, column=cc,
                          value=round(float(cyc_V[ri]), 6)); cc += 1
                 if cyc_hfr is not None and ri < len(cyc_hfr):
