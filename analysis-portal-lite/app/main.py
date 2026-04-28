@@ -44,7 +44,7 @@ jobs: dict = {}  # job_id → job metadata dict
 jobs_lock = threading.Lock()
 
 app = FastAPI(title="Analysis Portal")
-executor = ProcessPoolExecutor(max_workers=MAX_WORKERS)
+executor = ProcessPoolExecutor(max_workers=MAX_WORKERS, max_tasks_per_child=1)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -122,6 +122,15 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
         else:
             label = script_name
         grouped.setdefault(label, []).append(str(rel))
+
+    # Clean up matplotlib and free memory before worker exits
+    try:
+        import matplotlib.pyplot as _plt
+        _plt.close('all')
+    except Exception:
+        pass
+    import gc
+    gc.collect()
 
     return {
         "output_files": flat_list,
