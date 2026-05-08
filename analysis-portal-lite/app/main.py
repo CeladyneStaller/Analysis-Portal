@@ -108,14 +108,19 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
         'polcurve': 'Polarization Curve',
         'ocv': 'OCV',
         'durability': 'Durability',
+        'activation': 'Activation',
+        'CLR': 'Catalyst Layer Resistance',
     }
 
     grouped = {}
     flat_list = []
     for f in sorted(all_output):
         rel = f.relative_to(out)
-        flat_list.append(str(rel))
         parts = rel.parts
+        # Hide internal sidecar JSON files from the user-facing listing
+        if '_plot_data' in parts:
+            continue
+        flat_list.append(str(rel))
         if len(parts) > 1:
             dir_key = parts[0]
             label = DIR_LABELS.get(dir_key, dir_key.replace('_', ' ').title())
@@ -212,6 +217,9 @@ async def index():
 @app.get("/api/scripts")
 async def list_scripts():
     from scripts import SCRIPT_REGISTRY, SCRIPT_PARAMS
+    # Internal scripts that should not appear in the user-facing dropdown.
+    # These are invoked via dedicated endpoints (e.g. /api/compare) instead.
+    INTERNAL_ONLY = {"Plot Comparison"}
     return {
         "scripts": [
             {
@@ -220,6 +228,7 @@ async def list_scripts():
                 "params": SCRIPT_PARAMS.get(name, []),
             }
             for name, fn in SCRIPT_REGISTRY.items()
+            if name not in INTERNAL_ONLY
         ]
     }
 
@@ -236,6 +245,12 @@ async def upload_and_run(
     from scripts import SCRIPT_REGISTRY
     if script not in SCRIPT_REGISTRY:
         raise HTTPException(400, f"Unknown script: {script}")
+    # Block internal-only scripts from the upload endpoint
+    INTERNAL_ONLY = {"Plot Comparison"}
+    if script in INTERNAL_ONLY:
+        raise HTTPException(400,
+            f"'{script}' is invoked via the Compare Selected workflow, "
+            f"not the upload flow. Select PNGs and click Compare instead.")
     if not files and not zipfile:
         raise HTTPException(400, "No files uploaded")
 
@@ -306,6 +321,163 @@ async def upload_and_run(
     future.add_done_callback(lambda f: _on_job_done(job_id, f))
 
     return {"job_id": job_id, "status": "running", "files_received": filenames}
+
+
+@app.post("/api/compare")
+async def compare_jobs(
+    sources: str = Form(...),
+    title: str = Form(""),
+    image_format: str = Form("png"),
+    show_raw: str = Form("true"),
+    show_irfree: str = Form("true"),
+    grouping_mode: str = Form("plot_type"),
+):
+    """
+    Run a comparison across selected PNGs from multiple jobs.
+
+    sources: JSON string of [{"job_id", "label", "filename"}, ...]
+    The filename refers to a specific PNG in the job's output directory.
+    Auto-groups by sidecar plot_type and runs the matching generator(s).
+    """
+    import json as _json
+
+    try:
+        sources_list = _json.loads(sources)
+    except _json.JSONDecodeError:
+        raise HTTPException(400, "Invalid sources JSON")
+
+    if not sources_list or len(sources_list) < 2:
+        raise HTTPException(400, "Need at least 2 plots to compare")
+
+    script = "Plot Comparison"
+
+    # Validate sources and resolve their output directories + sidecars
+    with jobs_lock:
+        validated_sources = []
+        for src in sources_list:
+            jid = src.get('job_id')
+            # Preserve empty string vs missing key — empty means "use script's
+            # auto-generated clean default" while a non-empty value is the
+            # user's explicit override.
+            label = src.get('label', '')
+            if label is None:
+                label = ''
+            label = str(label).strip()
+            filename = src.get('filename', '')
+            if not filename:
+                raise HTTPException(400, f"Source missing filename: {src}")
+            if jid not in jobs:
+                raise HTTPException(404, f"Job not found: {jid}")
+            job = jobs[jid]
+            if job.get('status') != 'complete':
+                raise HTTPException(400,
+                    f"Job {jid} not completed (status: {job.get('status')})")
+            output_dir = JOBS_DIR / jid / "output"
+            if not output_dir.exists():
+                raise HTTPException(404, f"Output directory not found for job {jid}")
+            # Sanity check: sidecar exists for this filename
+            fn_path = Path(filename)
+            base = fn_path.stem
+            parent = fn_path.parent
+            sidecar = None
+            if str(parent) != '.':
+                candidate = output_dir / parent / '_plot_data' / f'{base}.json'
+                if candidate.exists():
+                    sidecar = candidate
+            if sidecar is None:
+                candidate = output_dir / '_plot_data' / f'{base}.json'
+                if candidate.exists():
+                    sidecar = candidate
+            if sidecar is None:
+                # Last resort: recursive search
+                for cand in output_dir.rglob(f'{base}.json'):
+                    if '_plot_data' in cand.parts:
+                        sidecar = cand
+                        break
+            if sidecar is None:
+                raise HTTPException(400,
+                    f"No sidecar JSON for {filename} in job {jid}. "
+                    f"This plot does not yet support comparison or the analysis "
+                    f"was run before sidecar support was added.")
+            validated_sources.append({
+                'job_id': jid,
+                'label': label,  # may be '' — script will then auto-generate
+                'filename': filename,
+                'output_dir': str(output_dir),
+                'sample_name': src.get('sample_name', '') or jid,
+            })
+
+    # Create new job for the comparison
+    job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-cmp-" + uuid.uuid4().hex[:6]
+    input_dir = JOBS_DIR / job_id / "input"
+    output_dir = JOBS_DIR / job_id / "output"
+    input_dir.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
+
+    # Build sample_name for filename prefixing:
+    #   - If user provided a title, use that (sanitized)
+    #   - Otherwise, join the distinct source sample names with '_'
+    title_clean = title.strip()
+    if title_clean:
+        # Sanitize for filename: keep alphanumerics, dashes, underscores, spaces
+        safe_chars = []
+        for ch in title_clean:
+            if ch.isalnum() or ch in '-_ ':
+                safe_chars.append(ch)
+        comparison_sample_name = ''.join(safe_chars).strip()[:80]
+        if not comparison_sample_name:
+            comparison_sample_name = 'Comparison'
+    else:
+        # Join distinct source sample names. Look up each source job's
+        # sample_name from the jobs registry so we get the original
+        # sample identifier rather than the per-PNG label.
+        with jobs_lock:
+            seen = []
+            for src in validated_sources:
+                jid = src['job_id']
+                src_job = jobs.get(jid, {})
+                src_sample = src_job.get('sample_name') or jid
+                if src_sample not in seen:
+                    seen.append(src_sample)
+        # Sanitize each, then join with underscore
+        sanitized = []
+        for s in seen:
+            safe = ''.join(c for c in s if c.isalnum() or c in '-_')
+            if safe:
+                sanitized.append(safe)
+        comparison_sample_name = '_'.join(sanitized) if sanitized else 'Comparison'
+        if len(comparison_sample_name) > 80:
+            comparison_sample_name = comparison_sample_name[:77] + '...'
+
+    user_params = {
+        'sources': _json.dumps(validated_sources),
+        'show_raw': show_raw,
+        'show_irfree': show_irfree,
+        'image_format': image_format,
+        'title': title or f"Comparison ({len(validated_sources)} plots)",
+        'sample_name': comparison_sample_name,
+        'grouping_mode': grouping_mode,
+    }
+
+    with jobs_lock:
+        jobs[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "message": f"Running {script}...",
+            "script": script,
+            "input_files": [f"{s['label']} / {s['filename']}" for s in validated_sources],
+            "submitted_at": datetime.now().isoformat(),
+            "is_comparison": True,
+            "source_jobs": [s['job_id'] for s in validated_sources],
+        }
+
+    future = executor.submit(
+        _run_job, job_id, script, str(input_dir), str(output_dir), user_params
+    )
+    future.add_done_callback(lambda f: _on_job_done(job_id, f))
+
+    return {"job_id": job_id, "status": "running",
+            "n_sources": len(validated_sources)}
 
 
 @app.get("/api/jobs")

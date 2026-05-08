@@ -16,6 +16,8 @@ from scripts.electrolyzer_polcurve import run as elx_polcurve_run
 from scripts.electrolyzer_durability import run as elx_durability_run
 from scripts.fuelcell_analysis import run as fuelcell_run
 from scripts.ocv_analysis import run as ocv_run
+from scripts.activation_analysis import run as activation_run
+from scripts.compare_polcurves import run as plot_comparison_run
 
 SCRIPT_REGISTRY = {
     "Fuel Cell ECSA": ecsa_run,
@@ -23,9 +25,12 @@ SCRIPT_REGISTRY = {
     "H2 Crossover": crossover_run,
     "FC Polarization Curve": polcurve_run,
     "OCV Analysis": ocv_run,
+    "FC Activation": activation_run,
     "Electrolyzer Pol Curve": elx_polcurve_run,
     "Electrolyzer Durability": elx_durability_run,
     "Fuel Cell Full Analysis": fuelcell_run,
+    # Internal-only — invoked via /api/compare, hidden from script dropdown
+    "Plot Comparison": plot_comparison_run,
 }
 
 # ─── Short labels for filename prefixing ─────────────────────────
@@ -35,9 +40,11 @@ SCRIPT_SHORT = {
     "H2 Crossover": "H2Xover",
     "FC Polarization Curve": "PolCurve",
     "OCV Analysis": "OCV",
+    "FC Activation": "Activation",
     "Electrolyzer Pol Curve": "ElxPolCurve",
     "Electrolyzer Durability": "ElxDurability",
     "Fuel Cell Full Analysis": "FCAnalysis",
+    "Plot Comparison": "Comparison",
 }
 
 # ─── Common sample_name field (inserted first for every script) ──
@@ -111,6 +118,14 @@ SCRIPT_PARAMS = {
     "OCV Analysis": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
+        {"key": "interval_s", "label": "Resampling Interval (seconds)", "type": "number",
+         "default": 60.0, "step": 1, "min": 1},
+    ],
+    "FC Activation": [
+        _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
+        {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
+         "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "interval_s", "label": "Resampling Interval (seconds)", "type": "number",
          "default": 60.0, "step": 1, "min": 1},
     ],

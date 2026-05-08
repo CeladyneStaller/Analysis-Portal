@@ -98,7 +98,30 @@
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 10px;
+  }
+  /* Push controls to the right of the section title */
+  .section-head .count { margin-left: auto; }
+  .section-head .count + button { margin-left: 0; }
+
+  .collapse-all-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: var(--font);
+  }
+  .collapse-all-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(31, 78, 121, 0.06);
   }
 
   .section-head .count {
@@ -274,9 +297,11 @@
   .job-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 6px;
   }
+  .job-row .job-id { flex: 1; min-width: 0; }
+  .job-row .sample-cmp-btn { margin-left: 0; }
 
   .job-id {
     font-family: var(--mono);
@@ -405,6 +430,53 @@
     color: var(--accent);
   }
 
+  .file-group .fg-cmp {
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.15s;
+    margin-left: 4px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .file-group .fg-cmp:hover {
+    border-color: #1F4E79;
+    color: #1F4E79;
+    background: rgba(31, 78, 121, 0.08);
+  }
+  .file-group .fg-cmp.on {
+    background: #1F4E79;
+    color: white;
+    border-color: #1F4E79;
+  }
+
+  .batch-cmp-btn, .sample-cmp-btn {
+    background: rgba(31, 78, 121, 0.1);
+    border: 1px solid #1F4E79;
+    color: #1F4E79;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .batch-cmp-btn:hover, .sample-cmp-btn:hover {
+    background: #1F4E79;
+    color: white;
+  }
+  .sample-cmp-btn {
+    margin-left: auto;
+    margin-right: 8px;
+  }
+
   /* ── Lightbox ───────────────────────────────── */
 
   .lightbox {
@@ -474,12 +546,273 @@
 
   .lb-close:hover { color: #fff; }
 
-  .lightbox img {
+  .lb-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    color: white;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 1010;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s, transform 0.15s;
+    user-select: none;
+    line-height: 1;
+    padding: 0;
+  }
+  .lb-nav:hover {
+    background: rgba(0, 0, 0, 0.85);
+    border-color: rgba(255, 255, 255, 0.9);
+    transform: translateY(-50%) scale(1.08);
+  }
+  .lb-nav:active {
+    transform: translateY(-50%) scale(0.95);
+  }
+  .lb-nav-prev { left: 16px; }
+  .lb-nav-next { right: 16px; }
+
+  .lb-zoom {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.85);
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.15s;
+  }
+  .lb-zoom:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+  .lb-zoom-pct {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12px;
+    font-family: monospace;
+    min-width: 44px;
+    text-align: center;
+    user-select: none;
+  }
+
+  .lb-viewport {
+    width: 92vw;
+    height: 85vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+  }
+  .lb-viewport.zoomed { cursor: grab; }
+  .lb-viewport.dragging { cursor: grabbing; }
+  .lb-viewport img {
     max-width: 92vw;
     max-height: 85vh;
     object-fit: contain;
     border-radius: 4px;
     box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    transform-origin: center center;
+    transition: transform 0.05s ease-out;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  /* When dragging, disable transition for smooth movement */
+  .lb-viewport.dragging img { transition: none; }
+
+  /* ── Compare feature ─────────────────────────── */
+  .compare-fab-group {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 100;
+    display: none;
+    gap: 8px;
+    align-items: center;
+  }
+  .compare-fab-group.visible { display: flex; }
+
+  .compare-fab {
+    background: #1F4E79;
+    color: white;
+    padding: 14px 20px;
+    border-radius: 28px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    border: none;
+    transition: all 0.15s;
+  }
+  .compare-fab:hover {
+    background: #2E75B6;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+  }
+  .compare-fab .count {
+    background: white;
+    color: #1F4E79;
+    border-radius: 12px;
+    padding: 2px 8px;
+    margin-left: 6px;
+    font-size: 12px;
+  }
+
+  .compare-fab-clear {
+    background: rgba(255, 255, 255, 0.95);
+    color: #c33;
+    border: 1px solid #c33;
+    padding: 10px 14px;
+    border-radius: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .compare-fab-clear:hover {
+    background: #c33;
+    color: white;
+    transform: translateY(-2px);
+  }
+
+  .compare-modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .compare-modal.open { display: flex; }
+  .compare-modal-inner {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* The sample list is the only scrollable part — header/actions stay pinned */
+  .compare-modal-inner #compareSamples {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 4px;
+  }
+  /* Headers/buttons/divider don't shrink */
+  .compare-modal-inner h2,
+  .compare-modal-inner > p,
+  .compare-modal-inner .opts,
+  .compare-modal-inner #compareErr,
+  .compare-modal-inner .compare-modal-actions,
+  .compare-modal-inner .compare-modal-divider {
+    flex: 0 0 auto;
+  }
+  .compare-modal-divider {
+    border-top: 1px solid #e0e0e0;
+    margin: 16px 0 8px 0;
+  }
+  .compare-modal h2 {
+    margin: 0 0 16px 0;
+    color: #1F4E79;
+    font-size: 18px;
+  }
+  .compare-modal .sample-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .compare-modal .sample-row:last-child { border-bottom: none; }
+  .compare-modal .sample-row .job-name {
+    font-size: 12px;
+    color: #888;
+    font-family: monospace;
+  }
+  .compare-modal .sample-row input[type=text] {
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .compare-modal .sample-row .remove-btn {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: #c33;
+    font-size: 12px;
+  }
+  .compare-modal .opts {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #eee;
+  }
+  .compare-modal .opts label {
+    display: block;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .compare-modal .opts input[type=text] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .compare-modal .actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 20px;
+  }
+  .compare-modal .btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .compare-modal .btn-primary {
+    background: #1F4E79;
+    color: white;
+  }
+  .compare-modal .btn-primary:hover { background: #2E75B6; }
+  .compare-modal .btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+  .compare-modal .btn-secondary {
+    background: #f5f5f5;
+    color: #333;
+    border: 1px solid #ddd;
+  }
+  .compare-modal .err {
+    color: #c33;
+    font-size: 13px;
+    padding: 8px 12px;
+    background: #fee;
+    border-radius: 4px;
+    margin-top: 8px;
   }
 
   .err-box {
@@ -507,9 +840,51 @@
   .group-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 6px;
   }
+  .group-header.collapsible {
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: background 0.12s;
+  }
+  .group-header.collapsible:hover {
+    background: rgba(31, 78, 121, 0.06);
+  }
+  /* Push the download button to the far right */
+  .group-header .dl-all { margin-left: auto; }
+  .group-header .batch-cmp-btn { margin-left: auto; }
+  .group-header .batch-cmp-btn ~ .dl-all { margin-left: 0; }
+
+  .group-count {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  .caret {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 12px;
+    text-align: center;
+    user-select: none;
+  }
+  .job-caret { font-size: 13px; }
+
+  .job-row.collapsible {
+    cursor: pointer;
+    user-select: none;
+  }
+  .job-row.collapsible:hover .job-id {
+    color: var(--accent);
+  }
+
+  .job-body { transition: max-height 0.18s ease-out; }
+  .job-body.collapsed { display: none; }
+  .dl-row.collapsed { display: none; }
 
   .group-label {
     font-size: 11px;
@@ -970,9 +1345,56 @@
     <div class="section-head">
       Jobs
       <span class="count" id="jc">0</span>
+      <button class="collapse-all-btn" id="collapseAllBtn"
+              onclick="toggleCollapseAllJobs()"
+              title="Collapse or expand all completed jobs to sample-level view">
+        Collapse All
+      </button>
     </div>
     <div id="jlist">
       <div class="empty">No jobs yet</div>
+    </div>
+  </div>
+
+  <!-- ─── Compare Selected (FAB + Modal) ──────── -->
+  <div class="compare-fab-group" id="compareFabGroup">
+    <button class="compare-fab-clear" id="compareFabClear"
+            onclick="clearAllCompareSelections()" title="Clear all selections">
+      Clear
+    </button>
+    <button class="compare-fab" id="compareFab" onclick="openCompareModal()">
+      Compare Selected <span class="count" id="compareCount">0</span>
+    </button>
+  </div>
+
+  <div class="compare-modal" id="compareModal" onclick="closeCompareModalBg(event)">
+    <div class="compare-modal-inner">
+      <h2>Plot Comparison</h2>
+      <p style="margin: 0 0 12px 0; font-size: 13px; color: #555;">
+        Selected plots will be auto-grouped by type. Edit labels below.
+      </p>
+      <div class="opts">
+        <label>
+          Plot Title:
+          <input type="text" id="compareTitle" placeholder="Plot Comparison">
+        </label>
+      </div>
+      <div id="compareErr" style="display:none"></div>
+      <div class="actions compare-modal-actions" style="flex-wrap: wrap; gap: 8px;">
+        <button class="btn btn-secondary" onclick="closeCompareModal()">Cancel</button>
+        <button class="btn btn-primary" id="compareGoBtnAll"
+                onclick="submitComparison('plot_type')"
+                title="Group only by plot type — all selected data on the same plot per type">
+          Compare All Together
+        </button>
+        <button class="btn btn-primary" id="compareGoBtnConditions"
+                onclick="submitComparison('plot_type_conditions')"
+                title="Also split by conditions (cell letter, T, RH, P) — generates separate comparisons per condition group">
+          Compare Same Conditions
+        </button>
+      </div>
+      <div class="compare-modal-divider"></div>
+      <div id="compareSamples"></div>
     </div>
   </div>
 
@@ -981,11 +1403,21 @@
     <div class="lb-controls">
       <span class="lb-title" id="lb-title"></span>
       <div class="lb-buttons">
+        <button class="lb-zoom" onclick="lightboxZoom(-1)" title="Zoom out (−)">&minus;</button>
+        <span class="lb-zoom-pct" id="lb-zoom-pct">100%</span>
+        <button class="lb-zoom" onclick="lightboxZoom(1)" title="Zoom in (+)">+</button>
+        <button class="lb-zoom" onclick="lightboxZoomReset()" title="Reset zoom (0)">&#9633;</button>
         <a class="lb-dl" id="lb-dl" download>&#8615; Download</a>
         <button class="lb-close" onclick="closeLightbox()">&times;</button>
       </div>
     </div>
-    <img id="lb-img" src="" alt="">
+    <button class="lb-nav lb-nav-prev" id="lb-prev"
+            onclick="lightboxPrev()" title="Previous (←)">&#10094;</button>
+    <div class="lb-viewport" id="lb-viewport">
+      <img id="lb-img" src="" alt="" draggable="false">
+    </div>
+    <button class="lb-nav lb-nav-next" id="lb-next"
+            onclick="lightboxNext()" title="Next (→)">&#10095;</button>
   </div>
 
 </div>
@@ -995,6 +1427,84 @@
 let files = [];
 let polling = {};
 let scriptDefs = {};  // name → {description, params}
+const compareSelections = new Map(); // jobId → {label, script}
+
+// Cache of last-known job data, keyed by job ID. Used so collapse toggles
+// can re-render without needing a fresh poll fetch.
+const jobs = new Map();
+
+// Collapse/expand state for results panels.
+// collapsedJobs: Set of job IDs whose body is collapsed.
+// collapsedGroups: Set of "{jobId}::{groupLabel}" whose file row is collapsed.
+const collapsedJobs = new Set();
+const collapsedGroups = new Set();
+
+function toggleJob(jobId) {
+  if (collapsedJobs.has(jobId)) {
+    collapsedJobs.delete(jobId);
+  } else {
+    collapsedJobs.add(jobId);
+  }
+  // Re-render this job from the cached data (jobs Map keeps last data)
+  const d = jobs.get(jobId);
+  if (d) renderJob(jobId, d);
+  _updateCollapseAllBtn();
+}
+
+function toggleGroup(jobId, label) {
+  const key = `${jobId}::${label}`;
+  if (collapsedGroups.has(key)) {
+    collapsedGroups.delete(key);
+  } else {
+    collapsedGroups.add(key);
+  }
+  const d = jobs.get(jobId);
+  if (d) renderJob(jobId, d);
+}
+
+function toggleCollapseAllJobs() {
+  // Collect all completed jobs (only those can be collapsed). If any are
+  // currently expanded, collapse them all. Otherwise expand them all.
+  const completed = [];
+  jobs.forEach((d, id) => {
+    if (d.status === 'complete') completed.push(id);
+  });
+  if (completed.length === 0) return;
+  const anyExpanded = completed.some(id => !collapsedJobs.has(id));
+  if (anyExpanded) {
+    completed.forEach(id => collapsedJobs.add(id));
+  } else {
+    completed.forEach(id => collapsedJobs.delete(id));
+  }
+  // Re-render all affected jobs
+  completed.forEach(id => {
+    const d = jobs.get(id);
+    if (d) renderJob(id, d);
+  });
+  _updateCollapseAllBtn();
+}
+
+function _updateCollapseAllBtn() {
+  // Toggle button label between "Collapse All" and "Expand All" based on
+  // current state of completed jobs.
+  const btn = document.getElementById('collapseAllBtn');
+  if (!btn) return;
+  let completedCount = 0;
+  let collapsedCount = 0;
+  jobs.forEach((d, id) => {
+    if (d.status === 'complete') {
+      completedCount += 1;
+      if (collapsedJobs.has(id)) collapsedCount += 1;
+    }
+  });
+  if (completedCount === 0) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  // If all completed jobs are collapsed, offer Expand All; else Collapse All
+  btn.textContent = (collapsedCount === completedCount) ? 'Expand All' : 'Collapse All';
+}
 
 // ── Load scripts ────────────────────────────────
 (async () => {
@@ -1670,9 +2180,22 @@ function renderFileLink(jobId, f) {
   const isImg = /\.(png|jpg|jpeg)$/i.test(f);
 
   if (isImg) {
+    // Skip compare for sidecar data folder and per-EIS fit detail plots
+    const isHiddenData = f.includes('_plot_data');
+    const isEisDetail = f.includes('eis_fits/');
+    const showCompare = !isHiddenData && !isEisDetail;
+    const selKey = `${jobId}::${f}`;
+    const isSelected = compareSelections.has(selKey);
+    const cmpBtn = showCompare
+      ? `<button class="fg-cmp ${isSelected ? 'on' : ''}"
+                 data-jobid="${esc(jobId)}" data-filename="${esc(f)}"
+                 onclick="onCompareToggle(this)"
+                 title="Select for comparison">${isSelected ? '☑' : '☐'} Compare</button>`
+      : '';
     return `<span class="file-group">
       <button class="fg-view" onclick="openLightbox('${url}','${esc(name)}')">&#128200; ${esc(name)}</button>
       <a class="fg-dl" href="${url}" download title="Download">&#8615;</a>
+      ${cmpBtn}
     </span>`;
   } else {
     const ico = /\.xlsx?$/i.test(f) ? '&#128202;' : '&#128196;';
@@ -1681,6 +2204,9 @@ function renderFileLink(jobId, f) {
 }
 
 function renderJob(id, d) {
+  // Cache for re-render on collapse toggle
+  jobs.set(id, d);
+
   const c = document.getElementById('jlist');
   const em = c.querySelector('.empty');
   if (em) em.remove();
@@ -1703,13 +2229,30 @@ function renderJob(id, d) {
     dlHtml = groupNames.map(label => {
       const filesInGroup = groups[label];
       if (!filesInGroup || !filesInGroup.length) return '';
-      const header = `<div class="group-header">
+      // Filter to comparable PNGs (exclude subfolder / hidden plot data)
+      const comparablePngs = filesInGroup.filter(f =>
+        /\.(png|jpg|jpeg)$/i.test(f) &&
+        !f.includes('_plot_data') && !f.includes('eis_fits/')
+      );
+      const batchBtn = (comparablePngs.length > 0 && d.status === 'complete')
+        ? `<button class="batch-cmp-btn"
+                   onclick="event.stopPropagation(); batchSelectGroup('${esc(id)}', ${JSON.stringify(comparablePngs).replace(/"/g, '&quot;')})"
+                   title="Select all plots in this group for comparison">📊 Compare All</button>`
+        : '';
+      const groupKey = `${id}::${label}`;
+      const isCollapsed = collapsedGroups.has(groupKey);
+      const fileCount = filesInGroup.filter(f => !f.includes('_plot_data')).length;
+      const countSpan = `<span class="group-count">(${fileCount})</span>`;
+      const header = `<div class="group-header collapsible" onclick="toggleGroup('${esc(id)}', ${JSON.stringify(label).replace(/"/g, '&quot;')})">
+        <span class="caret">${isCollapsed ? '▸' : '▾'}</span>
         <span class="group-label">${esc(label)}</span>
-        <a class="dl-all" href="/api/download-zip/${id}?group=${encodeURIComponent(label)}" download title="Download all as ZIP">&#8615; Download All</a>
+        ${countSpan}
+        ${batchBtn}
+        <a class="dl-all" href="/api/download-zip/${id}?group=${encodeURIComponent(label)}" download
+           onclick="event.stopPropagation()" title="Download all as ZIP">&#8615; Download All</a>
       </div>`;
-      const links = '<div class="dl-row">' + filesInGroup.map(f => {
-        return renderFileLink(id, f);
-      }).join('') + '</div>';
+      const links = `<div class="dl-row${isCollapsed ? ' collapsed' : ''}">` +
+                    filesInGroup.map(f => renderFileLink(id, f)).join('') + '</div>';
       return `<div class="result-group">${header}${links}</div>`;
     }).join('');
   } else if (d.output_files && d.output_files.length) {
@@ -1734,45 +2277,534 @@ function renderJob(id, d) {
   const sampleLabel = d.sample_name ? `<span class="job-sample">${esc(d.sample_name)}</span>` : '';
   const scriptLabel = d.script ? `<span class="job-script">${esc(d.script)}</span>` : '';
 
+  // Per-sample batch compare button: select every comparable PNG in this job
+  let sampleBatchBtn = '';
+  if (d.status === 'complete' && d.output_files && d.output_files.length && !d.is_comparison) {
+    const comparablePngs = d.output_files.filter(f =>
+      /\.(png|jpg|jpeg)$/i.test(f) &&
+      !f.includes('_plot_data') && !f.includes('eis_fits/')
+    );
+    if (comparablePngs.length > 0) {
+      sampleBatchBtn = `<button class="sample-cmp-btn"
+                                onclick="event.stopPropagation(); batchSelectGroup('${esc(id)}', ${JSON.stringify(comparablePngs).replace(/"/g, '&quot;')})"
+                                title="Select all plots from this sample for comparison">📊 Compare All Plots</button>`;
+    }
+  }
+
+  // Sample-level collapse: only enabled when complete (no point hiding
+  // a running job's progress messages).
+  const canCollapse = d.status === 'complete';
+  const isCollapsed = canCollapse && collapsedJobs.has(id);
+  const headerCaret = canCollapse
+    ? `<span class="caret job-caret">${isCollapsed ? '▸' : '▾'}</span>`
+    : '';
+  const headerOnclick = canCollapse
+    ? `onclick="toggleJob('${esc(id)}')"`
+    : '';
+  const headerClass = canCollapse ? 'job-row collapsible' : 'job-row';
+
   el.innerHTML = `
-    <div class="job-row">
+    <div class="${headerClass}" ${headerOnclick}>
+      ${headerCaret}
       <span class="job-id">${sampleLabel}${scriptLabel}${esc(id)}</span>
       <span class="tag ${tagCls}">${d.status}</span>
+      ${sampleBatchBtn}
     </div>
-    ${active ? '<div class="bar-track"><div class="bar-fill"></div></div>' : ''}
-    <div class="job-msg">${esc(d.message || '')}</div>
-    ${dlAllHtml}${dlHtml}${errHtml}
+    <div class="job-body${isCollapsed ? ' collapsed' : ''}">
+      ${active ? '<div class="bar-track"><div class="bar-fill"></div></div>' : ''}
+      <div class="job-msg">${esc(d.message || '')}</div>
+      ${dlAllHtml}${dlHtml}${errHtml}
+    </div>
   `;
 
   document.getElementById('jc').textContent = c.querySelectorAll('.job').length;
+  _updateCollapseAllBtn();
+}
+
+// ── Compare feature ────────────────────────────
+// State: Map keyed by "jobId::filename" → {job_id, filename, sample_name}
+function onCompareToggle(btn) {
+  const jobId = btn.dataset.jobid;
+  const filename = btn.dataset.filename;
+  const key = `${jobId}::${filename}`;
+  if (compareSelections.has(key)) {
+    compareSelections.delete(key);
+    btn.classList.remove('on');
+  } else {
+    // Look up sample_name from job metadata for default label
+    const jobEl = document.getElementById('j-' + jobId);
+    let sampleName = jobId;
+    if (jobEl) {
+      const sampleSpan = jobEl.querySelector('.job-sample');
+      if (sampleSpan) sampleName = sampleSpan.textContent;
+    }
+    compareSelections.set(key, {
+      job_id: jobId,
+      filename: filename,
+      sample_name: sampleName,
+    });
+    btn.classList.add('on');
+  }
+  updateCompareFab();
+}
+
+function batchSelectGroup(jobId, filenames) {
+  // Add every file in the list to compareSelections (toggle-on style:
+  // if all are already selected, this acts as deselect-all).
+  const jobEl = document.getElementById('j-' + jobId);
+  let sampleName = jobId;
+  if (jobEl) {
+    const sampleSpan = jobEl.querySelector('.job-sample');
+    if (sampleSpan) sampleName = sampleSpan.textContent;
+  }
+
+  // Check if all are already selected → deselect all
+  const allSelected = filenames.every(f => compareSelections.has(`${jobId}::${f}`));
+
+  filenames.forEach(f => {
+    const key = `${jobId}::${f}`;
+    if (allSelected) {
+      compareSelections.delete(key);
+    } else {
+      compareSelections.set(key, {
+        job_id: jobId,
+        filename: f,
+        sample_name: sampleName,
+      });
+    }
+  });
+
+  // Update visual state of any matching buttons
+  filenames.forEach(f => {
+    const btn = document.querySelector(
+      `button.fg-cmp[data-jobid="${jobId}"][data-filename="${f}"]`
+    );
+    if (btn) {
+      if (allSelected) {
+        btn.classList.remove('on');
+        btn.innerHTML = '☐ Compare';
+      } else {
+        btn.classList.add('on');
+        btn.innerHTML = '☑ Compare';
+      }
+    }
+  });
+
+  updateCompareFab();
+}
+
+function updateCompareFab() {
+  const fabGroup = document.getElementById('compareFabGroup');
+  const count = document.getElementById('compareCount');
+  count.textContent = compareSelections.size;
+  if (compareSelections.size >= 1) {
+    // Show clear button as soon as there's anything to clear,
+    // and the compare button when there are at least 2.
+    fabGroup.classList.add('visible');
+  } else {
+    fabGroup.classList.remove('visible');
+  }
+  // Hide the Compare Selected button itself when only 1 is selected
+  // (Clear remains visible)
+  const fab = document.getElementById('compareFab');
+  if (fab) fab.style.display = (compareSelections.size >= 2) ? 'block' : 'none';
+}
+
+function clearAllCompareSelections() {
+  if (compareSelections.size === 0) return;
+  // Clear state
+  compareSelections.clear();
+  // Visually deselect every compare button on the page
+  document.querySelectorAll('button.fg-cmp.on').forEach(btn => {
+    btn.classList.remove('on');
+    btn.innerHTML = '☐ Compare';
+  });
+  updateCompareFab();
+}
+
+function openCompareModal() {
+  if (compareSelections.size < 2) {
+    alert('Select at least 2 plots to compare.');
+    return;
+  }
+  const wrap = document.getElementById('compareSamples');
+  wrap.innerHTML = '';
+  compareSelections.forEach((s, key) => {
+    const row = document.createElement('div');
+    row.className = 'sample-row';
+    row.dataset.key = key;
+    // Build a helpful placeholder showing what the auto-generated clean
+    // label would look like (sample_name_step). The input itself starts
+    // empty so the script's clean defaults are used unless the user types
+    // an override.
+    let stem = s.filename.split('/').pop().replace(/\.[^.]+$/, '');
+    if (s.sample_name && stem.toLowerCase().startsWith(s.sample_name.toLowerCase() + '-')) {
+      stem = stem.substring(s.sample_name.length + 1);
+      const dashIdx = stem.indexOf('-');
+      if (dashIdx > 0 && dashIdx < 25) {
+        stem = stem.substring(dashIdx + 1);
+      }
+    }
+    // Try to extract a step indicator (cell letter+digits like b14, c10)
+    // for a more readable placeholder hint.
+    const stepMatch = stem.match(/(?:^|_)([A-Za-z]\d+)(?:_|$)/);
+    const stepHint = stepMatch ? `_${stepMatch[1]}` : '';
+    const placeholder = `auto: ${s.sample_name}${stepHint}…  (leave blank for clean default)`;
+    row.innerHTML = `
+      <span class="job-name">${esc(s.filename)}<br><span style="color:#bbb">${esc(s.job_id)}</span></span>
+      <input type="text" value="" placeholder="${esc(placeholder)}">
+      <button class="remove-btn" onclick="removeCompareSample('${esc(key)}')">Remove</button>
+    `;
+    wrap.appendChild(row);
+  });
+  document.getElementById('compareErr').style.display = 'none';
+  document.getElementById('compareModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCompareModal() {
+  document.getElementById('compareModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function closeCompareModalBg(e) {
+  if (e.target.id === 'compareModal') closeCompareModal();
+}
+
+function removeCompareSample(key) {
+  compareSelections.delete(key);
+  // Find and unhighlight matching button
+  const [jobId, filename] = key.split('::');
+  const btn = document.querySelector(
+    `button.fg-cmp[data-jobid="${jobId}"][data-filename="${filename}"]`
+  );
+  if (btn) btn.classList.remove('on');
+  updateCompareFab();
+  if (compareSelections.size < 2) {
+    closeCompareModal();
+  } else {
+    openCompareModal();
+  }
+}
+
+async function submitComparison(groupingMode) {
+  groupingMode = groupingMode || 'plot_type';
+  const errEl = document.getElementById('compareErr');
+  errEl.style.display = 'none';
+
+  const sources = [];
+  document.querySelectorAll('#compareSamples .sample-row').forEach(row => {
+    const key = row.dataset.key;
+    const sel = compareSelections.get(key);
+    if (!sel) return;
+    // Send the user's typed label as-is. If blank, the script will
+    // auto-generate the clean default ({sample}_{step}_{conditions} for
+    // "All Together" or {sample}_{step} for "Same Conditions").
+    const userLabel = row.querySelector('input[type=text]').value.trim();
+    sources.push({
+      job_id: sel.job_id,
+      label: userLabel,
+      filename: sel.filename,
+      sample_name: sel.sample_name,
+    });
+  });
+
+  if (sources.length < 2) {
+    errEl.textContent = 'Need at least 2 sources.';
+    errEl.className = 'err';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const title = document.getElementById('compareTitle').value.trim();
+
+  const btnAll = document.getElementById('compareGoBtnAll');
+  const btnCond = document.getElementById('compareGoBtnConditions');
+  if (btnAll) btnAll.disabled = true;
+  if (btnCond) btnCond.disabled = true;
+
+  const fd = new FormData();
+  fd.append('sources', JSON.stringify(sources));
+  fd.append('title', title);
+  fd.append('image_format', 'png');
+  fd.append('show_raw', 'true');
+  fd.append('show_irfree', 'true');
+  fd.append('grouping_mode', groupingMode);
+
+  try {
+    const r = await fetch('/api/compare', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(txt || `HTTP ${r.status}`);
+    }
+    const d = await r.json();
+    saveJobId(d.job_id);
+    const modeLabel = groupingMode === 'plot_type_conditions'
+      ? 'same-conditions' : 'all-together';
+    renderJob(d.job_id, {
+      status: 'running',
+      message: `Generating ${modeLabel} comparison from ${sources.length} plots...`,
+      script: 'Plot Comparison',
+      input_files: sources.map(s => `${s.label} / ${s.filename}`),
+      is_comparison: true,
+    });
+    pollJob(d.job_id);
+    closeCompareModal();
+  } catch (e) {
+    errEl.textContent = String(e);
+    errEl.className = 'err';
+    errEl.style.display = 'block';
+  } finally {
+    if (btnAll) btnAll.disabled = false;
+    if (btnCond) btnCond.disabled = false;
+  }
+}
+
+function pollJob(id) {
+  if (polling[id]) return;
+  polling[id] = setInterval(() => poll(id), 2000);
 }
 
 // ── Lightbox ────────────────────────────────────
-function openLightbox(url, name) {
-  const lb = document.getElementById('lightbox');
-  const img = document.getElementById('lb-img');
-  const title = document.getElementById('lb-title');
-  const dl = document.getElementById('lb-dl');
+// Gallery state: list of {url, name} objects for navigation
+let lightboxGallery = [];
+let lightboxIndex = -1;
 
-  img.src = url;
-  title.textContent = name;
-  dl.href = url;
-  dl.download = name;
+// Zoom state
+let zoomScale = 1.0;
+let zoomX = 0;
+let zoomY = 0;
+const ZOOM_MIN = 1.0;
+const ZOOM_MAX = 8.0;
+const ZOOM_STEP = 1.25;  // multiplicative step for buttons
+
+function _buildGallery() {
+  const buttons = document.querySelectorAll('button.fg-view');
+  const items = [];
+  buttons.forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const m = onclick.match(/openLightbox\('([^']+)','([^']*)'\)/);
+    if (m) items.push({ url: m[1], name: m[2] });
+  });
+  return items;
+}
+
+function openLightbox(url, name) {
+  lightboxGallery = _buildGallery();
+  lightboxIndex = lightboxGallery.findIndex(it => it.url === url);
+  if (lightboxIndex < 0) {
+    lightboxGallery = [{ url, name }];
+    lightboxIndex = 0;
+  }
+  _resetZoom();
+  _showLightboxItem();
+
+  const lb = document.getElementById('lightbox');
   lb.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
 
+function _showLightboxItem() {
+  const item = lightboxGallery[lightboxIndex];
+  if (!item) return;
+  const img = document.getElementById('lb-img');
+  const title = document.getElementById('lb-title');
+  const dl = document.getElementById('lb-dl');
+  img.src = item.url;
+  title.textContent = item.name + (lightboxGallery.length > 1
+    ? ` (${lightboxIndex + 1} / ${lightboxGallery.length})`
+    : '');
+  dl.href = item.url;
+  dl.download = item.name;
+
+  const prevBtn = document.getElementById('lb-prev');
+  const nextBtn = document.getElementById('lb-next');
+  if (prevBtn) prevBtn.style.visibility = lightboxGallery.length > 1 ? 'visible' : 'hidden';
+  if (nextBtn) nextBtn.style.visibility = lightboxGallery.length > 1 ? 'visible' : 'hidden';
+
+  _resetZoom();
+}
+
+function _resetZoom() {
+  zoomScale = 1.0;
+  zoomX = 0;
+  zoomY = 0;
+  _applyZoom();
+}
+
+function _applyZoom() {
+  const img = document.getElementById('lb-img');
+  const viewport = document.getElementById('lb-viewport');
+  if (!img || !viewport) return;
+  img.style.transform = `translate(${zoomX}px, ${zoomY}px) scale(${zoomScale})`;
+  const pct = document.getElementById('lb-zoom-pct');
+  if (pct) pct.textContent = `${Math.round(zoomScale * 100)}%`;
+  if (zoomScale > 1.001) viewport.classList.add('zoomed');
+  else viewport.classList.remove('zoomed');
+}
+
+function _clampOffsets() {
+  // Keep the zoomed image from drifting too far off-screen.
+  // Allow panning up to the natural overflow on each axis.
+  const img = document.getElementById('lb-img');
+  const viewport = document.getElementById('lb-viewport');
+  if (!img || !viewport) return;
+  const vw = viewport.clientWidth;
+  const vh = viewport.clientHeight;
+  const iw = img.clientWidth * zoomScale;
+  const ih = img.clientHeight * zoomScale;
+  const maxX = Math.max(0, (iw - vw) / 2);
+  const maxY = Math.max(0, (ih - vh) / 2);
+  zoomX = Math.max(-maxX, Math.min(maxX, zoomX));
+  zoomY = Math.max(-maxY, Math.min(maxY, zoomY));
+}
+
+function _setZoom(newScale, cursorX, cursorY) {
+  // cursorX/Y in viewport coords (0,0 = top-left); if undefined, zoom around center
+  newScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newScale));
+  if (Math.abs(newScale - zoomScale) < 0.001) return;
+
+  if (cursorX !== undefined && cursorY !== undefined) {
+    // Zoom around the cursor position so the point under cursor stays fixed.
+    const viewport = document.getElementById('lb-viewport');
+    const rect = viewport.getBoundingClientRect();
+    const cx = cursorX - rect.left - rect.width / 2;
+    const cy = cursorY - rect.top - rect.height / 2;
+    // (cx, cy) is cursor position relative to viewport center.
+    // Image coord under cursor BEFORE zoom: (cx - zoomX) / zoomScale
+    // We want that same image coord under cursor AFTER zoom:
+    //   newCx == newImgCoord * newScale + newZoomX
+    //   newImgCoord == (cx - zoomX) / zoomScale
+    //   Set newCx = cx → solve for newZoomX
+    const imgCoordX = (cx - zoomX) / zoomScale;
+    const imgCoordY = (cy - zoomY) / zoomScale;
+    zoomX = cx - imgCoordX * newScale;
+    zoomY = cy - imgCoordY * newScale;
+  }
+
+  zoomScale = newScale;
+  if (zoomScale <= 1.001) {
+    zoomX = 0;
+    zoomY = 0;
+  } else {
+    _clampOffsets();
+  }
+  _applyZoom();
+}
+
+function lightboxZoom(direction) {
+  // direction: +1 = zoom in, -1 = zoom out
+  const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  _setZoom(zoomScale * factor);
+}
+
+function lightboxZoomReset() {
+  _resetZoom();
+}
+
+function lightboxPrev() {
+  if (lightboxGallery.length < 2) return;
+  lightboxIndex = (lightboxIndex - 1 + lightboxGallery.length) % lightboxGallery.length;
+  _showLightboxItem();
+}
+
+function lightboxNext() {
+  if (lightboxGallery.length < 2) return;
+  lightboxIndex = (lightboxIndex + 1) % lightboxGallery.length;
+  _showLightboxItem();
+}
+
 function closeLightbox(e) {
-  if (e && e.target.tagName === 'IMG') return; // don't close when clicking the image
-  if (e && e.target.closest('.lb-controls')) return; // don't close when clicking controls
+  if (e && e.target.tagName === 'IMG') return;
+  if (e && e.target.closest('.lb-controls')) return;
+  if (e && e.target.closest('.lb-nav')) return;
+  if (e && e.target.closest('.lb-viewport') && zoomScale > 1.001) return;
   document.getElementById('lightbox').classList.remove('open');
   document.getElementById('lb-img').src = '';
   document.body.style.overflow = '';
+  lightboxGallery = [];
+  lightboxIndex = -1;
+  _resetZoom();
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeLightbox();
+  const lb = document.getElementById('lightbox');
+  const isOpen = lb && lb.classList.contains('open');
+  if (!isOpen) return;
+  if (e.key === 'Escape') {
+    closeLightbox();
+  } else if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    lightboxPrev();
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    lightboxNext();
+  } else if (e.key === '+' || e.key === '=') {
+    e.preventDefault();
+    lightboxZoom(1);
+  } else if (e.key === '-' || e.key === '_') {
+    e.preventDefault();
+    lightboxZoom(-1);
+  } else if (e.key === '0') {
+    e.preventDefault();
+    lightboxZoomReset();
+  }
 });
+
+// Scroll wheel zoom on the viewport
+(function setupZoomEvents() {
+  // Defer until DOM is ready
+  function init() {
+    const viewport = document.getElementById('lb-viewport');
+    if (!viewport) return;
+
+    // Wheel zoom
+    viewport.addEventListener('wheel', e => {
+      const lb = document.getElementById('lightbox');
+      if (!lb || !lb.classList.contains('open')) return;
+      e.preventDefault();
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      _setZoom(zoomScale * factor, e.clientX, e.clientY);
+    }, { passive: false });
+
+    // Drag to pan when zoomed
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    let dragStartZoomX = 0, dragStartZoomY = 0;
+
+    viewport.addEventListener('mousedown', e => {
+      if (zoomScale <= 1.001) return;
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragStartZoomX = zoomX;
+      dragStartZoomY = zoomY;
+      viewport.classList.add('dragging');
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      zoomX = dragStartZoomX + (e.clientX - dragStartX);
+      zoomY = dragStartZoomY + (e.clientY - dragStartY);
+      _clampOffsets();
+      _applyZoom();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      viewport.classList.remove('dragging');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
 </script>
 </body>
 </html>
