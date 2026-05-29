@@ -1171,7 +1171,7 @@ def smooth_curve_selection(j, V, HFR=None, conditions=None,
 #  HFR Outlier Filtering
 # ═══════════════════════════════════════════════════════════════════════
 
-def filter_hfr_outliers(HFR, geo_area=5.0, iqr_factor=2.0, max_asr=0.5):
+def filter_hfr_outliers(HFR, geo_area=5.0, iqr_factor=2.0, max_asr=5.0):
     """
     Detect and replace outlier HFR values with linear interpolation.
 
