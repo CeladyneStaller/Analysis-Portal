@@ -9,6 +9,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   :root {
+    /* ── Dark theme (default) ── */
     --bg: #0b0f14;
     --surface: #12171e;
     --surface-raised: #1a2029;
@@ -29,6 +30,50 @@
     --font: 'Outfit', sans-serif;
     --mono: 'IBM Plex Mono', monospace;
   }
+
+  /* ── Light theme palette ──
+     Applied when the OS is in light mode AND the user hasn't manually
+     forced dark, OR when the user explicitly selects light.  */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-raised: #eef2f7;
+      --border: #d8dee7;
+      --border-hover: #b6c0ce;
+      --text: #1a2230;
+      --text-dim: #6a7686;
+      --accent: #0b7fd4;
+      --accent-glow: rgba(11, 127, 212, 0.07);
+      --accent-strong: rgba(11, 127, 212, 0.16);
+      --green: #1a9d54;
+      --green-bg: rgba(26, 157, 84, 0.10);
+      --amber: #b7791f;
+      --amber-bg: rgba(183, 121, 31, 0.12);
+      --red: #d13438;
+      --red-bg: rgba(209, 52, 56, 0.10);
+    }
+  }
+  /* Explicit light override (user chose Light regardless of OS) */
+  :root[data-theme="light"] {
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-raised: #eef2f7;
+    --border: #d8dee7;
+    --border-hover: #b6c0ce;
+    --text: #1a2230;
+    --text-dim: #6a7686;
+    --accent: #0b7fd4;
+    --accent-glow: rgba(11, 127, 212, 0.07);
+    --accent-strong: rgba(11, 127, 212, 0.16);
+    --green: #1a9d54;
+    --green-bg: rgba(26, 157, 84, 0.10);
+    --amber: #b7791f;
+    --amber-bg: rgba(183, 121, 31, 0.12);
+    --red: #d13438;
+    --red-bg: rgba(209, 52, 56, 0.10);
+  }
+  /* data-theme="dark" keeps the :root defaults, so no extra block needed. */
 
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -52,7 +97,34 @@
   header {
     margin-bottom: 44px;
     position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
   }
+
+  .theme-toggle {
+    flex: 0 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 7px 12px;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .theme-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .theme-toggle .tt-icon { font-size: 15px; line-height: 1; }
 
   header::after {
     content: '';
@@ -1273,11 +1345,30 @@
 </style>
 </head>
 <body>
+<script>
+  // Apply saved theme as early as possible to avoid a flash of the wrong theme.
+  // Stored value is one of: 'auto' (or absent) → follow OS; 'light'; 'dark'.
+  (function () {
+    try {
+      var saved = localStorage.getItem('portal-theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable — fall back to OS default */ }
+  })();
+</script>
 <div class="shell">
 
   <header>
-    <h1>Analysis Portal</h1>
-    <p class="sub">Upload data files, run analysis, download results</p>
+    <div>
+      <h1>Analysis Portal</h1>
+      <p class="sub">Upload data files, run analysis, download results</p>
+    </div>
+    <button class="theme-toggle" id="themeToggle" onclick="cycleTheme()"
+            title="Switch color theme (Auto / Light / Dark)">
+      <span class="tt-icon" id="themeIcon">🖥️</span>
+      <span id="themeLabel">Auto</span>
+    </button>
   </header>
 
   <!-- ─── Upload ─────────────────────────────── -->
@@ -1428,6 +1519,53 @@ let files = [];
 let polling = {};
 let scriptDefs = {};  // name → {description, params}
 const compareSelections = new Map(); // jobId → {label, script}
+
+// ── Theme (Auto / Light / Dark) ─────────────────
+// 'auto' follows the OS via prefers-color-scheme (no data-theme attribute).
+// 'light' / 'dark' force a theme via the data-theme attribute on <html>.
+function _getThemeMode() {
+  try {
+    const saved = localStorage.getItem('portal-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch (e) { /* ignore */ }
+  return 'auto';
+}
+
+function _applyThemeMode(mode) {
+  const root = document.documentElement;
+  if (mode === 'light' || mode === 'dark') {
+    root.setAttribute('data-theme', mode);
+    try { localStorage.setItem('portal-theme', mode); } catch (e) {}
+  } else {
+    root.removeAttribute('data-theme');
+    try { localStorage.removeItem('portal-theme'); } catch (e) {}
+  }
+  _updateThemeButton(mode);
+}
+
+function _updateThemeButton(mode) {
+  const icon = document.getElementById('themeIcon');
+  const label = document.getElementById('themeLabel');
+  if (!icon || !label) return;
+  if (mode === 'light') {
+    icon.textContent = '☀️'; label.textContent = 'Light';
+  } else if (mode === 'dark') {
+    icon.textContent = '🌙'; label.textContent = 'Dark';
+  } else {
+    icon.textContent = '🖥️'; label.textContent = 'Auto';
+  }
+}
+
+function cycleTheme() {
+  // Cycle: auto → light → dark → auto
+  const order = ['auto', 'light', 'dark'];
+  const current = _getThemeMode();
+  const next = order[(order.indexOf(current) + 1) % order.length];
+  _applyThemeMode(next);
+}
+
+// Initialize the button label on load to match the persisted choice.
+_updateThemeButton(_getThemeMode());
 
 // Cache of last-known job data, keyed by job ID. Used so collapse toggles
 // can re-render without needing a fresh poll fetch.
