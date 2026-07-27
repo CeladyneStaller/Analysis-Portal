@@ -486,6 +486,20 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
         ('Average ECSA', ['Average ECSA', 'average_ECSA_m2_per_g',
                           'Avg ECSA (m2/g)']),
     ],
+    # Electrolyzer durability. Distinct canonical names throughout: these are
+    # quantities the fuel-cell buckets do not report, so nothing is shared and
+    # nothing can blend. HFR_initial/HFR_final stay in mΩ·cm², the unit the
+    # script and its plots use natively — converting to the 'HFR' key's
+    # Ω·cm² would be a silent rescale of a differently-named metric.
+    'durability': [
+        ('Degradation rate', ['Degradation rate', 'rate_uV_hr',
+                              'Degradation rate (uV/hr)']),
+        ('V_initial', ['V_initial', 'V initial']),
+        ('V_final', ['V_final', 'V final']),
+        ('HFR_initial', ['HFR_initial', 'HFR initial']),
+        ('HFR_final', ['HFR_final', 'HFR final']),
+        ('Duration', ['Duration', 'duration_hr', 'Duration (hr)']),
+    ],
 }
 
 # Units are implied per canonical key; the {value, unit} form lives in the
@@ -501,6 +515,12 @@ KEY_VALUE_UNITS = {
     'HFR': 'Ω·cm²',
     '|j_xover|': 'mA/cm²',
     'Average ECSA': 'm²/g',
+    'Degradation rate': 'μV/hr',
+    'V_initial': 'V',
+    'V_final': 'V',
+    'HFR_initial': 'mΩ·cm²',
+    'HFR_final': 'mΩ·cm²',
+    'Duration': 'hr',
 }
 
 
