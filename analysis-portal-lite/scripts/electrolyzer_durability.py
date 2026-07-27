@@ -87,12 +87,12 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     image_ext = img_ext_from_params(p)
 
     try:
-        analyze(folder_paths, geo_area=geo_area,
-                eis_ref_voltage=eis_ref_v,
-                T_C=80.0, v_target=1.8,
-                save_dir=str(output_dir),
-                data_interval_min=data_interval,
-                image_ext=image_ext)
+        info = analyze(folder_paths, geo_area=geo_area,
+                       eis_ref_voltage=eis_ref_v,
+                       T_C=80.0, v_target=1.8,
+                       save_dir=str(output_dir),
+                       data_interval_min=data_interval,
+                       image_ext=image_ext)
         plt.close('all')
     except Exception as e:
         raise RuntimeError(
@@ -106,8 +106,12 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             f"Analysis produced no output. Found {len(all_files)} data file(s) "
             f"in {len(folder_paths)} folder(s)."
         )
+    # One stitched test yields one summary row. The record layer matches a
+    # lone candidate row to the unit without needing a Label, so none is set.
+    row = (info or {}).get('summary')
     return {"status": "success", "folders_processed": len(folder_paths),
-            "files_produced": output_files}
+            "files_produced": output_files,
+            "summary": [row] if row else []}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -441,10 +445,80 @@ def compute_losses(j_val, xf, T_K):
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Summary
+# ═══════════════════════════════════════════════════════════════════
+
+def build_summary(t_hours, voltage, deg, eis_p, pcs, j_hold, geo_area):
+    """Tier 1 scalars for one durability test.
+
+    A durability run is one stitched test, so this is a single row rather than
+    one per input file. Every field is optional: a test with too few points for
+    a regression has no rate, one with no EIS sweeps has no HFR endpoints, and
+    the record layer tolerates their absence rather than storing a placeholder.
+
+    V_initial and V_final are the regression evaluated at the measured
+    endpoints, not the first and last raw samples. That keeps the three voltage
+    metrics internally consistent — (V_final - V_initial) / Duration reproduces
+    the reported rate exactly — and avoids letting a single noisy sample at
+    either end set a headline number. The cost is that genuine non-linearity is
+    smoothed away, which the rolling-rate plot exists to show.
+    """
+    row = {'Analysis': 'durability'}
+
+    if t_hours is not None and len(t_hours) >= 2:
+        row['Duration'] = float(t_hours[-1] - t_hours[0])
+    if j_hold is not None:
+        row['j_hold'] = float(j_hold)
+    if geo_area:
+        row['geo_area'] = float(geo_area)
+
+    if deg:
+        row['Degradation rate'] = float(deg['rate_uV_hr'])
+        row['rate_Vpct_khr'] = float(deg['rate_Vpct_khr'])
+        row['fit_R2'] = float(deg['r_squared'])
+        if t_hours is not None and len(t_hours) >= 2:
+            b, m = deg['intercept'], deg['slope']
+            row['V_initial'] = float(b + m * t_hours[0])
+            row['V_final'] = float(b + m * t_hours[-1])
+
+    if eis_p:
+        row['HFR_initial'] = float(eis_p[0]['asr_mohm_cm2'])
+        row['HFR_final'] = float(eis_p[-1]['asr_mohm_cm2'])
+        row['n_eis'] = len(eis_p)
+    if pcs:
+        row['n_polcurves'] = len(pcs)
+
+    return row
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Plotting
 # ═══════════════════════════════════════════════════════════════════
 
-def plot_voltage_vs_time(t_h, V, deg, j_hold, pc_t=None, save_path=None):
+def _readout(ax, lines, loc='upper left'):
+    """Draw a 'key = value' readout box.
+
+    The record layer and the comparison Excel both read text annotations and
+    labelled reference lines — never titles, axis labels or legends. Any number
+    that should survive into the JSON record or a comparison plot has to appear
+    in a box like this one, which is why these exist alongside titles that
+    already state the same thing.
+    """
+    lines = [ln for ln in (lines or []) if ln]
+    if not lines:
+        return
+    x, y, ha, va = {
+        'upper left':  (0.03, 0.97, 'left',  'top'),
+        'upper right': (0.97, 0.97, 'right', 'top'),
+        'lower left':  (0.03, 0.03, 'left',  'bottom'),
+        'lower right': (0.97, 0.03, 'right', 'bottom'),
+    }[loc]
+    ax.text(x, y, '\n'.join(lines), transform=ax.transAxes,
+            ha=ha, va=va, fontsize=8.5, zorder=5,
+            bbox=dict(boxstyle='round,pad=0.4', fc='lightyellow', alpha=0.9))
+
+def plot_voltage_vs_time(t_h, V, deg, j_hold, pc_t=None, save_path=None,
+                         summary=None):
     fig, ax = plt.subplots(figsize=(12, 5.5), dpi=120)
     step = max(1, len(t_h)//5000)
     ax.plot(t_h[::step], V[::step], '-', color='#1f77b4', lw=0.5, alpha=0.6, label='Cell voltage')
@@ -459,6 +533,14 @@ def plot_voltage_vs_time(t_h, V, deg, j_hold, pc_t=None, save_path=None):
     ax.set_xlabel('Time [hours]', fontsize=12); ax.set_ylabel('Cell voltage [V]', fontsize=12)
     ax.set_title(f'Durability Test — j = {j_hold:.2f} A/cm²', fontsize=12, fontweight='bold')
     ax.set_xlim(left=0); ax.grid(True, alpha=0.3)
+    s = summary or {}
+    _readout(ax, [
+        f"Degradation rate = {s['Degradation rate']:.1f} μV/hr"
+        if 'Degradation rate' in s else None,
+        f"V_initial = {s['V_initial']:.4f} V" if 'V_initial' in s else None,
+        f"V_final = {s['V_final']:.4f} V" if 'V_final' in s else None,
+        f"Duration = {s['Duration']:.1f} hr" if 'Duration' in s else None,
+    ], loc='upper left')
     h, l = ax.get_legend_handles_labels()
     fig.legend(h, l, loc='lower center', bbox_to_anchor=(0.5, -0.02),
                ncol=len(h), fontsize=9, frameon=True, fancybox=True)
@@ -471,7 +553,7 @@ def plot_deg_rolling(deg, save_path=None):
     fig, ax = plt.subplots(figsize=(10, 5), dpi=120)
     ax.plot(deg['t_rolling'], deg['rate_rolling'], 'o-', color='#d62728', ms=4, lw=1.5)
     ax.axhline(deg['rate_uV_hr'], color='k', ls='--', lw=1,
-               label=f"Overall: {deg['rate_uV_hr']:.1f} μV/hr")
+               label=f"Degradation rate = {deg['rate_uV_hr']:.1f} μV/hr")
     ax.set_xlabel('Time [hours]'); ax.set_ylabel('Rate [μV/hr]')
     ax.set_title('Rolling Degradation Rate', fontweight='bold')
     ax.set_xlim(left=0); ax.legend(); ax.grid(True, alpha=0.3); plt.tight_layout()
@@ -485,6 +567,12 @@ def plot_hfr_vs_time(eis_p, save_path=None):
             'o-', color='#9467bd', ms=6, lw=1.5, markeredgecolor='k', markeredgewidth=0.5)
     ax.set_xlabel('Time [hours]'); ax.set_ylabel('ASR [mΩ·cm²]')
     ax.set_title('HFR (ASR) vs. Time', fontweight='bold')
+    _a0, _a1 = eis_p[0]['asr_mohm_cm2'], eis_p[-1]['asr_mohm_cm2']
+    _readout(ax, [
+        f"HFR_initial = {_a0:.1f} mΩ·cm²",
+        f"HFR_final = {_a1:.1f} mΩ·cm²",
+        f"HFR change = {_a1 - _a0:+.1f} mΩ·cm²",
+    ], loc='upper left')
     ax.set_xlim(left=0); ax.grid(True, alpha=0.3); plt.tight_layout()
     if save_path: save_with_sidecar(fig, save_path, plot_type='durability_hfr', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
@@ -508,6 +596,8 @@ def plot_polcurve_evolution(pcs, save_path=None):
         ax.legend(fontsize=9)
     ax.set_xlabel('j [A/cm²]'); ax.set_ylabel('V [V]')
     ax.set_title('Polarization Curve Evolution', fontweight='bold'); ax.grid(True, alpha=0.3)
+    _readout(ax, [f"Curves = {len(pcs)}",
+                  f"Time span = {t1 - t0:.1f} hr"], loc='upper left')
     plt.tight_layout()
     if save_path: save_with_sidecar(fig, save_path, plot_type='durability_polcurve_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
@@ -526,6 +616,10 @@ def plot_asr_vs_j_evolution(pcs, save_path=None):
     plt.colorbar(sm, ax=ax, pad=0.02).set_label('Time [hours]')
     ax.set_xlabel('j [A/cm²]'); ax.set_ylabel('ASR [mΩ·cm²]')
     ax.set_title('ASR vs. Current Density Evolution', fontweight='bold'); ax.grid(True, alpha=0.3)
+    _asr0 = float(np.mean(has[0]['asr_interp']))
+    _asr1 = float(np.mean(has[-1]['asr_interp']))
+    _readout(ax, [f"ASR_initial = {_asr0:.1f} mΩ·cm²",
+                  f"ASR_final = {_asr1:.1f} mΩ·cm²"], loc='upper left')
     plt.tight_layout()
     if save_path: save_with_sidecar(fig, save_path, plot_type='durability_asr_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
@@ -553,6 +647,11 @@ def plot_loss_evolution(pcs, v_target=1.8, save_path=None):
     fig.legend(h1+h2, l1+l2, loc='lower center', bbox_to_anchor=(0.5, -0.02),
                ncol=min(len(h1)+len(h2), 6), fontsize=9, frameon=True, fancybox=True)
     ax1.set_title(f'Performance & Loss Evolution at {v_target:.2f} V', fontweight='bold')
+    _readout(ax1, [
+        f"V_target = {v_target:.2f} V",
+        f"j_initial = {j_a[0]:.3f} A/cm²",
+        f"j_final = {j_a[-1]:.3f} A/cm²",
+    ], loc='upper left')
     plt.tight_layout(); plt.subplots_adjust(bottom=0.18)
     if save_path: save_with_sidecar(fig, save_path, plot_type='durability_loss_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
@@ -697,7 +796,7 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
         t_offset_s = folder_max_t_s
 
     if not hold_segs and not eis_raw and not pc_raw:
-        print("  No data found."); return
+        print("  No data found."); return {}
 
     # ── Current hold ──
     t_hours, voltage, j_hold, deg = None, None, None, None
@@ -795,13 +894,18 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
 
     _ext = image_ext or 'png'
 
+    # Built before plotting so the readout boxes and the JSON record report the
+    # same numbers from the same source rather than recomputing in two places.
+    summary = build_summary(t_hours, voltage, deg, eis_p, pcs, j_hold, geo_area)
+
     # ── Plots ──
     pt = [p['t_hours'] for p in pcs] if pcs else None
 
     if image_ext:
         if t_hours is not None and deg:
             plot_voltage_vs_time(t_hours, voltage, deg, j_hold, pc_t=pt,
-                                 save_path=P(f'voltage_vs_time.{_ext}'))
+                                 save_path=P(f'voltage_vs_time.{_ext}'),
+                                 summary=summary)
             plt.close('all')
             plot_deg_rolling(deg, P(f'degradation_rate.{_ext}')); plt.close('all')
         if eis_p:
@@ -815,6 +919,12 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
         export_excel(P('durability_data.xlsx'), t_hours, voltage, j_hold,
                      deg, eis_p, pcs, geo_area)
     gc.collect()
+
+    # Scalars only. The voltage and time arrays stay local — a long hold can be
+    # millions of points, and this runs in a pool worker whose memory the
+    # earlier `del`/`gc.collect()` calls are already working to keep down.
+    return {'summary': summary,
+            'n_eis': len(eis_p), 'n_polcurves': len(pcs)}
 
 
 # ═══════════════════════════════════════════════════════════════════
