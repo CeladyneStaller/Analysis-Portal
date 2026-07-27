@@ -438,6 +438,16 @@ def plot_bucket(plot_type: str) -> str:
         return 'cleaning'
     if pt.startswith('crossover') or 'h2x' in pt:
         return 'crossover'
+    # Electrolyzer plots carry their own buckets. Both benches produce a
+    # polarization sweep and an impedance spectrum, and without this an
+    # electrolyzer run would share the (polcurve, step) merge unit with a fuel
+    # cell run on the same sample — each silently replacing the other.
+    # Checked ahead of the generic prefixes because 'elx_eis_fit' would
+    # otherwise never reach here.
+    if pt.startswith('elx'):
+        if 'eis' in pt or 'nyquist' in pt:
+            return 'elx_eis'
+        return 'elx_polcurve'
     if pt.startswith('eis') or pt.startswith('nyquist'):
         return 'eis'
     if pt.startswith('ecsa'):
@@ -491,6 +501,24 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
     # nothing can blend. HFR_initial/HFR_final stay in mΩ·cm², the unit the
     # script and its plots use natively — converting to the 'HFR' key's
     # Ω·cm² would be a silent rescale of a differently-named metric.
+    # Electrolyzer polarization curve. 'V @ 1 A/cm²' deliberately reuses the
+    # fuel-cell canonical name: it is the same physical quantity, and the
+    # bucket already separates the two contexts for any consumer keying on
+    # (Analysis, name). The remaining names are electrolyzer-only.
+    'elx_polcurve': [
+        ('V @ 1 A/cm²', ['V @ 1 A/cm²', 'V_at_1Acm2', 'V at 1 A/cm2']),
+        ('V @ 2 A/cm²', ['V @ 2 A/cm²', 'V_at_2Acm2', 'V at 2 A/cm2']),
+        ('ASR_total', ['ASR_total', 'ASR_total (mOhm.cm2)', 'ASR total']),
+        ('E_rev', ['E_rev', 'E_rev (V)']),
+        ('Tafel slope (anode)', ['Tafel slope (anode)', 'tafel_anode_mVdec',
+                                 'Anode Tafel slope']),
+        ('Fit RMSE', ['Fit RMSE', 'rmse_mV', 'RMSE']),
+    ],
+    # HFR shares the fuel-cell canonical name and therefore its Ω·cm² unit;
+    # the script reports mΩ·cm² natively and run() converts.
+    'elx_eis': [
+        ('HFR', ['HFR', 'HFR (Ohm.cm2)', 'R0_ohm_cm2']),
+    ],
     'durability': [
         ('Degradation rate', ['Degradation rate', 'rate_uV_hr',
                               'Degradation rate (uV/hr)']),
@@ -515,6 +543,11 @@ KEY_VALUE_UNITS = {
     'HFR': 'Ω·cm²',
     '|j_xover|': 'mA/cm²',
     'Average ECSA': 'm²/g',
+    'V @ 2 A/cm²': 'V',
+    'ASR_total': 'mΩ·cm²',
+    'E_rev': 'V',
+    'Tafel slope (anode)': 'mV/dec',
+    'Fit RMSE': 'mV',
     'Degradation rate': 'μV/hr',
     'V_initial': 'V',
     'V_final': 'V',
@@ -718,6 +751,14 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
     for plot_name, sidecar in sidecars.items():
         bucket = plot_bucket(sidecar.get('plot_type', 'unknown'))
         conditions = parse_conditions(plot_name)
+        # A script that knows its own conditions can declare them, which is the
+        # only option when the output filename encodes none — the electrolyzer
+        # scripts write 'model_fit.png', not '..._a1_model_fit.png'. Declared
+        # values win over the filename guess because the script is the
+        # authority on what it just measured.
+        declared = (sidecar.get('metadata') or {}).get('conditions')
+        if isinstance(declared, dict) and declared:
+            conditions = {**conditions, **declared}
         values = extract_values(sidecar)
         metrics.setdefault(bucket, {})[plot_name] = {
             'conditions': conditions,
