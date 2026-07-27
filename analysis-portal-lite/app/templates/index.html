@@ -208,6 +208,343 @@
 
   .section-body { padding: 20px; }
 
+  /* ─── Tab bar ─────────────────────────────── */
+  .tabbar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 10px 18px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tabview { display: none; }
+  .tabview.active { display: block; }
+
+  /* ─── View tab: runs table ────────────────── */
+  .view-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-end;
+    margin-bottom: 18px;
+  }
+  .view-filters .field { margin: 0; min-width: 150px; flex: 1 1 150px; }
+  .view-filters .field-narrow { flex: 0 0 130px; min-width: 130px; }
+  .view-filters .field-wide { flex: 1 1 100%; min-width: 100%; }
+  .view-filters .field-label { font-size: 11px; margin-bottom: 4px; }
+  .afilter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-height: 34px;
+  }
+  .afchip {
+    font-size: 11px;
+    font-family: var(--mono);
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .afchip:hover { border-color: var(--accent); color: var(--accent); }
+  .afchip.on {
+    background: var(--accent-glow);
+    color: var(--accent);
+    border-color: var(--accent-strong);
+  }
+  .afchip-all { font-family: var(--font); }
+  .view-refresh {
+    flex: 0 0 auto;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    height: 38px;
+  }
+  .view-refresh:hover { border-color: var(--accent); color: var(--accent); }
+
+  .runs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .runs-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .runs-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .runs-table tr.run-row { cursor: pointer; }
+  .runs-table tr.run-row:hover td { background: var(--surface-raised); }
+  .runs-table .sample-cell { font-weight: 500; color: var(--text); }
+  .runs-table .mono { font-family: var(--mono); font-size: 12px;
+                      color: var(--text-dim); }
+  .analysis-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .achip {
+    font-size: 10px;
+    font-family: var(--mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--accent-glow);
+    color: var(--accent);
+    border: 1px solid var(--accent-strong);
+  }
+  .kv-inline { color: var(--text-dim); font-size: 12px; }
+  .kv-inline b { color: var(--text); font-weight: 500; }
+  .view-meta {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin: 10px 2px;
+  }
+
+  /* ─── View tab: run detail ────────────────── */
+  .runs-table tr.detail-row > td { padding: 0; background: var(--bg); }
+  .run-detail { padding: 16px 14px 20px; }
+  .run-detail.loading { color: var(--text-dim); font-size: 13px; }
+  .rd-analysis { margin-bottom: 18px; }
+  .rd-analysis:last-child { margin-bottom: 0; }
+  .rd-analysis-head {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rd-analysis-head.collapsible {
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    user-select: none;
+  }
+  .rd-analysis-head.collapsible:hover { color: var(--text); }
+  .rd-analysis-head .rd-caret {
+    font-size: 10px;
+    transition: transform 0.15s;
+    color: var(--text-dim);
+  }
+  .rd-analysis.open .rd-analysis-head .rd-caret { transform: rotate(90deg); }
+  .rd-analysis-head .rd-nostore-note {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .rd-head-spacer { margin-left: auto; }
+  .rd-analysis-body { display: none; }
+  .rd-analysis.open .rd-analysis-body { display: block; }
+
+  .rd-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .rd-tool-btn {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    padding: 5px 12px;
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .rd-tool-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .rd-tool-btn.rd-selall { color: var(--accent); border-color: var(--accent-strong); }
+  .rd-type-selall {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    padding: 2px 9px;
+    font-family: var(--font);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .rd-type-selall:hover { border-color: var(--accent); color: var(--accent); }
+  .rd-plot {
+    display: flex;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rd-plot:last-child { border-bottom: none; }
+  .rd-thumb {
+    flex: 0 0 140px;
+    width: 140px;
+    height: 100px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+  }
+  .rd-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .rd-thumb.unrenderable {
+    cursor: default;
+    color: var(--text-dim);
+    font-size: 10px;
+    text-align: center;
+    padding: 6px;
+    line-height: 1.4;
+  }
+  .rd-thumb .thumb-spin { color: var(--text-dim); font-size: 11px; }
+  .rd-plot-body { flex: 1 1 auto; min-width: 0; }
+  .rd-plot-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+  .rd-conditions { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
+  .rd-values { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .rd-val { font-size: 12px; color: var(--text-dim); }
+  .rd-val b { color: var(--text); font-weight: 500; }
+  .rd-summary {
+    margin-top: 4px;
+    padding: 10px 12px;
+    background: var(--surface-raised);
+    border-radius: var(--radius);
+    font-size: 12px;
+  }
+  .rd-summary-head { color: var(--text-dim); font-weight: 600; margin-bottom: 6px; }
+  .rd-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 3px 16px;
+  }
+  .rd-summary-grid .k { color: var(--text-dim); }
+  .rd-summary-grid .v { color: var(--text); font-family: var(--mono); }
+
+  /* ─── View tab: trends ────────────────────── */
+  .trend-metric {
+    margin-left: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 5px 10px;
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .trend-metric:hover { border-color: var(--accent); }
+  .trend-chart { width: 100%; height: auto; display: block; }
+  .trend-chart .axis { stroke: var(--border); stroke-width: 1; }
+  .trend-chart .grid { stroke: var(--border); stroke-width: 1; opacity: 0.4; }
+  .trend-chart .tick-label { fill: var(--text-dim); font-size: 11px;
+                             font-family: var(--mono); }
+  .trend-chart .axis-title { fill: var(--text-dim); font-size: 12px;
+                             font-family: var(--font); }
+  .trend-chart .pt { cursor: pointer; }
+  .trend-chart .pt:hover { stroke: var(--text); stroke-width: 2; }
+  .trend-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-top: 12px;
+    font-size: 12px;
+  }
+  .trend-legend .lg { display: inline-flex; align-items: center; gap: 6px;
+                      color: var(--text-dim); }
+  .trend-legend .sw { width: 11px; height: 11px; border-radius: 2px;
+                      flex: 0 0 auto; }
+
+  /* ─── View tab: compare selection ─────────── */
+  .rd-select {
+    margin-top: 8px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    padding: 4px 10px;
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .rd-select:hover { border-color: var(--accent); color: var(--accent); }
+  .rd-select.on {
+    background: var(--accent-strong);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .view-compare-bar {
+    position: sticky;
+    bottom: 0;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--surface-raised);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.15);
+  }
+  .view-compare-bar.show { display: flex; }
+  .view-compare-bar .vcb-count { color: var(--text); font-weight: 500;
+                                 font-size: 14px; }
+  .view-compare-bar .vcb-spacer { margin-left: auto; }
+  .view-compare-bar button {
+    border-radius: var(--radius);
+    padding: 8px 16px;
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .view-compare-bar .vcb-clear { background: var(--surface);
+                                 color: var(--text-dim); }
+  .view-compare-bar .vcb-clear:hover { border-color: var(--red);
+                                       color: var(--red); }
+  .view-compare-bar .vcb-go {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+  .view-compare-bar .vcb-go:disabled { opacity: 0.5; cursor: not-allowed; }
+
   /* ── Form ───────────────────────────────────── */
 
   .field { margin-bottom: 18px; }
@@ -1371,6 +1708,13 @@
     </button>
   </header>
 
+  <div class="tabbar">
+    <button class="tab active" id="tab-analysis" onclick="switchTab('analysis')">Analysis</button>
+    <button class="tab" id="tab-view" onclick="switchTab('view')">View</button>
+  </div>
+
+  <div class="tabview active" id="view-analysis">
+
   <!-- ─── Upload ─────────────────────────────── -->
   <div class="section">
     <div class="section-head">New Analysis</div>
@@ -1456,6 +1800,80 @@
     <button class="compare-fab" id="compareFab" onclick="openCompareModal()">
       Compare Selected <span class="count" id="compareCount">0</span>
     </button>
+  </div>
+
+  </div><!-- /view-analysis -->
+
+  <!-- ─── View tab ───────────────────────────── -->
+  <div class="tabview" id="view-view">
+    <div class="section">
+      <div class="section-head">
+        Analysis History
+        <span class="count" id="viewCount">0</span>
+        <button class="view-refresh" onclick="loadViewRuns(true)"
+                title="Refetch the run index">Refresh</button>
+      </div>
+      <div class="section-body">
+        <div class="view-filters">
+          <div class="field">
+            <label class="field-label">Sample</label>
+            <input type="text" id="vf-sample" placeholder="name contains…"
+                   oninput="applyViewFilters()">
+          </div>
+          <div class="field">
+            <label class="field-label">Script</label>
+            <select id="vf-script" onchange="applyViewFilters()">
+              <option value="">All scripts</option>
+            </select>
+          </div>
+          <div class="field field-narrow">
+            <label class="field-label">Stand</label>
+            <select id="vf-stand" onchange="applyViewFilters()">
+              <option value="">All stands</option>
+            </select>
+          </div>
+          <div class="field field-narrow">
+            <label class="field-label">From</label>
+            <input type="date" id="vf-since" onchange="applyViewFilters()">
+          </div>
+          <div class="field field-narrow">
+            <label class="field-label">To</label>
+            <input type="date" id="vf-until" onchange="applyViewFilters()">
+          </div>
+          <div class="field field-wide">
+            <label class="field-label">Analysis</label>
+            <div class="afilter" id="vf-analysis"></div>
+          </div>
+        </div>
+        <div class="view-meta" id="viewMeta"></div>
+        <div id="viewRunsHost">
+          <div class="empty">Open this tab to load analysis history</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">
+        Trends
+        <select id="vf-metric" class="trend-metric" onchange="updateTrend()">
+          <option value="">Select a metric…</option>
+        </select>
+      </div>
+      <div class="section-body">
+        <div id="trendHost">
+          <div class="empty">Pick a metric to plot it across runs over time</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view-compare-bar" id="viewCompareBar">
+      <span class="vcb-count"><span id="vcbCount">0</span> plots selected to compare</span>
+      <div class="vcb-spacer"></div>
+      <button class="vcb-clear" onclick="clearViewCompare()">Clear</button>
+      <button class="vcb-go" id="vcbGo" onclick="openViewCompareModal()">
+        Compare Historical
+      </button>
+    </div>
   </div>
 
   <div class="compare-modal" id="compareModal" onclick="closeCompareModalBg(event)">
@@ -1566,6 +1984,805 @@ function cycleTheme() {
 
 // Initialize the button label on load to match the persisted choice.
 _updateThemeButton(_getThemeMode());
+
+// ── View tab ────────────────────────────────────
+let _viewRuns = [];        // full index list, most recent first
+let _viewLoaded = false;   // fetched at least once this session
+let _viewFacets = { samples: [], scripts: [], analyses: [], stands: [] };
+// Multi-select analysis filter. Empty means "all types". Semantics are OR: a
+// run qualifies when it holds any of the selected analyses. Held here rather
+// than read off a control, since chips are buttons and carry no form value.
+let _analysisFilter = new Set();
+
+function switchTab(name) {
+  document.getElementById('tab-analysis').classList.toggle('active', name === 'analysis');
+  document.getElementById('tab-view').classList.toggle('active', name === 'view');
+  document.getElementById('view-analysis').classList.toggle('active', name === 'analysis');
+  document.getElementById('view-view').classList.toggle('active', name === 'view');
+  if (name === 'view' && !_viewLoaded) loadViewRuns(false);
+}
+
+async function loadViewRuns(force) {
+  const host = document.getElementById('viewRunsHost');
+  host.innerHTML = '<div class="empty">Loading analysis history…</div>';
+  try {
+    const url = '/api/view/runs' + (force ? '?_=' + Date.now() : '');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _viewRuns = data.runs || [];
+    _viewFacets = data.facets || _viewFacets;
+    _viewLoaded = true;
+    populateViewFacets();
+    populateMetricPicker();
+    applyViewFilters();
+  } catch (e) {
+    host.innerHTML = '<div class="empty">Could not load history: '
+      + escapeHtml(String(e.message || e)) + '</div>';
+  }
+}
+
+function populateViewFacets() {
+  const scriptSel = document.getElementById('vf-script');
+  const standSel = document.getElementById('vf-stand');
+  const keepS = scriptSel.value;
+  const keepT = standSel.value;
+  standSel.innerHTML = '<option value="">All stands</option>'
+    + (_viewFacets.stands || []).map(t =>
+        `<option value="${escapeAttr(t)}">${escapeHtml(t)}</option>`).join('');
+  standSel.value = keepT;
+  scriptSel.innerHTML = '<option value="">All scripts</option>'
+    + _viewFacets.scripts.map(s =>
+        `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
+  scriptSel.value = keepS;
+  renderAnalysisFilter();
+}
+
+// Toggle chips rather than a <select multiple>: no modifier-click, every
+// available analysis is visible without opening anything, and which are active
+// reads at a glance. "All types" is the empty-set state, not a member.
+function renderAnalysisFilter() {
+  const host = document.getElementById('vf-analysis');
+  if (!host) return;
+  const available = _viewFacets.analyses || [];
+  // Drop selections the current index no longer offers. A chip left selected
+  // for an analysis that has gone would filter every row away with nothing on
+  // screen to explain why.
+  Array.from(_analysisFilter).forEach(a => {
+    if (available.indexOf(a) === -1) _analysisFilter.delete(a);
+  });
+  host.innerHTML =
+    `<button type="button" class="afchip afchip-all${_analysisFilter.size ? '' : ' on'}"
+             onclick="clearAnalysisFilter()">All types</button>`
+    + available.map(a =>
+        `<button type="button" class="afchip${_analysisFilter.has(a) ? ' on' : ''}"
+                 onclick="toggleAnalysisFilter('${escapeAttr(a)}')">${escapeHtml(a)}</button>`
+      ).join('');
+}
+
+function toggleAnalysisFilter(a) {
+  if (_analysisFilter.has(a)) _analysisFilter.delete(a);
+  else _analysisFilter.add(a);
+  renderAnalysisFilter();
+  applyViewFilters();
+}
+
+function clearAnalysisFilter() {
+  if (!_analysisFilter.size) return;
+  _analysisFilter.clear();
+  renderAnalysisFilter();
+  applyViewFilters();
+}
+
+function applyViewFilters() {
+  // Client-side filtering over the already-fetched index — no round trip.
+  const sample = document.getElementById('vf-sample').value.trim().toLowerCase();
+  const script = document.getElementById('vf-script').value;
+  const analyses = activeAnalyses();
+  const stand = document.getElementById('vf-stand').value;
+  const since = document.getElementById('vf-since').value;   // yyyy-mm-dd or ''
+  const until = document.getElementById('vf-until').value;
+
+  const rows = _viewRuns.filter(r => {
+    if (sample && !String(r.sample_name || '').toLowerCase().includes(sample)) return false;
+    if (script && r.script !== script) return false;
+    if (stand && r.stand !== stand) return false;
+    // OR across the selection: a row qualifies when it holds any selected
+    // analysis. Judged against the run's unfiltered analysis list, not the
+    // narrowed view shown in the table.
+    if (analyses.size && !allRunAnalyses(r).some(a => analyses.has(a))) return false;
+    // timestamps are ISO Z, so a plain string prefix compare works by date
+    if (since && String(r.timestamp || '') < since) return false;
+    if (until && String(r.timestamp || '') > until + 'T99') return false;
+    return true;
+  });
+
+  document.getElementById('viewCount').textContent = rows.length;
+  document.getElementById('viewMeta').textContent =
+    rows.length === _viewRuns.length
+      ? `${_viewRuns.length} run${_viewRuns.length === 1 ? '' : 's'}`
+      : `${rows.length} of ${_viewRuns.length} runs`;
+  renderViewRuns(rows);
+  _lastViewRows = rows;
+  updateTrend();
+}
+
+// Everything a run contains, regardless of the active filter. Used to decide
+// whether a row qualifies.
+function allRunAnalyses(run) {
+  const set = new Set();
+  (run.Data || []).forEach(d => { if (d.Analysis) set.add(d.Analysis); });
+  return Array.from(set).sort();
+}
+
+// The analyses currently being filtered on. An empty set means no narrowing.
+function activeAnalyses() {
+  return _analysisFilter;
+}
+
+// What a row should display. With a filter active, every sample holding at
+// least one selected analysis is listed but shows only the selected ones — so
+// the table reads as a comparison of those measurements across samples.
+function runAnalyses(run) {
+  const only = activeAnalyses();
+  const all = allRunAnalyses(run);
+  return only.size ? all.filter(a => only.has(a)) : all;
+}
+
+// The experiment date, from the sample-name prefix. Absent when the sample name
+// carries no parseable date, in which case we show the analysis date and say so
+// on hover — an analysis date must not silently masquerade as an experiment one.
+function runDate(r) { return r.run_date || null; }
+
+function runDateLabel(r) {
+  return r.run_date ? r.run_date : fmtTimestamp(r.timestamp);
+}
+
+function runDateTitle(r) {
+  return r.run_date
+    ? `run ${r.run_date} · analysed ${fmtTimestamp(r.timestamp)}`
+    : `no run date in the sample name — showing analysis time ${fmtTimestamp(r.timestamp)}`;
+}
+
+function fmtTimestamp(ts) {
+  if (!ts) return '—';
+  // 2026-07-22T22:26:04Z → 2026-07-22 22:26
+  const m = String(ts).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : ts;
+}
+
+// A run's stable identifier for API calls. bin_id is unique per index entry;
+// sample_name is not, while pre-migration duplicates for the same sample
+// remain, so keying on it would make two rows open the same detail.
+function runKey(r) { return r.bin_id || r.job_id || r.sample_name || ''; }
+
+
+function runKeyValues(run) {
+  // Flatten the whitelisted key_values across a run's analysis units, scoped
+  // to the filtered analysis when one is active.
+  const only = activeAnalyses();
+  const kv = {};
+  (run.Data || []).forEach(d => {
+    if (only.size && !only.has(d.Analysis)) return;
+    Object.entries(d.key_values || {}).forEach(([k, v]) => {
+      if (!(k in kv)) kv[k] = v;
+    });
+  });
+  return kv;
+}
+
+function renderViewRuns(rows) {
+  const host = document.getElementById('viewRunsHost');
+  if (!rows.length) {
+    host.innerHTML = '<div class="empty">No runs match these filters</div>';
+    return;
+  }
+  const body = rows.map(r => {
+    const chips = runAnalyses(r).map(a =>
+      `<span class="achip">${escapeHtml(a)}</span>`).join('');
+    const kv = runKeyValues(r);
+    const kvStr = Object.entries(kv).slice(0, 3).map(([k, v]) =>
+      `${escapeHtml(k)}=<b>${escapeHtml(fmtNum(v))}</b>`).join(' · ') || '—';
+    return `<tr class="run-row" data-job="${escapeAttr(runKey(r))}"
+        onclick="openRunDetail('${escapeAttr(runKey(r))}')">
+      <td class="sample-cell">${escapeHtml(r.sample_name || '—')}</td>
+      <td>${escapeHtml(r.script || '—')}</td>
+      <td class="mono" title="${escapeAttr(runDateTitle(r))}">${escapeHtml(runDateLabel(r))}</td>
+      <td><div class="analysis-chips">${chips}</div></td>
+      <td class="kv-inline">${kvStr}</td>
+    </tr>`;
+  }).join('');
+  host.innerHTML = `<table class="runs-table">
+    <thead><tr>
+      <th>Sample</th><th>Script</th><th>Run date</th>
+      <th>Analyses</th><th>Key values</th>
+    </tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function fmtNum(v) {
+  if (typeof v !== 'number') return String(v);
+  if (v !== 0 && (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e5))
+    return v.toExponential(3);
+  return String(Math.round(v * 1e4) / 1e4);
+}
+
+// Run detail — expand a row inline to show per-plot metrics and thumbnails.
+const _detailCache = {};       // job_id → detail payload
+const _thumbUrls = {};         // "job_id::plot" → object URL, so we revoke later
+let _openDetailJob = null;
+
+async function openRunDetail(jobId) {
+  const row = document.querySelector(`tr.run-row[data-job="${cssEscape(jobId)}"]`);
+  if (!row) return;
+
+  // Toggle: clicking the open row again collapses it.
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains('detail-row')
+      && existing.dataset.job === jobId) {
+    existing.remove();
+    _openDetailJob = null;
+    return;
+  }
+  // Only one detail open at a time.
+  document.querySelectorAll('tr.detail-row').forEach(r => r.remove());
+  _openDetailJob = jobId;
+
+  const colspan = row.children.length;
+  const dr = document.createElement('tr');
+  dr.className = 'detail-row';
+  dr.dataset.job = jobId;
+  dr.innerHTML = `<td colspan="${colspan}">
+    <div class="run-detail loading">Loading run details…</div></td>`;
+  row.after(dr);
+
+  try {
+    const detail = _detailCache[jobId] || await (async () => {
+      const r = await fetch(`/api/view/runs/${encodeURIComponent(jobId)}`);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      _detailCache[jobId] = d;
+      return d;
+    })();
+    if (_openDetailJob !== jobId) return;  // collapsed while loading
+    dr.querySelector('.run-detail').outerHTML = renderRunDetail(detail, jobId);
+    hydrateThumbs(jobId);   // no-op while every section is collapsed
+  } catch (e) {
+    const el = dr.querySelector('.run-detail');
+    if (el) el.textContent = 'Could not load details: ' + (e.message || e);
+  }
+}
+
+function renderRunDetail(detail, key) {
+  // With an analysis filter active, show only the selected analyses — the row
+  // was listed because it holds one of them, so the detail should not
+  // reintroduce the rest.
+  const only = activeAnalyses();
+  const plots = (detail.plots || []).filter(p => !only.size || only.has(p.analysis));
+  const byBucket = {};
+  plots.forEach(p => { (byBucket[p.analysis] = byBucket[p.analysis] || []).push(p); });
+
+  const jobId = key || detail.job_id;
+  const allRenderable = plots.filter(p => p.renderable).map(p => p.plot);
+
+  let html = '<div class="run-detail">';
+
+  // Run-level toolbar: collapse/expand every analysis, and select every
+  // renderable plot in the whole sample (mirrors the Jobs tab's batch select).
+  html += `<div class="rd-toolbar">
+    <button class="rd-tool-btn" onclick="toggleAllRdAnalyses('${escapeAttr(jobId)}')"
+            data-job="${escapeAttr(jobId)}">Expand all</button>`;
+  if (allRenderable.length) {
+    html += `<button class="rd-tool-btn rd-selall"
+                     onclick="selectAllRdPlots('${escapeAttr(jobId)}', ${plotsAttr(allRenderable)})"
+                     data-scope="run">Select all plots (${allRenderable.length})</button>`;
+  }
+  html += `</div>`;
+
+  Object.keys(byBucket).sort().forEach(bucket => {
+    const bucketPlots = byBucket[bucket];
+    const anyRenderable = bucketPlots.some(p => p.renderable);
+    const renderableInBucket = bucketPlots.filter(p => p.renderable).map(p => p.plot);
+
+    const bodyHtml = bucketPlots.map(p =>
+      rdPlotRow(detail, p, anyRenderable, jobId)).join('');
+
+    // Everything starts collapsed: a Full Analysis expands to a couple of
+    // dozen plots, and opening a sample should show its shape first rather
+    // than a wall of thumbnails. Use the toolbar or a header to expand.
+    const openClass = '';
+    const note = anyRenderable ? ''
+      : `<span class="rd-nostore-note">Plot data not stored — expand for key values only</span>`;
+    // Per-type "select all" for this analysis, when it has renderable plots.
+    const typeSelAll = renderableInBucket.length > 1
+      ? `<button class="rd-type-selall"
+                 onclick="event.stopPropagation(); selectAllRdPlots('${escapeAttr(jobId)}', ${plotsAttr(renderableInBucket)})">
+           Select all ${renderableInBucket.length}</button>`
+      : '';
+
+    html += `<div class="rd-analysis${openClass}" data-bucket="${escapeAttr(bucket)}">
+      <div class="rd-analysis-head collapsible" onclick="toggleRdAnalysis(this)">
+        <span class="rd-caret">▶</span>
+        <span>${escapeHtml(bucket)}</span>
+        <span class="rd-head-spacer"></span>
+        ${note}
+        ${typeSelAll}
+      </div>
+      <div class="rd-analysis-body">${bodyHtml}</div>
+    </div>`;
+  });
+
+  // Tier 1 summary block, if present.
+  const summary = detail.summary;
+  if (Array.isArray(summary) && summary.length) {
+    summary.forEach((row, i) => {
+      const label = row.Label || row.label || (`Row ${i + 1}`);
+      const entries = Object.entries(row).filter(([k]) => k !== 'Label' && k !== 'label');
+      if (!entries.length) return;
+      html += `<div class="rd-summary">
+        <div class="rd-summary-head">Summary — ${escapeHtml(String(label))}</div>
+        <div class="rd-summary-grid">${entries.map(([k, v]) =>
+          `<div><span class="k">${escapeHtml(k)}</span> `
+          + `<span class="v">${escapeHtml(fmtVal(v))}</span></div>`).join('')}
+        </div></div>`;
+    });
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// Encode a plot-name list for an inline onclick attribute safely.
+function plotsAttr(names) {
+  return "'" + encodeURIComponent(JSON.stringify(names)) + "'";
+}
+function plotsFromAttr(s) {
+  return JSON.parse(decodeURIComponent(s));
+}
+
+// One plot row. When the whole analysis has no stored sidecars, the redundant
+// "plot data not stored" thumbnail box is dropped — the analysis header already
+// says so — leaving just the plot's conditions and key values.
+function rdPlotRow(detail, p, bucketHasPlots, key) {
+  const condStr = Object.entries(p.conditions || {})
+    .map(([k, v]) => `${escapeHtml(k)} ${escapeHtml(fmtNum(v))}`).join(' · ');
+  const valStr = Object.entries(p.values || {}).map(([k, v]) =>
+    `<span class="rd-val">${escapeHtml(k)} <b>${escapeHtml(fmtVal(v))}</b></span>`
+  ).join('');
+
+  const runK = key || detail.job_id;
+  let thumb = '';
+  if (p.renderable) {
+    thumb = `<div class="rd-thumb" data-plot="${escapeAttr(p.plot)}"
+                  onclick="openHistoricalPlot('${escapeAttr(runK)}','${escapeAttr(p.plot)}')">
+               <span class="thumb-spin">loading…</span></div>`;
+  } else if (bucketHasPlots) {
+    // Mixed bucket: some plots renderable, this one not — keep the marker so
+    // the row lines up with its siblings.
+    thumb = `<div class="rd-thumb unrenderable" title="Sidecar not stored for this plot">
+               plot data<br>not stored</div>`;
+  }
+
+  const selKey = runK + '::' + p.plot;
+  const selBtn = p.renderable
+    ? `<button class="rd-select ${_viewCompareSel.has(selKey) ? 'on' : ''}"
+               data-selkey="${escapeAttr(selKey)}"
+               onclick="toggleViewCompare('${escapeAttr(runK)}','${escapeAttr(p.plot)}','${escapeAttr(detail.sample_name || '')}')">
+         ${_viewCompareSel.has(selKey) ? '✓ Selected' : 'Select to compare'}</button>`
+    : '';
+
+  return `<div class="rd-plot">
+    ${thumb}
+    <div class="rd-plot-body">
+      <div class="rd-plot-name">${escapeHtml(p.plot)}</div>
+      ${condStr ? `<div class="rd-conditions">${condStr}</div>` : ''}
+      <div class="rd-values">${valStr || '<span class="rd-val">—</span>'}</div>
+      ${selBtn}
+    </div>
+  </div>`;
+}
+
+function toggleRdAnalysis(headEl) {
+  headEl.parentElement.classList.toggle('open');
+  const dr = headEl.closest('tr.detail-row');
+  if (dr) hydrateThumbs(dr.dataset.job);
+}
+
+// Collapse or expand every analysis section in a run's detail. Toggles based on
+// current state, mirroring the Jobs tab's Collapse-All.
+function toggleAllRdAnalyses(jobId) {
+  const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(jobId)}"]`);
+  if (!dr) return;
+  const sections = dr.querySelectorAll('.rd-analysis');
+  const anyOpen = Array.from(sections).some(s => s.classList.contains('open'));
+  sections.forEach(s => s.classList.toggle('open', !anyOpen));
+  const btn = dr.querySelector(`.rd-tool-btn[data-job="${cssEscape(jobId)}"]`);
+  if (btn) btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+  if (!anyOpen) hydrateThumbs(jobId);
+}
+
+// Select (or deselect) every renderable plot in a scope — the whole run, or one
+// analysis type. Toggle-on style: if all are already selected, this deselects.
+function selectAllRdPlots(jobId, plotsEncoded) {
+  const plots = plotsFromAttr(plotsEncoded);
+  const detail = _detailCache[jobId] || {};
+  const sample = detail.sample_name || '';
+  const allSelected = plots.every(pl => _viewCompareSel.has(jobId + '::' + pl));
+
+  plots.forEach(pl => {
+    const key = jobId + '::' + pl;
+    if (allSelected) _viewCompareSel.delete(key);
+    else _viewCompareSel.set(key, { job_id: jobId, plot: pl, sample_name: sample });
+    // Reflect on the per-plot button if it's on screen.
+    const btn = document.querySelector(`.rd-select[data-selkey="${cssEscape(key)}"]`);
+    if (btn) {
+      const on = _viewCompareSel.has(key);
+      btn.classList.toggle('on', on);
+      btn.textContent = on ? '✓ Selected' : 'Select to compare';
+    }
+  });
+  updateViewCompareBar();
+}
+
+// Fetch each renderable plot's PNG and drop it into its thumbnail.
+async function hydrateThumbs(jobId) {
+  const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(jobId)}"]`);
+  if (!dr) return;
+  // Only visible sections: rendering is a server-side matplotlib call per plot,
+  // so a collapsed section must not trigger one.
+  const thumbs = dr.querySelectorAll('.rd-analysis.open .rd-thumb[data-plot]');
+  for (const el of thumbs) {
+    const plot = el.dataset.plot;
+    const key = jobId + '::' + plot;
+    try {
+      let url = _thumbUrls[key];
+      if (!url) {
+        const r = await fetch('/api/view/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: jobId, plot })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        url = URL.createObjectURL(await r.blob());
+        _thumbUrls[key] = url;
+      }
+      if (_openDetailJob !== jobId) return;  // collapsed mid-flight
+      el.innerHTML = `<img src="${url}" alt="${escapeAttr(plot)}">`;
+    } catch (e) {
+      el.classList.add('unrenderable');
+      el.innerHTML = 'render<br>failed';
+      el.onclick = null;
+    }
+  }
+}
+
+// Reuse the existing lightbox for a full-size historical plot.
+async function openHistoricalPlot(jobId, plot) {
+  const key = jobId + '::' + plot;
+  try {
+    let url = _thumbUrls[key];
+    if (!url) {
+      const r = await fetch('/api/view/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: jobId, plot })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      url = URL.createObjectURL(await r.blob());
+      _thumbUrls[key] = url;
+    }
+    openLightbox(url, plot);
+  } catch (e) {
+    console.error('historical plot render failed', e);
+  }
+}
+
+function fmtVal(v) {
+  // Handles {value, unit} objects, bare numbers, and strings.
+  if (v && typeof v === 'object' && 'value' in v) {
+    const n = fmtNum(v.value);
+    return v.unit ? `${n} ${v.unit}` : n;
+  }
+  return fmtNum(v);
+}
+
+// CSS.escape isn't universal in older engines; minimal fallback for our IDs.
+function cssEscape(s) {
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return String(s).replace(/["\\\]]/g, '\\$&');
+}
+
+// ── Historical comparison selection ─────────────
+// Parallel to the live compareSelections map, keyed "job_id::plot".
+const _viewCompareSel = new Map();  // key → {job_id, plot, sample_name}
+
+function toggleViewCompare(jobId, plot, sample) {
+  const key = jobId + '::' + plot;
+  if (_viewCompareSel.has(key)) _viewCompareSel.delete(key);
+  else _viewCompareSel.set(key, { job_id: jobId, plot, sample_name: sample });
+
+  // Reflect state on the button that was clicked.
+  const btn = document.querySelector(`.rd-select[data-selkey="${cssEscape(key)}"]`);
+  if (btn) {
+    const on = _viewCompareSel.has(key);
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? '✓ Selected' : 'Select to compare';
+  }
+  updateViewCompareBar();
+}
+
+function updateViewCompareBar() {
+  const bar = document.getElementById('viewCompareBar');
+  document.getElementById('vcbCount').textContent = _viewCompareSel.size;
+  bar.classList.toggle('show', _viewCompareSel.size > 0);
+  document.getElementById('vcbGo').disabled = _viewCompareSel.size < 2;
+}
+
+function clearViewCompare() {
+  _viewCompareSel.clear();
+  document.querySelectorAll('.rd-select.on').forEach(b => {
+    b.classList.remove('on');
+    b.textContent = 'Select to compare';
+  });
+  updateViewCompareBar();
+}
+
+// Reuse the existing compare modal in historical mode.
+let _compareMode = 'live';   // 'live' | 'historical'
+
+function openViewCompareModal() {
+  if (_viewCompareSel.size < 2) {
+    alert('Select at least 2 plots to compare.');
+    return;
+  }
+  _compareMode = 'historical';
+  const wrap = document.getElementById('compareSamples');
+  wrap.innerHTML = '';
+  _viewCompareSel.forEach((s, key) => {
+    const row = document.createElement('div');
+    row.className = 'sample-row';
+    row.dataset.key = key;
+    const placeholder = `auto: ${s.sample_name}…  (leave blank for clean default)`;
+    row.innerHTML = `
+      <span class="job-name">${esc(s.plot)}<br><span style="color:#bbb">${esc(s.sample_name)}</span></span>
+      <input type="text" value="" placeholder="${esc(placeholder)}">
+      <button class="remove-btn" onclick="removeViewCompareSample('${esc(key)}')">Remove</button>`;
+    wrap.appendChild(row);
+  });
+  document.getElementById('compareErr').style.display = 'none';
+  document.getElementById('compareModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function removeViewCompareSample(key) {
+  _viewCompareSel.delete(key);
+  const btn = document.querySelector(`.rd-select[data-selkey="${cssEscape(key)}"]`);
+  if (btn) { btn.classList.remove('on'); btn.textContent = 'Select to compare'; }
+  updateViewCompareBar();
+  if (_viewCompareSel.size < 2) closeCompareModal();
+  else openViewCompareModal();
+}
+
+async function submitViewComparison(groupingMode) {
+  const errEl = document.getElementById('compareErr');
+  errEl.style.display = 'none';
+
+  const selections = [];
+  document.querySelectorAll('#compareSamples .sample-row').forEach(row => {
+    const sel = _viewCompareSel.get(row.dataset.key);
+    if (!sel) return;
+    selections.push({
+      key: sel.job_id,
+      plot: sel.plot,
+      label: row.querySelector('input[type=text]').value.trim(),
+    });
+  });
+  if (selections.length < 2) {
+    errEl.textContent = 'Need at least 2 sources.';
+    errEl.className = 'err'; errEl.style.display = 'block';
+    return;
+  }
+
+  const title = document.getElementById('compareTitle').value.trim();
+  const btnAll = document.getElementById('compareGoBtnAll');
+  const btnCond = document.getElementById('compareGoBtnConditions');
+  if (btnAll) btnAll.disabled = true;
+  if (btnCond) btnCond.disabled = true;
+
+  try {
+    const r = await fetch('/api/view/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selections, title, grouping_mode: groupingMode, image_format: 'png' })
+    });
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    const d = await r.json();
+    // Clear selection and surface the job before rendering, so a rendering
+    // hiccup can't strand the modal open or leave selections behind. The
+    // comparison result lands in the Jobs list (fork B).
+    clearViewCompare();
+    closeCompareModal();
+    switchTab('analysis');
+    try { saveJobId(d.job_id); } catch (_) { /* persistence optional */ }
+    renderJob(d.job_id, {
+      status: 'running',
+      message: `Generating historical comparison from ${d.n_sources} plots...`,
+      script: 'Plot Comparison',
+      input_files: selections.map(s => `${s.label || s.plot}`),
+    });
+    pollJob(d.job_id);
+  } catch (e) {
+    errEl.textContent = 'Comparison failed: ' + (e.message || e);
+    errEl.className = 'err'; errEl.style.display = 'block';
+  } finally {
+    if (btnAll) btnAll.disabled = false;
+    if (btnCond) btnCond.disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+// ── Trends ──────────────────────────────────────
+// Units for the whitelisted key_values, mirroring record.py KEY_VALUE_UNITS.
+const KV_UNITS = {
+  'OCV': 'V', 'V @ 1 A/cm²': 'V', 'HFR': 'Ω·cm²',
+  '|j_xover|': 'mA/cm²', 'Average ECSA': 'm²/g',
+  'j @ 0.7 V': 'A/cm²', 'j @ 0.65 V': 'A/cm²', 'j @ 0.6 V': 'A/cm²',
+  'j @ 0.5 V': 'A/cm²', 'j @ 0.4 V': 'A/cm²',
+};
+// Distinct hues legible on both dark and light backgrounds.
+const TREND_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+                      '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+
+function availableMetrics(runs) {
+  const set = new Set();
+  runs.forEach(r => (r.Data || []).forEach(d =>
+    Object.keys(d.key_values || {}).forEach(k => set.add(k))));
+  // Present whitelisted metrics in a stable, sensible order first.
+  const known = ['OCV', 'V @ 1 A/cm²',
+                 'j @ 0.7 V', 'j @ 0.65 V', 'j @ 0.6 V', 'j @ 0.5 V', 'j @ 0.4 V',
+                 'HFR', '|j_xover|', 'Average ECSA'];
+  const ordered = known.filter(k => set.has(k));
+  Array.from(set).sort().forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+  return ordered;
+}
+
+function populateMetricPicker() {
+  const sel = document.getElementById('vf-metric');
+  const keep = sel.value;
+  const metrics = availableMetrics(_viewRuns);
+  sel.innerHTML = '<option value="">Select a metric…</option>'
+    + metrics.map(m => `<option value="${escapeAttr(m)}">${escapeHtml(m)}</option>`).join('');
+  // Preserve selection if still available, else default to the first metric.
+  if (metrics.includes(keep)) sel.value = keep;
+  else if (metrics.length && !keep) sel.value = metrics[0];
+}
+
+// Extract (time, value, sample, step, analysis) points for a metric from the
+// currently-filtered rows.
+function trendPoints(rows, metric) {
+  const pts = [];
+  rows.forEach(r => {
+    // Experiment date where known. Plotting against the analysis timestamp
+    // bunches everything at whenever the batch happened to be processed.
+    const iso = r.run_date || r.timestamp || '';
+    const t = Date.parse(iso);
+    if (isNaN(t)) return;
+    (r.Data || []).forEach(d => {
+      const kv = d.key_values || {};
+      if (metric in kv && typeof kv[metric] === 'number') {
+        pts.push({ t, v: kv[metric], sample: r.sample_name || '—',
+                   step: d.step || '', analysis: d.Analysis || '',
+                   dated: !!r.run_date });
+      }
+    });
+  });
+  return pts;
+}
+
+function updateTrend() {
+  const metric = document.getElementById('vf-metric').value;
+  const host = document.getElementById('trendHost');
+  if (!metric) {
+    host.innerHTML = '<div class="empty">Pick a metric to plot it across runs over time</div>';
+    return;
+  }
+  const pts = trendPoints(_currentViewRows(), metric);
+  if (!pts.length) {
+    host.innerHTML = `<div class="empty">No runs in the current filter have "${escapeHtml(metric)}"</div>`;
+    return;
+  }
+  host.innerHTML = drawTrendChart(pts, metric);
+}
+
+// Rows currently shown in the table, so the trend tracks the filter bar.
+let _lastViewRows = [];
+function _currentViewRows() { return _lastViewRows; }
+
+function drawTrendChart(pts, metric) {
+  const W = 720, H = 320;
+  const m = { l: 58, r: 14, t: 14, b: 42 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const unit = KV_UNITS[metric] || '';
+
+  const ts = pts.map(p => p.t);
+  let tMin = Math.min(...ts), tMax = Math.max(...ts);
+  const vs = pts.map(p => p.v);
+  let vMin = Math.min(...vs), vMax = Math.max(...vs);
+
+  // Pad ranges; guard degenerate (single point / identical values).
+  if (tMin === tMax) { tMin -= 86400000; tMax += 86400000; }
+  const vPad = (vMax - vMin) || Math.max(Math.abs(vMax) * 0.1, 1e-6);
+  vMin -= vPad * 0.12; vMax += vPad * 0.12;
+
+  const xOf = t => m.l + (t - tMin) / (tMax - tMin) * iw;
+  const yOf = v => m.t + (1 - (v - vMin) / (vMax - vMin)) * ih;
+
+  // Colour per sample.
+  const samples = Array.from(new Set(pts.map(p => p.sample)));
+  const colorOf = {};
+  samples.forEach((s, i) => { colorOf[s] = TREND_COLORS[i % TREND_COLORS.length]; });
+
+  // Axes.
+  let svg = `<svg class="trend-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  svg += `<line class="axis" x1="${m.l}" y1="${m.t}" x2="${m.l}" y2="${m.t + ih}"/>`;
+  svg += `<line class="axis" x1="${m.l}" y1="${m.t + ih}" x2="${m.l + iw}" y2="${m.t + ih}"/>`;
+
+  // Y ticks.
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = vMin + (vMax - vMin) * i / yTicks;
+    const y = yOf(v);
+    svg += `<line class="grid" x1="${m.l}" y1="${y}" x2="${m.l + iw}" y2="${y}"/>`;
+    svg += `<text class="tick-label" x="${m.l - 6}" y="${y + 3}" text-anchor="end">${escapeHtml(fmtNum(v))}</text>`;
+  }
+  // X ticks (dates).
+  const xTicks = Math.min(5, Math.max(2, samples.length + 1));
+  for (let i = 0; i <= xTicks; i++) {
+    const t = tMin + (tMax - tMin) * i / xTicks;
+    const x = xOf(t);
+    const d = new Date(t);
+    const lbl = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    svg += `<text class="tick-label" x="${x}" y="${m.t + ih + 16}" text-anchor="middle">${lbl}</text>`;
+  }
+  // Y axis title.
+  const yTitle = unit ? `${metric} (${unit})` : metric;
+  svg += `<text class="axis-title" transform="translate(14,${m.t + ih/2}) rotate(-90)" text-anchor="middle">${escapeHtml(yTitle)}</text>`;
+
+  // Lines per sample (only where a sample has 2+ points), sorted by time.
+  samples.forEach(s => {
+    const sp = pts.filter(p => p.sample === s).sort((a, b) => a.t - b.t);
+    if (sp.length < 2) return;
+    const path = sp.map(p => `${xOf(p.t)},${yOf(p.v)}`).join(' ');
+    svg += `<polyline points="${path}" fill="none" stroke="${colorOf[s]}" stroke-width="1.5" opacity="0.7"/>`;
+  });
+
+  // Points, with a native tooltip.
+  pts.forEach(p => {
+    const d = new Date(p.t);
+    const tstr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+    const stepStr = p.step ? ` (${p.step})` : '';
+    const when = p.dated ? `run ${tstr.slice(0, 10)}`
+                         : `analysed ${tstr} (no run date)`;
+    const tip = `${p.sample}${stepStr}\n${metric} = ${fmtNum(p.v)}${unit ? ' ' + unit : ''}\n${when}`;
+    svg += `<circle class="pt" cx="${xOf(p.t)}" cy="${yOf(p.v)}" r="3.6" fill="${colorOf[p.sample]}"><title>${escapeHtml(tip)}</title></circle>`;
+  });
+
+  svg += '</svg>';
+
+  // Legend.
+  const legend = samples.map(s =>
+    `<span class="lg"><span class="sw" style="background:${colorOf[s]}"></span>${escapeHtml(s)}</span>`
+  ).join('');
+  return svg + `<div class="trend-legend">${legend}</div>`;
+}
 
 // Cache of last-known job data, keyed by job ID. Used so collapse toggles
 // can re-render without needing a fresh poll fetch.
@@ -2565,6 +3782,7 @@ function openCompareModal() {
     alert('Select at least 2 plots to compare.');
     return;
   }
+  _compareMode = 'live';
   const wrap = document.getElementById('compareSamples');
   wrap.innerHTML = '';
   compareSelections.forEach((s, key) => {
@@ -2627,6 +3845,11 @@ function removeCompareSample(key) {
 
 async function submitComparison(groupingMode) {
   groupingMode = groupingMode || 'plot_type';
+  // Historical selections route through the view-compare endpoint, which
+  // stages their sidecars before running the same comparison script.
+  if (_compareMode === 'historical') {
+    return submitViewComparison(groupingMode);
+  }
   const errEl = document.getElementById('compareErr');
   errEl.style.display = 'none';
 
