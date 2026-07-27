@@ -207,6 +207,19 @@ def _friendly_plot_type(plot_type):
         'ir_correction': 'iR Correction',
         'CLR_analysis': 'Catalyst Layer Resistance',
         'CLR_model_fit': 'CLR Model Fit',
+        'elx_polcurve': 'Electrolyzer Polarization Curve',
+        'elx_polcurve_overlay': 'Electrolyzer Polarization Curve Overlay',
+        'elx_losses_vs_cycle': 'Electrolyzer Losses vs Cycle',
+        'elx_j_vs_cycle': 'Electrolyzer Current Density vs Cycle',
+        'elx_v_vs_cycle': 'Electrolyzer Voltage vs Cycle',
+        'elx_v_and_losses_vs_cycle': 'Electrolyzer Voltage & Losses vs Cycle',
+        'elx_j_and_losses_vs_cycle': 'Electrolyzer Current & Losses vs Cycle',
+        'elx_ir_correction': 'Electrolyzer iR Correction',
+        'elx_model_fit': 'Electrolyzer Model Fit',
+        'elx_eis_fit': 'Electrolyzer EIS Fit',
+        'elx_eis_for_ir': 'Electrolyzer EIS (for iR Correction)',
+        'elx_eis_losses_vs_cycle': 'Electrolyzer EIS Losses vs Cycle',
+        'elx_nyquist': 'Electrolyzer Nyquist',
         'durability_voltage': 'Durability — Voltage vs Time',
         'durability_hfr': 'Durability — HFR vs Time',
         'durability_degradation': 'Durability — Degradation Rate',
@@ -528,6 +541,8 @@ def _plot_type_to_subfolder(plot_type):
         return 'activation'
     if pt.startswith('crossover') or 'h2x' in pt:
         return 'crossover'
+    if pt.startswith('elx'):
+        return 'elx_eis' if ('eis' in pt or 'nyquist' in pt) else 'elx_polcurve'
     if pt.startswith('eis') or pt.startswith('nyquist'):
         return 'eis'
     if pt.startswith('ecsa'):
