@@ -18,6 +18,47 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scripts.helpers.plot_compare import save_with_sidecar
+
+# The step this run belongs to, declared into every sidecar. None of this
+# script's output filenames encode one ('polcurve.png', 'model_fit.png'), so
+# without an explicit stamp every plot lands in the (bucket, '') merge unit and
+# a second cell analysed under the same sample name replaces the first.
+#
+# Module-level rather than threaded through fifteen plot signatures: the pool
+# runs one job per worker process (max_tasks_per_child=1), so there is exactly
+# one analysis in flight per interpreter. analyze() sets it on entry.
+_STEP_CTX = {'step': None}
+
+
+def _readout(ax, lines, loc='lower right'):
+    """Draw a 'key = value' readout box.
+
+    Anything not in a box like this — or in a labelled axhline/axvline — is
+    invisible to the JSON record and to the comparison Excel, however
+    prominently it appears in a title or a legend.
+    """
+    lines = [ln for ln in (lines or []) if ln]
+    if not lines:
+        return
+    x, y, ha, va = {
+        'upper left':  (0.03, 0.97, 'left',  'top'),
+        'upper right': (0.97, 0.97, 'right', 'top'),
+        'lower left':  (0.03, 0.03, 'left',  'bottom'),
+        'lower right': (0.97, 0.03, 'right', 'bottom'),
+    }[loc]
+    ax.text(x, y, '\n'.join(lines), transform=ax.transAxes,
+            ha=ha, va=va, fontsize=8.5, zorder=5,
+            bbox=dict(boxstyle='round,pad=0.4', fc='lightyellow', alpha=0.9))
+
+
+def _save(fig, save_path, plot_type=None, **kw):
+    """save_with_sidecar with this run's step declared in the sidecar."""
+    step = _STEP_CTX.get('step')
+    if step:
+        md = dict(kw.pop('metadata', None) or {})
+        md['conditions'] = {**(md.get('conditions') or {}), 'step': step}
+        kw['metadata'] = md
+    return save_with_sidecar(fig, save_path, plot_type=plot_type, **kw)
 from pathlib import Path
 
 
@@ -74,11 +115,13 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     image_ext = img_ext_from_params(p)
 
     try:
-        analyze(polcurve_file, geo_area=geo_area, save_dir=str(out),
-                title=Path(polcurve_file).stem, T_C=T_C,
-                p_cathode_barg=p_cath, p_anode_barg=p_an,
-                eis_files=eis_files if eis_files else None,
-                eis_ref_voltage=eis_ref_v, image_ext=image_ext)
+        _res = analyze(polcurve_file, geo_area=geo_area, save_dir=str(out),
+                       title=Path(polcurve_file).stem, T_C=T_C,
+                       p_cathode_barg=p_cath, p_anode_barg=p_an,
+                       eis_files=eis_files if eis_files else None,
+                       eis_ref_voltage=eis_ref_v, image_ext=image_ext,
+                       step=cell_id)
+        summary = _res[3] if _res and len(_res) > 3 else []
         plt.close('all')
     except Exception as e:
         raise RuntimeError(
@@ -104,6 +147,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         "polcurve_file": Path(polcurve_file).name,
         "eis_files": len(eis_files),
         "files_produced": output_files,
+        "summary": summary,
     }
 
 
@@ -790,7 +834,11 @@ def plot_cycles(cycles, geo_area, title=None, save_path=None):
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='polcurve', bbox_inches='tight')
+        _readout(ax, [f"{k.replace('V_at_', 'V @ ').replace('Acm2', ' A/cm²')}"
+                      f" = {v:.4f} V"
+                      for k, v in voltage_at_currents(cycles[-1]).items()]
+                 if cycles else [], loc='lower right')
+        _save(fig, save_path, plot_type='elx_polcurve', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
 
         # Write sidecar JSON for comparison feature
@@ -1084,7 +1132,7 @@ def plot_j_vs_cycle(cycles, v_targets, save_path=None):
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_j_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -1147,7 +1195,7 @@ def plot_v_vs_cycle(cycles, j_targets, save_path=None):
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_v_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -1208,7 +1256,7 @@ def plot_v_and_hfr_vs_cycle(cycles, j_targets, eis_mapped, save_path=None):
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='losses_vs_cycle', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_losses_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -1454,7 +1502,7 @@ def plot_v_and_losses_vs_cycle(cycle_nums, v_values, losses,
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_v_and_losses_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -1517,7 +1565,7 @@ def plot_eis_losses_vs_cycle(cycle_nums, dep_values, losses,
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_eis_losses_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -2384,7 +2432,7 @@ def plot_eis_fit(eis, fit_result, geo_area=5.0, title=None, save_path=None):
     plt.subplots_adjust(left=0.08, right=0.95, top=0.90, bottom=0.12,
                         wspace=0.35, hspace=0.35)
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='eis_fit', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_eis_fit', bbox_inches='tight')
         print(f"    Plot saved: {save_path}")
     else:
         plt.show()
@@ -2416,7 +2464,7 @@ def plot_nyquist(eis, hfr_result, geo_area=5.0, save_path=None):
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='nyquist', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_nyquist', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -2496,7 +2544,7 @@ def plot_eis_for_ir_correction(eis_at_j, geo_area=5.0, cycle_num=None,
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='eis_for_ir', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_eis_for_ir', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -2704,7 +2752,7 @@ def plot_j_and_hfr_vs_cycle(cycles, v_targets, eis_mapped, save_path=None):
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='j_vs_cycle', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_j_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -2900,7 +2948,7 @@ def plot_ir_correction(j_pol, V_pol, V_irfree, j_hfr, asr_hfr, asr_interp,
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='ir_correction', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_ir_correction', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3244,7 +3292,7 @@ def plot_coth_analysis(coth_result, tafel_result, eis_fits, cycle_num=None,
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='CLR_analysis', bbox_inches='tight')
+        _save(fig, save_path, plot_type='CLR_analysis', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3369,7 +3417,7 @@ def plot_coth_model_fit(coth_result, tafel_result, cycle_num=None,
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='CLR_model_fit', bbox_inches='tight')
+        _save(fig, save_path, plot_type='CLR_model_fit', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3598,7 +3646,16 @@ def plot_fit(fr, save_path=None):
 
     plt.tight_layout()
     if save_path:
-        save_with_sidecar(fig, save_path, plot_type='model_fit', bbox_inches='tight')
+        _xf = fr.get('x')
+        _lines = [f"E_rev = {fr['E_rev']:.4f} V",
+                  f"Fit RMSE = {fr['rmse_mV']:.2f} mV"]
+        if _xf is not None and len(_xf) >= 3 and _xf[2] > 0:
+            _lines.insert(0, f"ASR_total = {_xf[0]:.1f} mΩ·cm²")
+            _lines.insert(1, "Tafel slope (anode) = "
+                             f"{(_R * fr['T_K']) / (_xf[2] * _n_e * _F) * 1000:.1f}"
+                             " mV/dec")
+        _readout(ax2, _lines, loc='lower right')
+        _save(fig, save_path, plot_type='elx_model_fit', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3784,7 +3841,7 @@ def plot_j_and_losses_vs_cycle(cycle_nums, j_values, losses,
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        save_with_sidecar(fig, save_path, bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_j_and_losses_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3795,10 +3852,79 @@ def plot_j_and_losses_vs_cycle(cycle_nums, j_values, losses,
 #  Main pipeline
 # ═══════════════════════════════════════════════════════════════════
 
+def voltage_at_currents(cycle, targets=(1.0, 2.0)):
+    """Cell voltage at fixed current densities, from the measured sweep.
+
+    Returns {'V_at_1Acm2': ..., 'V_at_2Acm2': ...} for the targets the cycle
+    actually spans. Targets outside the measured range are omitted rather than
+    extrapolated — a sweep that stops at 1.6 A/cm² has no voltage at 2 A/cm²,
+    and inventing one would put a fabricated number into a reported metric.
+    A missing key means "not measured", never "estimated".
+    """
+    out = {}
+    if not cycle:
+        return out
+    j = np.array([d['j'] for d in cycle], dtype=float)
+    V = np.array([d['V'] for d in cycle], dtype=float)
+    if j.size < 2:
+        return out
+    order = np.argsort(j)
+    js, Vs = j[order], V[order]
+    for tj in targets:
+        if tj < js[0] or tj > js[-1]:
+            continue
+        out[f'V_at_{tj:g}Acm2'] = float(np.interp(tj, js, Vs))
+    return out
+
+
+def build_summary(cycles, fr, eis_fit_results=None):
+    """Tier 1 scalars for one electrolyzer polcurve run.
+
+    Two rows at most: one for the polarization sweep and its model fit, one for
+    the impedance fit. They are tagged with their buckets so the record layer
+    can attach each to the right analysis unit instead of flattening both into
+    whichever it sees first.
+
+    Voltages come from the last cycle — the same one fit_polcurve was given —
+    so the measured and fitted numbers describe the same sweep.
+    """
+    rows = []
+
+    pol = {'Analysis': 'elx_polcurve'}
+    if cycles:
+        pol.update(voltage_at_currents(cycles[-1]))
+    if fr:
+        xf = fr.get('x')
+        pol['E_rev'] = float(fr['E_rev'])
+        pol['Fit RMSE'] = float(fr['rmse_mV'])
+        if xf is not None and len(xf) >= 3:
+            pol['ASR_total'] = float(xf[0])
+            alpha_a = float(xf[2])
+            if alpha_a > 0:
+                # b = RT / (alpha * n * F), reported in mV/decade.
+                pol['Tafel slope (anode)'] = float(
+                    (_R * fr['T_K']) / (alpha_a * _n_e * _F) * 1000.0)
+    if len(pol) > 1:
+        rows.append(pol)
+
+    if eis_fit_results:
+        last = eis_fit_results[-1]
+        r0 = last.get('R0_asr')
+        if isinstance(r0, (int, float)):
+            # R0 is the series (ohmic) resistance — the impedance-side HFR.
+            # Converted from mΩ·cm² to the shared 'HFR' key's Ω·cm².
+            rows.append({'Analysis': 'elx_eis', 'HFR': float(r0) / 1000.0,
+                         'R0_asr_mohm_cm2': float(r0)})
+
+    return rows
+
+
 def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             T_C=80.0, p_cathode_barg=0.0, p_anode_barg=0.0,
-            eis_files=None, eis_ref_voltage=None, image_ext='png'):
+            eis_files=None, eis_ref_voltage=None, image_ext='png',
+            step=None):
     """Full pipeline: load → extract → cycles → EIS → plot → fit."""
+    _STEP_CTX['step'] = (str(step).strip().lower() or None) if step else None
 
     # Load polcurve
     data, fieldnames = load_data(filepath)
@@ -3856,7 +3982,7 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
 
     if not dwells:
         print("  ERROR: No valid dwells found.")
-        return None, None, None
+        return None, None, None, []
 
     # Free raw data — no longer needed after dwell extraction
     del data
@@ -4362,7 +4488,8 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                      eis_loss_data=eis_loss_data,
                      coth_results=coth_results if coth_results else None)
 
-    return cycles, fr, eis_mapped
+    summary = build_summary(cycles, fr, eis_fit_results)
+    return cycles, fr, eis_mapped, summary
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -4487,7 +4614,7 @@ def main():
     analyze(fp, geo_area=geo_area, save_dir=save, title=title,
             T_C=T_C, p_cathode_barg=p_cath, p_anode_barg=p_an,
             eis_files=eis_fps if eis_fps else None,
-            eis_ref_voltage=eis_ref_v)
+            eis_ref_voltage=eis_ref_v, step=args.cell_id)
 
 
 if __name__ == '__main__':
