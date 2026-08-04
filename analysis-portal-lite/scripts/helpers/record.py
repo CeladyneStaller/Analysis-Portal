@@ -374,6 +374,40 @@ def parse_stand(input_files: Optional[List[str]]) -> Optional[str]:
     return None
 
 
+def json_safe(value: Any) -> Any:
+    """Coerce a structure into something that is valid JSON.
+
+    Non-finite numbers become None and numpy scalars become their Python
+    equivalents. JSON has no NaN or Infinity: emitting them produces a literal
+    no browser will parse, and refusing to emit them would throw away an entire
+    run over one failed fit. Nulling the offending value keeps the key visible
+    and everything around it intact.
+    """
+    if isinstance(value, dict):
+        return {str(k): json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, int):
+        return value
+    item = getattr(value, 'item', None)
+    if callable(item):
+        try:
+            return json_safe(item())
+        except Exception:
+            pass
+    tolist = getattr(value, 'tolist', None)
+    if callable(tolist):
+        try:
+            return json_safe(tolist())
+        except Exception:
+            pass
+    return str(value)
+
+
 def _strip_extension(basename: str) -> str:
     return _EXT_RE.sub('', basename)
 
@@ -438,16 +472,6 @@ def plot_bucket(plot_type: str) -> str:
         return 'cleaning'
     if pt.startswith('crossover') or 'h2x' in pt:
         return 'crossover'
-    # Electrolyzer plots carry their own buckets. Both benches produce a
-    # polarization sweep and an impedance spectrum, and without this an
-    # electrolyzer run would share the (polcurve, step) merge unit with a fuel
-    # cell run on the same sample — each silently replacing the other.
-    # Checked ahead of the generic prefixes because 'elx_eis_fit' would
-    # otherwise never reach here.
-    if pt.startswith('elx'):
-        if 'eis' in pt or 'nyquist' in pt:
-            return 'elx_eis'
-        return 'elx_polcurve'
     if pt.startswith('eis') or pt.startswith('nyquist'):
         return 'eis'
     if pt.startswith('ecsa'):
@@ -496,38 +520,6 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
         ('Average ECSA', ['Average ECSA', 'average_ECSA_m2_per_g',
                           'Avg ECSA (m2/g)']),
     ],
-    # Electrolyzer durability. Distinct canonical names throughout: these are
-    # quantities the fuel-cell buckets do not report, so nothing is shared and
-    # nothing can blend. HFR_initial/HFR_final stay in mΩ·cm², the unit the
-    # script and its plots use natively — converting to the 'HFR' key's
-    # Ω·cm² would be a silent rescale of a differently-named metric.
-    # Electrolyzer polarization curve. 'V @ 1 A/cm²' deliberately reuses the
-    # fuel-cell canonical name: it is the same physical quantity, and the
-    # bucket already separates the two contexts for any consumer keying on
-    # (Analysis, name). The remaining names are electrolyzer-only.
-    'elx_polcurve': [
-        ('V @ 1 A/cm²', ['V @ 1 A/cm²', 'V_at_1Acm2', 'V at 1 A/cm2']),
-        ('V @ 2 A/cm²', ['V @ 2 A/cm²', 'V_at_2Acm2', 'V at 2 A/cm2']),
-        ('ASR_total', ['ASR_total', 'ASR_total (mOhm.cm2)', 'ASR total']),
-        ('E_rev', ['E_rev', 'E_rev (V)']),
-        ('Tafel slope (anode)', ['Tafel slope (anode)', 'tafel_anode_mVdec',
-                                 'Anode Tafel slope']),
-        ('Fit RMSE', ['Fit RMSE', 'rmse_mV', 'RMSE']),
-    ],
-    # HFR shares the fuel-cell canonical name and therefore its Ω·cm² unit;
-    # the script reports mΩ·cm² natively and run() converts.
-    'elx_eis': [
-        ('HFR', ['HFR', 'HFR (Ohm.cm2)', 'R0_ohm_cm2']),
-    ],
-    'durability': [
-        ('Degradation rate', ['Degradation rate', 'rate_uV_hr',
-                              'Degradation rate (uV/hr)']),
-        ('V_initial', ['V_initial', 'V initial']),
-        ('V_final', ['V_final', 'V final']),
-        ('HFR_initial', ['HFR_initial', 'HFR initial']),
-        ('HFR_final', ['HFR_final', 'HFR final']),
-        ('Duration', ['Duration', 'duration_hr', 'Duration (hr)']),
-    ],
 }
 
 # Units are implied per canonical key; the {value, unit} form lives in the
@@ -543,29 +535,26 @@ KEY_VALUE_UNITS = {
     'HFR': 'Ω·cm²',
     '|j_xover|': 'mA/cm²',
     'Average ECSA': 'm²/g',
-    'V @ 2 A/cm²': 'V',
-    'ASR_total': 'mΩ·cm²',
-    'E_rev': 'V',
-    'Tafel slope (anode)': 'mV/dec',
-    'Fit RMSE': 'mV',
-    'Degradation rate': 'μV/hr',
-    'V_initial': 'V',
-    'V_final': 'V',
-    'HFR_initial': 'mΩ·cm²',
-    'HFR_final': 'mΩ·cm²',
-    'Duration': 'hr',
 }
 
 
 def _scalar(v: Any) -> Optional[float]:
-    """Reduce a metric value to a bare number, or None if it isn't numeric."""
+    """Reduce a metric value to a bare number, or None if it isn't usable.
+
+    Non-finite values are rejected rather than promoted. A NaN is not a
+    measurement, and carrying one into the index would break every consumer:
+    JSON has no representation for it, so it renders as an invalid literal
+    that a browser refuses to parse.
+    """
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return float(v)
-    if isinstance(v, dict) and isinstance(v.get('value'), (int, float)):
-        return float(v['value'])
-    return None
+        n = float(v)
+    elif isinstance(v, dict) and isinstance(v.get('value'), (int, float)):
+        n = float(v['value'])
+    else:
+        return None
+    return n if math.isfinite(n) else None
 
 
 def _rows_for_unit(summary: Optional[Any], bucket: str,
@@ -751,14 +740,6 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
     for plot_name, sidecar in sidecars.items():
         bucket = plot_bucket(sidecar.get('plot_type', 'unknown'))
         conditions = parse_conditions(plot_name)
-        # A script that knows its own conditions can declare them, which is the
-        # only option when the output filename encodes none — the electrolyzer
-        # scripts write 'model_fit.png', not '..._a1_model_fit.png'. Declared
-        # values win over the filename guess because the script is the
-        # authority on what it just measured.
-        declared = (sidecar.get('metadata') or {}).get('conditions')
-        if isinstance(declared, dict) and declared:
-            conditions = {**conditions, **declared}
         values = extract_values(sidecar)
         metrics.setdefault(bucket, {})[plot_name] = {
             'conditions': conditions,
