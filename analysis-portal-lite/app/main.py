@@ -109,6 +109,7 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
         'ocv': 'OCV',
         'durability': 'Durability',
         'activation': 'Activation',
+        'cleaning': 'Electrode Cleaning',
         'CLR': 'Catalyst Layer Resistance',
     }
 
@@ -362,9 +363,8 @@ async def view_render(payload: dict):
         written = viewstore.materialize_sidecars(key, render_dir, plots=[plot])
         if not written:
             raise HTTPException(
-                404, f"plot {plot!r} has no stored sidecar — it was excluded "
-                     f"by configuration or did not fit the transport limit. "
-                     f"Its metrics remain available.")
+                404, f"plot {plot!r} has no stored sidecar (cleaning plots are "
+                     f"not stored; its metrics remain available)")
         sidecar_path = render_dir / '_plot_data' / f'{plot}.json'
         item = {'label': plot, 'sidecar': load_sidecar(str(sidecar_path)),
                 'filename': f'{plot}.png'}
@@ -421,8 +421,8 @@ async def view_compare(payload: dict):
     if len(sources) < 2:
         shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
         raise HTTPException(
-            400, "fewer than two selections had stored sidecars — a plot "
-                 "without one cannot be compared from history")
+            400, "fewer than two selections had stored sidecars — cleaning "
+                 "plots cannot be compared from history")
 
     samples = []
     for s in sources:
@@ -715,10 +715,54 @@ async def compare_jobs(
             "n_sources": len(validated_sources)}
 
 
+def _json_safe(value):
+    """Coerce a value into something FastAPI can actually serialise.
+
+    Starlette renders responses with json.dumps(allow_nan=False), so a single
+    NaN or infinity anywhere in a job record raises and the whole request comes
+    back as a 500 — even though the endpoint itself did nothing wrong. Analyses
+    legitimately produce non-finite numbers (an empty mean, a Tafel fit that
+    did not converge, a division by zero), and numpy scalars other than float64
+    are not serialisable either.
+
+    Non-finite numbers become null rather than being dropped: the key stays
+    visible so a consumer can tell the difference between "not computed" and
+    "not applicable".
+    """
+    import math as _math
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return value if _math.isfinite(value) else None
+    if isinstance(value, int):
+        return value
+    if value is None or isinstance(value, str):
+        return value
+    # numpy scalars and anything else exotic: take the plain Python value if
+    # one is offered, else fall back to a string so the response still renders.
+    item = getattr(value, 'item', None)
+    if callable(item):
+        try:
+            return _json_safe(item())
+        except Exception:
+            pass
+    tolist = getattr(value, 'tolist', None)
+    if callable(tolist):
+        try:
+            return _json_safe(tolist())
+        except Exception:
+            pass
+    return str(value)
+
+
 @app.get("/api/jobs")
 async def all_jobs():
     with jobs_lock:
-        return {"jobs": list(jobs.values())}
+        return _json_safe({"jobs": list(jobs.values())})
 
 
 @app.get("/api/jobs/{job_id}")
@@ -726,7 +770,7 @@ async def job_status(job_id: str):
     with jobs_lock:
         if job_id not in jobs:
             raise HTTPException(404, "Job not found")
-        return jobs[job_id]
+        return _json_safe(jobs[job_id])
 
 
 @app.get("/api/download/{job_id}/{filepath:path}")
