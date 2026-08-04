@@ -54,6 +54,7 @@ from scripts.helpers.record import (
     decode_sidecars,
     detail_bin_name,
     is_comparison_script,
+    json_safe,
     load_sidecars,
     merge_detail_record,
     merge_index_entry,
@@ -178,7 +179,13 @@ def _request(url: str, method: str = 'GET',
     headers = _base_headers()
     if extra_headers:
         headers.update(extra_headers)
-    data = json.dumps(body).encode('utf-8') if body is not None else None
+    # Sanitise first, then assert with allow_nan=False. json.dumps would
+    # otherwise emit bare NaN/Infinity literals, which are not valid JSON and
+    # would store something no browser can parse back. Sanitising rather than
+    # raising means one failed fit nulls a single field instead of costing the
+    # whole run; the strict flag is a backstop that should now never fire.
+    data = (json.dumps(json_safe(body), allow_nan=False).encode('utf-8')
+            if body is not None else None)
 
     last_err: Optional[Exception] = None
     for attempt in range(_MAX_RETRIES):
