@@ -16,6 +16,7 @@ Usage:
   python fuelcell_analysis.py --folder /path/to/data --save-dir results
 """
 
+import math
 import os, sys, glob, argparse, time
 import matplotlib
 matplotlib.use("Agg")
@@ -35,6 +36,8 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             ocv_interval_s=float(p.get('interval_s', 60.0)),
             activation_interval_s=float(p.get('activation_interval_s',
                                               p.get('interval_s', 60.0))),
+            cleaning_scan_rate=float(p.get('cleaning_scan_rate',
+                                            p.get('scan_rate', 0.5))),
             image_ext=image_ext)
 
     from pathlib import Path
@@ -71,7 +74,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
 
 
 # Voltages at which polcurve current density is reported. Kept in step with
-# J_AT_V_TARGETS in polcurve_analysis.py.
+# J_AT_V_TARGETS in the polcurve scripts.
 _J_AT_V_TARGETS = (0.7, 0.65, 0.6, 0.5, 0.4)
 
 # Scalar keys worth carrying per analysis bucket, mirroring what the standalone
@@ -88,6 +91,17 @@ _SUMMARY_KEYS = {
                   'K_H2_mol_cm_s_Pa', 'j_avg_mean_mA_cm2',
                   'membrane_thickness_um', 'geo_area'),
 }
+
+
+def _finite(v):
+    """True for a real, JSON-representable number.
+
+    NaN and infinity are floats and pass an isinstance check, but JSON cannot
+    encode them: FastAPI renders with allow_nan=False, so one of them anywhere
+    in a job record turns /api/jobs/<id> into a 500.
+    """
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(v))
 
 
 def _build_summary(info):
@@ -112,13 +126,13 @@ def _build_summary(info):
                    'Analysis': bucket}
             for k in keys:
                 v = r.get(k)
-                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if _finite(v):
                     row[k] = float(v)
             if bucket == 'polcurve':
                 for tv in _J_AT_V_TARGETS:
                     k = f'j_at_{tv:g}V'
                     v = r.get(k)
-                    if isinstance(v, (int, float)):
+                    if _finite(v):
                         row[k] = float(v)
                 t = r.get('tafel')
                 if t:
@@ -161,11 +175,16 @@ ANALYSIS_TYPES = {
         'keywords': ['ACTIVATION', 'BREAKIN', 'BREAK-IN', 'BREAK_IN'],
         'label': 'Activation',
     },
+    'cleaning': {
+        'keywords': ['CV-500MVS', 'ECLEAN', 'E-CLEAN', 'E_CLEAN'],
+        'label': 'Electrode Cleaning',
+    },
 }
 
-# Classification priority (first match wins — OCV last since it's broadest;
-# activation also placed early to claim files before OCV catches them)
-CLASSIFICATION_ORDER = ['ecsa', 'crossover', 'eis', 'activation', 'polcurve', 'ocv']
+# Classification priority (first match wins). Cleaning is placed before ECSA
+# because both can include CV files but cleaning has more specific keywords;
+# OCV stays last since 'OCV' / 'PURGE' are broadest.
+CLASSIFICATION_ORDER = ['cleaning', 'ecsa', 'crossover', 'eis', 'activation', 'polcurve', 'ocv']
 
 
 def parse_fcd_header(filepath):
@@ -436,6 +455,26 @@ def run_activation_batch(files, save_dir, interval_s=60.0, geo_area=5.0, image_e
 
     return run_batch(filepaths, labels, save_dir=save_dir,
                      interval_s=interval_s, geo_area=geo_area,
+                     image_ext=image_ext) or []
+
+
+def run_cleaning_batch(files, save_dir, scan_rate=0.5, geo_area=5.0,
+                       v_hupd_low=0.05, v_hupd_high=0.40,
+                       v_dl_low=0.40, v_dl_high=0.50, image_ext="png"):
+    """Run electrode cleaning CV analysis on classified files."""
+    try:
+        from scripts.electrode_cleaning_analysis import run_batch
+    except ImportError:
+        print('    ERROR: electrode_cleaning_analysis.py not found')
+        return []
+
+    filepaths = [f[0] for f in files]
+    labels = [f[1] for f in files]
+
+    return run_batch(filepaths, labels, save_dir=save_dir,
+                     scan_rate=scan_rate, geo_area=geo_area,
+                     v_hupd_low=v_hupd_low, v_hupd_high=v_hupd_high,
+                     v_dl_low=v_dl_low, v_dl_high=v_dl_high,
                      image_ext=image_ext) or []
 
 
@@ -779,7 +818,8 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
 
 def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
             membrane_thickness=None, stand=0, ocv_interval_s=60.0,
-            activation_interval_s=60.0, image_ext='png'):
+            activation_interval_s=60.0, cleaning_scan_rate=0.5,
+            image_ext='png'):
     """
     Scan folder, classify files, and run all applicable analyses.
     """
@@ -866,6 +906,10 @@ def run_all(folder, save_dir, geo_area=5.0, loading=0.2,
             elif atype == 'activation':
                 all_results['activation'] = run_activation_batch(
                     files, sub_dir, interval_s=activation_interval_s,
+                    geo_area=geo_area, image_ext=image_ext)
+            elif atype == 'cleaning':
+                all_results['cleaning'] = run_cleaning_batch(
+                    files, sub_dir, scan_rate=cleaning_scan_rate,
                     geo_area=geo_area, image_ext=image_ext)
 
             # Check if the analysis actually produced output files
