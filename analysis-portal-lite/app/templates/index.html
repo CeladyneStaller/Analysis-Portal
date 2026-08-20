@@ -243,32 +243,7 @@
   }
   .view-filters .field { margin: 0; min-width: 150px; flex: 1 1 150px; }
   .view-filters .field-narrow { flex: 0 0 130px; min-width: 130px; }
-  .view-filters .field-wide { flex: 1 1 100%; min-width: 100%; }
   .view-filters .field-label { font-size: 11px; margin-bottom: 4px; }
-  .afilter {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-    min-height: 34px;
-  }
-  .afchip {
-    font-size: 11px;
-    font-family: var(--mono);
-    padding: 5px 10px;
-    border-radius: var(--radius);
-    background: var(--surface-raised);
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    cursor: pointer;
-  }
-  .afchip:hover { border-color: var(--accent); color: var(--accent); }
-  .afchip.on {
-    background: var(--accent-glow);
-    color: var(--accent);
-    border-color: var(--accent-strong);
-  }
-  .afchip-all { font-family: var(--font); }
   .view-refresh {
     flex: 0 0 auto;
     background: var(--surface-raised);
@@ -383,6 +358,25 @@
   }
   .rd-tool-btn:hover { border-color: var(--accent); color: var(--accent); }
   .rd-tool-btn.rd-selall { color: var(--accent); border-color: var(--accent-strong); }
+  .rd-dl {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    padding: 2px 9px;
+    font-family: var(--font);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .rd-dl:hover { border-color: var(--green); color: var(--green); }
+  .rd-tool-btn.rd-dl-run { color: var(--green); border-color: var(--green);
+                           font-weight: 500; }
+  .rd-plot-actions { display: flex; gap: 8px; align-items: center;
+                     margin-top: 8px; flex-wrap: wrap; }
+  .rd-plot-actions .rd-select { margin-top: 0; }
+
   .rd-type-selall {
     background: none;
     border: 1px solid var(--border);
@@ -1827,6 +1821,12 @@
             </select>
           </div>
           <div class="field field-narrow">
+            <label class="field-label">Analysis</label>
+            <select id="vf-analysis" onchange="applyViewFilters()">
+              <option value="">All types</option>
+            </select>
+          </div>
+          <div class="field field-narrow">
             <label class="field-label">Stand</label>
             <select id="vf-stand" onchange="applyViewFilters()">
               <option value="">All stands</option>
@@ -1839,10 +1839,6 @@
           <div class="field field-narrow">
             <label class="field-label">To</label>
             <input type="date" id="vf-until" onchange="applyViewFilters()">
-          </div>
-          <div class="field field-wide">
-            <label class="field-label">Analysis</label>
-            <div class="afilter" id="vf-analysis"></div>
           </div>
         </div>
         <div class="view-meta" id="viewMeta"></div>
@@ -1989,10 +1985,6 @@ _updateThemeButton(_getThemeMode());
 let _viewRuns = [];        // full index list, most recent first
 let _viewLoaded = false;   // fetched at least once this session
 let _viewFacets = { samples: [], scripts: [], analyses: [], stands: [] };
-// Multi-select analysis filter. Empty means "all types". Semantics are OR: a
-// run qualifies when it holds any of the selected analyses. Held here rather
-// than read off a control, since chips are buttons and carry no form value.
-let _analysisFilter = new Set();
 
 function switchTab(name) {
   document.getElementById('tab-analysis').classList.toggle('active', name === 'analysis');
@@ -2024,8 +2016,9 @@ async function loadViewRuns(force) {
 
 function populateViewFacets() {
   const scriptSel = document.getElementById('vf-script');
+  const analysisSel = document.getElementById('vf-analysis');
   const standSel = document.getElementById('vf-stand');
-  const keepS = scriptSel.value;
+  const keepS = scriptSel.value, keepA = analysisSel.value;
   const keepT = standSel.value;
   standSel.innerHTML = '<option value="">All stands</option>'
     + (_viewFacets.stands || []).map(t =>
@@ -2034,51 +2027,18 @@ function populateViewFacets() {
   scriptSel.innerHTML = '<option value="">All scripts</option>'
     + _viewFacets.scripts.map(s =>
         `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
+  analysisSel.innerHTML = '<option value="">All types</option>'
+    + _viewFacets.analyses.map(a =>
+        `<option value="${escapeAttr(a)}">${escapeHtml(a)}</option>`).join('');
   scriptSel.value = keepS;
-  renderAnalysisFilter();
-}
-
-// Toggle chips rather than a <select multiple>: no modifier-click, every
-// available analysis is visible without opening anything, and which are active
-// reads at a glance. "All types" is the empty-set state, not a member.
-function renderAnalysisFilter() {
-  const host = document.getElementById('vf-analysis');
-  if (!host) return;
-  const available = _viewFacets.analyses || [];
-  // Drop selections the current index no longer offers. A chip left selected
-  // for an analysis that has gone would filter every row away with nothing on
-  // screen to explain why.
-  Array.from(_analysisFilter).forEach(a => {
-    if (available.indexOf(a) === -1) _analysisFilter.delete(a);
-  });
-  host.innerHTML =
-    `<button type="button" class="afchip afchip-all${_analysisFilter.size ? '' : ' on'}"
-             onclick="clearAnalysisFilter()">All types</button>`
-    + available.map(a =>
-        `<button type="button" class="afchip${_analysisFilter.has(a) ? ' on' : ''}"
-                 onclick="toggleAnalysisFilter('${escapeAttr(a)}')">${escapeHtml(a)}</button>`
-      ).join('');
-}
-
-function toggleAnalysisFilter(a) {
-  if (_analysisFilter.has(a)) _analysisFilter.delete(a);
-  else _analysisFilter.add(a);
-  renderAnalysisFilter();
-  applyViewFilters();
-}
-
-function clearAnalysisFilter() {
-  if (!_analysisFilter.size) return;
-  _analysisFilter.clear();
-  renderAnalysisFilter();
-  applyViewFilters();
+  analysisSel.value = keepA;
 }
 
 function applyViewFilters() {
   // Client-side filtering over the already-fetched index — no round trip.
   const sample = document.getElementById('vf-sample').value.trim().toLowerCase();
   const script = document.getElementById('vf-script').value;
-  const analyses = activeAnalyses();
+  const analysis = document.getElementById('vf-analysis').value;
   const stand = document.getElementById('vf-stand').value;
   const since = document.getElementById('vf-since').value;   // yyyy-mm-dd or ''
   const until = document.getElementById('vf-until').value;
@@ -2087,10 +2047,9 @@ function applyViewFilters() {
     if (sample && !String(r.sample_name || '').toLowerCase().includes(sample)) return false;
     if (script && r.script !== script) return false;
     if (stand && r.stand !== stand) return false;
-    // OR across the selection: a row qualifies when it holds any selected
-    // analysis. Judged against the run's unfiltered analysis list, not the
-    // narrowed view shown in the table.
-    if (analyses.size && !allRunAnalyses(r).some(a => analyses.has(a))) return false;
+    // Unfiltered analysis list — a row qualifies on what it actually holds,
+    // not on the narrowed view shown in the table.
+    if (analysis && !allRunAnalyses(r).includes(analysis)) return false;
     // timestamps are ISO Z, so a plain string prefix compare works by date
     if (since && String(r.timestamp || '') < since) return false;
     if (until && String(r.timestamp || '') > until + 'T99') return false;
@@ -2115,18 +2074,19 @@ function allRunAnalyses(run) {
   return Array.from(set).sort();
 }
 
-// The analyses currently being filtered on. An empty set means no narrowing.
-function activeAnalyses() {
-  return _analysisFilter;
+// The analysis currently being filtered on, or '' for all.
+function activeAnalysis() {
+  const el = document.getElementById('vf-analysis');
+  return el ? el.value : '';
 }
 
-// What a row should display. With a filter active, every sample holding at
-// least one selected analysis is listed but shows only the selected ones — so
-// the table reads as a comparison of those measurements across samples.
+// What a row should display. With an analysis filter active, every sample
+// holding that analysis is listed but shows only that analysis — so the table
+// reads as a comparison of one measurement across samples.
 function runAnalyses(run) {
-  const only = activeAnalyses();
+  const only = activeAnalysis();
   const all = allRunAnalyses(run);
-  return only.size ? all.filter(a => only.has(a)) : all;
+  return only ? all.filter(a => a === only) : all;
 }
 
 // The experiment date, from the sample-name prefix. Absent when the sample name
@@ -2160,10 +2120,10 @@ function runKey(r) { return r.bin_id || r.job_id || r.sample_name || ''; }
 function runKeyValues(run) {
   // Flatten the whitelisted key_values across a run's analysis units, scoped
   // to the filtered analysis when one is active.
-  const only = activeAnalyses();
+  const only = activeAnalysis();
   const kv = {};
   (run.Data || []).forEach(d => {
-    if (only.size && !only.has(d.Analysis)) return;
+    if (only && d.Analysis !== only) return;
     Object.entries(d.key_values || {}).forEach(([k, v]) => {
       if (!(k in kv)) kv[k] = v;
     });
@@ -2255,11 +2215,10 @@ async function openRunDetail(jobId) {
 }
 
 function renderRunDetail(detail, key) {
-  // With an analysis filter active, show only the selected analyses — the row
-  // was listed because it holds one of them, so the detail should not
-  // reintroduce the rest.
-  const only = activeAnalyses();
-  const plots = (detail.plots || []).filter(p => !only.size || only.has(p.analysis));
+  // With an analysis filter active, show only that analysis — the row was
+  // listed because it holds it, so the detail should not reintroduce the rest.
+  const only = activeAnalysis();
+  const plots = (detail.plots || []).filter(p => !only || p.analysis === only);
   const byBucket = {};
   plots.forEach(p => { (byBucket[p.analysis] = byBucket[p.analysis] || []).push(p); });
 
@@ -2278,6 +2237,9 @@ function renderRunDetail(detail, key) {
                      onclick="selectAllRdPlots('${escapeAttr(jobId)}', ${plotsAttr(allRenderable)})"
                      data-scope="run">Select all plots (${allRenderable.length})</button>`;
   }
+  html += `<button class="rd-tool-btn rd-dl-run"
+                   onclick="downloadXlsx('${escapeAttr(jobId)}')">
+             ⭳ Download xlsx — whole sample</button>`;
   html += `</div>`;
 
   Object.keys(byBucket).sort().forEach(bucket => {
@@ -2285,7 +2247,13 @@ function renderRunDetail(detail, key) {
     const anyRenderable = bucketPlots.some(p => p.renderable);
     const renderableInBucket = bucketPlots.filter(p => p.renderable).map(p => p.plot);
 
-    const bodyHtml = bucketPlots.map(p =>
+    // Summary rows belonging to this analysis, rendered inside its section
+    // rather than in a block below every section — a Full Analysis produces a
+    // dozen rows, and detached from their analysis they are hard to read.
+    const summaryHtml = summaryRowsFor(detail, bucket, bucketPlots)
+      .map(rdSummaryBlock).join('');
+
+    const bodyHtml = summaryHtml + bucketPlots.map(p =>
       rdPlotRow(detail, p, anyRenderable, jobId)).join('');
 
     // Everything starts collapsed: a Full Analysis expands to a couple of
@@ -2300,6 +2268,9 @@ function renderRunDetail(detail, key) {
                  onclick="event.stopPropagation(); selectAllRdPlots('${escapeAttr(jobId)}', ${plotsAttr(renderableInBucket)})">
            Select all ${renderableInBucket.length}</button>`
       : '';
+    const typeDl = `<button class="rd-dl"
+           onclick="event.stopPropagation(); downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(bucket)}')"
+           title="Download every ${escapeAttr(bucket)} step in this sample">⭳ xlsx</button>`;
 
     html += `<div class="rd-analysis${openClass}" data-bucket="${escapeAttr(bucket)}">
       <div class="rd-analysis-head collapsible" onclick="toggleRdAnalysis(this)">
@@ -2308,29 +2279,59 @@ function renderRunDetail(detail, key) {
         <span class="rd-head-spacer"></span>
         ${note}
         ${typeSelAll}
+        ${typeDl}
       </div>
       <div class="rd-analysis-body">${bodyHtml}</div>
     </div>`;
   });
 
-  // Tier 1 summary block, if present.
-  const summary = detail.summary;
-  if (Array.isArray(summary) && summary.length) {
-    summary.forEach((row, i) => {
-      const label = row.Label || row.label || (`Row ${i + 1}`);
-      const entries = Object.entries(row).filter(([k]) => k !== 'Label' && k !== 'label');
-      if (!entries.length) return;
-      html += `<div class="rd-summary">
-        <div class="rd-summary-head">Summary — ${escapeHtml(String(label))}</div>
-        <div class="rd-summary-grid">${entries.map(([k, v]) =>
-          `<div><span class="k">${escapeHtml(k)}</span> `
-          + `<span class="v">${escapeHtml(fmtVal(v))}</span></div>`).join('')}
-        </div></div>`;
-    });
-  }
+  // Any summary row that could not be attributed to an analysis is shown at
+  // the end rather than dropped, so nothing silently disappears.
+  orphanSummaryRows(detail, byBucket).map(rdSummaryBlock).forEach(b => {
+    html += b;
+  });
 
   html += '</div>';
   return html;
+}
+
+// ── Summary attribution ─────────────────────────────────────────
+// A row names its Analysis when the Full Analysis orchestrator wrote it, and
+// only a Label when a standalone script did. Fall back to matching the label
+// against the bucket's plot names, which is how those names are built.
+function summaryRowMatches(row, bucket, bucketPlots) {
+  if (row.Analysis) return row.Analysis === bucket;
+  const label = String(row.Label || row.label || '');
+  if (!label) return false;
+  return bucketPlots.some(p => String(p.plot).includes(label));
+}
+
+function summaryRowsFor(detail, bucket, bucketPlots) {
+  const rows = Array.isArray(detail.summary) ? detail.summary : [];
+  return rows.filter(r => r && typeof r === 'object'
+                     && summaryRowMatches(r, bucket, bucketPlots));
+}
+
+function orphanSummaryRows(detail, byBucket) {
+  const rows = Array.isArray(detail.summary) ? detail.summary : [];
+  return rows.filter(r => {
+    if (!r || typeof r !== 'object') return false;
+    return !Object.keys(byBucket).some(b =>
+      summaryRowMatches(r, b, byBucket[b]));
+  });
+}
+
+function rdSummaryBlock(row) {
+  const label = row.Label || row.label || 'summary';
+  const entries = Object.entries(row).filter(
+    ([k]) => k !== 'Label' && k !== 'label' && k !== 'Analysis');
+  if (!entries.length) return '';
+  return `<div class="rd-summary">
+    <div class="rd-summary-head">Summary — ${escapeHtml(String(label))}</div>
+    <div class="rd-summary-grid">${entries.map(([k, v]) =>
+      `<div><span class="k">${escapeHtml(k)}</span> `
+      + `<span class="v">${escapeHtml(fmtVal(v))}</span></div>`).join('')}
+    </div></div>`;
 }
 
 // Encode a plot-name list for an inline onclick attribute safely.
@@ -2378,9 +2379,23 @@ function rdPlotRow(detail, p, bucketHasPlots, key) {
       <div class="rd-plot-name">${escapeHtml(p.plot)}</div>
       ${condStr ? `<div class="rd-conditions">${condStr}</div>` : ''}
       <div class="rd-values">${valStr || '<span class="rd-val">—</span>'}</div>
-      ${selBtn}
+      <div class="rd-plot-actions">
+        ${selBtn}
+        <button class="rd-dl"
+                onclick="downloadXlsx('${escapeAttr(runK)}','${escapeAttr(p.analysis)}','${escapeAttr(p.plot)}')"
+                title="Download this plot's data">⭳ xlsx</button>
+      </div>
     </div>
   </div>`;
+}
+
+// Navigating to the URL lets the browser handle the save dialog and the
+// Content-Disposition filename, which a fetch+Blob round trip would discard.
+function downloadXlsx(key, analysis, plot) {
+  const q = new URLSearchParams({ key });
+  if (analysis) q.set('analysis', analysis);
+  if (plot) q.set('plot', plot);
+  window.location.href = '/api/view/export?' + q.toString();
 }
 
 function toggleRdAnalysis(headEl) {
