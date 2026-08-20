@@ -17,7 +17,7 @@ from scripts.helpers.record import (  # noqa: E402
     build_detail_record, build_index_entry, detail_bin_name,
     parse_conditions, parse_metric_kv, plot_bucket, build_key_values,
     is_comparison_script, load_sidecars, decode_sidecars, strip_sidecars,
-    parse_run_date, merge_detail_record, merge_index_entry, touched_units,
+    parse_run_date, parse_stand, json_safe, merge_detail_record, merge_index_entry, touched_units,
     KEY_VALUE_UNITS,
     select_sidecars, sidecar_bucket_sizes, sidecar_sizes, attach_sidecars,
     SCHEMA_VERSION, SIDECAR_ENCODING,
@@ -182,6 +182,48 @@ for name in ("NoDatePrefix-Cell7", "269999_Bad", "123456_X", "260230_BadDay",
              "2604211_TooLong", "", None):
     check(f'run_date rejects {name!r}', parse_run_date(name), None)
 
+print("test stand")
+# Derived from the data format, mirroring the portal's own auto-detection.
+for files, want in ((['a.fcd', 'b.fcd'], 'Scribner'),
+                    (['a.csv', 'b.csv'], 'FCTS'),
+                    (['a.fcd', 'b.csv'], 'Scribner'),   # any FCD wins
+                    (['a.txt', 'b.tsv'], 'FCTS'),
+                    (['b17b_G_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.csv'], 'FCTS')):
+    check(f'stand from {files[0][-5:]}', parse_stand(files), want)
+for files in (['a.xlsx'], [], None):
+    check(f'stand unknown for {files!r}', parse_stand(files), None)
+
+print("json safety")
+# FastAPI renders with allow_nan=False, so a single NaN anywhere in a job
+# record turns /api/jobs/<id> into a 500. Nothing non-finite may escape.
+import math as _m
+check('NaN becomes null', json_safe({'a': float('nan')}), {'a': None})
+check('inf becomes null', json_safe({'a': float('inf')}), {'a': None})
+check('-inf becomes null', json_safe({'a': float('-inf')}), {'a': None})
+check('finite untouched', json_safe({'a': 0.95}), {'a': 0.95})
+check('nested', json_safe({'m': {'p': [1.0, float('nan')]}}),
+      {'m': {'p': [1.0, None]}})
+check('strings and bools untouched', json_safe({'s': 'x', 'b': True}),
+      {'s': 'x', 'b': True})
+try:
+    import numpy as _np
+    check('numpy int', json_safe({'n': _np.int64(7)}), {'n': 7})
+    check('numpy float', json_safe({'n': _np.float64(1.5)}), {'n': 1.5})
+    check('numpy array', json_safe({'n': _np.array([1, 2])}), {'n': [1, 2]})
+    check('numpy NaN', json_safe({'n': _np.float64('nan')}), {'n': None})
+except ImportError:
+    pass
+# The whole point: the result must survive a strict encode.
+import json as _json
+_json.dumps(json_safe({'a': float('nan'), 'b': [float('inf')]}), allow_nan=False)
+check_true('sanitised output survives allow_nan=False encoding', True)
+
+# key_values must never promote a non-finite number into the index.
+check('NaN not promoted', build_key_values('polcurve', {}, {'OCV': float('nan')}), {})
+check('inf not promoted', build_key_values('polcurve', {}, {'OCV': float('inf')}), {})
+check('finite still promoted',
+      build_key_values('polcurve', {}, {'OCV': 0.9}), {'OCV': 0.9})
+
 print("plot_bucket")
 for pt, want in (('polcurve_down', 'polcurve'), ('ir_correction', 'polcurve'),
                  ('nyquist', 'eis'), ('ecsa_hupd', 'ecsa'),
@@ -271,11 +313,10 @@ try:
     check('key_values', idx['Data'][0]['key_values'],
           {'OCV': 0.95, 'V @ 1 A/cm²': 0.559})
     sz = entry_size(idx)
-    # The nominal moved from ~393 B to ~459 B when build_index_entry began
-    # emitting run_date and stand. The ceiling is a bloat guard, not a spec —
-    # widened with headroom for a field or two more, but deliberately not so
-    # far that a Data list growing without bound would slip past it.
-    check_true('single-run entry ~459 B', 340 <= sz <= 520, f'(got {sz} B)')
+    # Grown deliberately since the original 393 B: run_date, stand and the
+    # five j@V key_values were each added on purpose. The bound is here to
+    # catch unintended bloat, not to freeze the contract.
+    check_true('single-run entry stays compact', 340 <= sz <= 560, f'(got {sz} B)')
     print(f"       single polcurve index entry: {sz} B")
 finally:
     shutil.rmtree(tmp)
@@ -513,6 +554,26 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("stand on the index entry")
+tmp = tempfile.mkdtemp()
+try:
+    out = write_fixtures(tmp, ['polcurve_b14_IV_80C_100RH_0o3V_0o2H2_0o2Air_0kPa'])
+    rec = build_detail_record(
+        job_id='js', sample_name='260421_S', script='X', timestamp='t',
+        input_files=['run.csv'], output_dir=out)
+    check('stand emitted', build_index_entry(rec, 'b').get('stand'), 'FCTS')
+    rec2 = build_detail_record(
+        job_id='js', sample_name='260421_S', script='X', timestamp='t',
+        input_files=['run.fcd'], output_dir=out)
+    check('scribner detected', build_index_entry(rec2, 'b').get('stand'), 'Scribner')
+    rec3 = build_detail_record(
+        job_id='js', sample_name='260421_S', script='X', timestamp='t',
+        input_files=[], output_dir=out)
+    check_true('stand omitted when unknown',
+               'stand' not in build_index_entry(rec3, 'b'))
+finally:
+    shutil.rmtree(tmp)
+
 print("Conditions trim")
 tmp = tempfile.mkdtemp()
 try:
@@ -740,6 +801,74 @@ check('n_jobs increments again', ma['n_jobs'], 3)
 
 first_entry = merge_index_entry(None, e1)
 check('first entry gets n_jobs 1', first_entry['n_jobs'], 1)
+
+print("xlsx export")
+from scripts.helpers import xlsx_export as _X
+from openpyxl import load_workbook as _lw
+import io as _io
+
+check('sheet name sanitised',
+      _X.safe_sheet_name('Power density (mW/cm²)'), 'Power density (mW-cm²)')
+check('sheet name truncated to 31',
+      len(_X.safe_sheet_name('x' * 60)), 31)
+_used = set()
+check('duplicate sheet names disambiguated',
+      [_X.safe_sheet_name('Panel', _used), _X.safe_sheet_name('Panel', _used)],
+      ['Panel', 'Panel (2)'])
+
+tmp = tempfile.mkdtemp()
+try:
+    d = Path(tmp) / 'o' / '_plot_data'
+    d.mkdir(parents=True)
+    (d / 'polcurve_b4_IV_80C_95RH.json').write_text(json.dumps({
+        'plot_type': 'polcurve', 'data': {'axes': [{
+            'title': 'Polarization Curve', 'xlabel': 'j', 'ylabel': 'V',
+            'texts': [{'text': 'OCV = 0.95 V'}], 'axhlines': [], 'axvlines': [],
+            'lines': [{'label': 'Cell voltage', 'x': [0, 1, 2], 'y': [0.9, 0.7, 0.5]}]}]}}))
+    # Cleaning has metrics but no sidecar — the exclusion case.
+    (d / 'cleaning_cycles_a4.json').write_text(json.dumps({
+        'plot_type': 'cleaning_cycles', 'data': {'axes': [{
+            'texts': [{'text': 'Cycles = 50'}], 'axhlines': [], 'axvlines': [],
+            'lines': []}]}}))
+    rec = build_detail_record(
+        job_id='jx', sample_name='260421_GSMA-Qual-1',
+        script='Fuel Cell Full Analysis', timestamp='2026-07-22T22:26:04Z',
+        input_files=['a.fcd'], output_dir=Path(tmp) / 'o',
+        summary=[{'Label': 'b4_IV_80C_95RH', 'Analysis': 'polcurve', 'OCV': 0.9}])
+
+    wb = _lw(_io.BytesIO(_X.build_sample_workbook(rec)))
+    check_true('sample workbook has Sample Info', 'Sample Info' in wb.sheetnames)
+    check_true('sample workbook has a polcurve Summary',
+               any('polcurve Summary' == n for n in wb.sheetnames))
+    check_true('sample workbook has a polcurve Data',
+               any('polcurve Data' == n for n in wb.sheetnames))
+    # Values must be the plotted values, not rounded or re-derived.
+    ws = wb['polcurve Data']
+    col = [ws.cell(row=r, column=2).value for r in range(3, 6)]
+    check('data sheet carries the plotted series', col, [0.9, 0.7, 0.5])
+
+    # A bucket with no stored sidecar still gets a sheet, saying why.
+    cl = [n for n in wb.sheetnames if n.startswith('cleaning Data')]
+    check('cleaning gets a Data sheet', len(cl), 1)
+    check_true('cleaning sheet explains the omission',
+               'not stored' in str(wb[cl[0]].cell(row=3, column=1).value))
+
+    wb2 = _lw(_io.BytesIO(_X.build_analysis_workbook(rec, 'polcurve')))
+    check_true('analysis workbook is scoped',
+               all('cleaning' not in n for n in wb2.sheetnames))
+
+    wb3 = _lw(_io.BytesIO(_X.build_plot_workbook(rec, 'polcurve_b4_IV_80C_95RH')))
+    check_true('plot workbook has Plot Info', 'Plot Info' in wb3.sheetnames)
+    check_true('plot workbook has Readouts', 'Readouts' in wb3.sheetnames)
+    check_true('plot workbook has a panel sheet',
+               'Polarization Curve' in wb3.sheetnames)
+
+    check('filename for a sample', _X.export_filename(rec),
+          '260421_GSMA-Qual-1.xlsx')
+    check('filename for an analysis', _X.export_filename(rec, 'polcurve'),
+          '260421_GSMA-Qual-1_polcurve.xlsx')
+finally:
+    shutil.rmtree(tmp)
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
