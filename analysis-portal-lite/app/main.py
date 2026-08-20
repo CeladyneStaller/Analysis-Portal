@@ -461,6 +461,43 @@ async def view_compare(payload: dict):
     return {"job_id": job_id, "status": "running", "n_sources": len(sources)}
 
 
+@app.get("/api/view/export")
+async def view_export(key: str = Query(...), analysis: str = Query(None),
+                      plot: str = Query(None)):
+    """Export stored analysis data as xlsx.
+
+    Three scopes, narrowing: the whole sample, one characterization, or one
+    plot. Built entirely from the stored detail record — no source files and no
+    re-rendering, so it is a data read rather than a compute job.
+    """
+    from fastapi.responses import Response
+    from scripts.helpers import viewstore, xlsx_export
+
+    try:
+        detail = viewstore.fetch_detail(key)
+    except KeyError:
+        raise HTTPException(404, f"no indexed run matching {key}")
+    except Exception as e:
+        raise HTTPException(502, f"could not read detail bin: {e}")
+
+    try:
+        if plot:
+            data = xlsx_export.build_plot_workbook(detail, plot)
+        elif analysis:
+            data = xlsx_export.build_analysis_workbook(detail, analysis)
+        else:
+            data = xlsx_export.build_sample_workbook(detail)
+    except Exception as e:
+        raise HTTPException(500, f"export failed: {e}")
+
+    fname = xlsx_export.export_filename(detail, analysis or '', plot or '')
+    return Response(
+        content=data,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".spreadsheetml.sheet"),
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @app.get("/api/view/cache")
 async def view_cache():
     """Cache diagnostics for the view store."""
