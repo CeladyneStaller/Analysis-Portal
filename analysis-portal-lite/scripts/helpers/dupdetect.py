@@ -247,6 +247,78 @@ def compare_fingerprints(fa: Fingerprint, fb: Fingerprint,
 #  Index prefilter
 # ─────────────────────────────────────────────────────────────────────
 
+def normalised_name(name: Any) -> str:
+    """Sample name reduced to alphanumerics, lowercased.
+
+    '260819_60h-6EG_CT2o1-FCS6' and '260819_60h-6EG_CT2o1_FCS6' differ by a
+    single punctuation character and are the same cell typed two ways. Data
+    matching cannot see that — it compares measurements, and a re-analysis that
+    included a different ECSA file produces genuinely different numbers — but
+    the names say it plainly.
+
+    Checked against the live index: nine replicate-style names
+    (BM1-Qual1, GSMA-Qual-1, GSMA-Qual2_, …) all stay distinct under this,
+    so it separates spelling variants from real replicates.
+    """
+    if not name:
+        return ''          # str(None) would normalise to 'none' and collide
+    return ''.join(c for c in str(name).lower() if c.isalnum())
+
+
+def name_prefilter(index: Dict[str, Any], require_same_date: bool = True
+                   ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Entry pairs whose sample names differ only in punctuation or case.
+
+    A far stronger signal than measurement matching for the case it covers, and
+    it needs no detail bins at all.
+
+    `require_same_date` additionally demands the same `run_date`, which is
+    parsed from the name's own YYMMDD prefix. Two entries agreeing on both the
+    normalised name and the date are the same cell to any useful certainty.
+    """
+    runs = index.get('runs') or []
+    buckets: Dict[Any, List[Dict[str, Any]]] = {}
+    for e in runs:
+        name = normalised_name(e.get('sample_name'))
+        if not name:
+            continue
+        key = (name, e.get('run_date')) if require_same_date else name
+        buckets.setdefault(key, []).append(e)
+
+    pairs = []
+    for group in buckets.values():
+        if len(group) < 2:
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                # Identical spellings are the sample-keyed case, handled by
+                # merging on push; only variants need a decision here.
+                if group[i].get('sample_name') != group[j].get('sample_name'):
+                    pairs.append((group[i], group[j]))
+    return pairs
+
+
+def field_agreement(a: Dict[str, Any], b: Dict[str, Any]
+                    ) -> Tuple[int, List[Tuple[str, str, str, float, float]]]:
+    """(fields agreeing, fields differing) across the overlap.
+
+    For a pair matched on name rather than data, this is the diagnostic: it
+    shows what the two analyses agreed on and exactly where they parted, which
+    is what tells you whether the second run changed inputs or parameters.
+    """
+    fa, fb, _src = best_fingerprints(a, b)
+    agreed = 0
+    differed: List[Tuple[str, str, str, float, float]] = []
+    for key in sorted(set(fa) & set(fb)):
+        for name in sorted(set(fa[key]) & set(fb[key])):
+            va, vb = fa[key][name], fb[key][name]
+            if va == vb:
+                agreed += 1
+            else:
+                differed.append((key[0], key[1], name, va, vb))
+    return agreed, differed
+
+
 def _unit_hashes(entry: Dict[str, Any]) -> Set[str]:
     """One hash per (Analysis, step, field, value) in the index entry.
 

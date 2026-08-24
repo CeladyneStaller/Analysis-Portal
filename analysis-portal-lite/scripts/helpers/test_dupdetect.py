@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.helpers.dupdetect import (  # noqa: E402
     MIN_MATCHED_FIELDS, best_fingerprints, compare_records, compare_fingerprints,
     fingerprint_digest, group_matches, index_prefilter, summary_fingerprint,
-    values_fingerprint,
+    values_fingerprint, normalised_name, name_prefilter, field_agreement,
 )
 
 _passed = 0
@@ -235,6 +235,72 @@ OTHER = {'schema': 2, 'summary': [], 'metrics': {'polcurve': {'polcurve_b4': {
 rej = compare_records(PRE, OTHER)
 check_true('a different cell is still rejected via values', not rej.is_duplicate)
 check('and names the differing field', rej.contradiction[2], 'OCV')
+
+print("name variants")
+# Data matching answers "the same measurement analysed twice". A cell named two
+# ways and then re-analysed with a different file set produces genuinely
+# different numbers and is invisible to it — but the names say it plainly.
+check('punctuation ignored',
+      normalised_name('260819_60h-6EG_CT2o1-FCS6'),
+      normalised_name('260819_60h-6EG_CT2o1_FCS6'))
+check('case ignored', normalised_name('Cell-A'), normalised_name('cell_a'))
+check('empty is empty', normalised_name(None), '')
+# Real replicate names from the live index must stay distinct.
+reps = ['260407_BM1-Qual1', '260413_BM1-Qual3', '260421_GSMA-Qual-1',
+        '260427_BM1-Qual4', '260427_GSMA-Qual-2', '260429_GSMA-Qual-3',
+        '260710_GSMA-Qual1_', '260720_GSMA-Qual2_', '260724_GSMA-Qual3_']
+check('replicates do not collide under normalisation',
+      len({normalised_name(n) for n in reps}), len(reps))
+
+
+def nent(name, rd, bid):
+    return {'sample_name': name, 'run_date': rd, 'bin_id': bid, 'job_id': bid,
+            'Data': [{'Analysis': 'ecsa', 'step': 'a10',
+                      'key_values': {'Average ECSA': 28.85}}]}
+
+
+nidx = {'runs': [nent('260819_60h-6EG_CT2o1-FCS6', '2026-08-19', 'B1'),
+                 nent('260819_60h-6EG_CT2o1_FCS6', '2026-08-19', 'B2'),
+                 nent('260421_GSMA-Qual-1', '2026-04-21', 'B3'),
+                 nent('260427_GSMA-Qual-2', '2026-04-27', 'B4')]}
+np_ = name_prefilter(nidx)
+check('spelling variants pair up', len(np_), 1)
+check('the right pair', sorted(x['bin_id'] for x in np_[0]), ['B1', 'B2'])
+check_true('replicates are not paired',
+           not any('Qual' in x['sample_name'] for pair in np_ for x in pair))
+
+# Identical spellings are the sample-keyed case, handled on push.
+same = {'runs': [nent('Cell-A', '2026-01-01', 'B1'),
+                 nent('Cell-A', '2026-01-01', 'B2')]}
+check('identical spellings are not name variants', name_prefilter(same), [])
+
+# A different run_date means a different cell, however similar the name.
+dates = {'runs': [nent('Cell-A', '2026-01-01', 'B1'),
+                  nent('Cell_A', '2026-02-02', 'B2')]}
+check('different run_date is not a variant', name_prefilter(dates), [])
+check_true('unless the date requirement is relaxed',
+           len(name_prefilter(dates, require_same_date=False)) == 1)
+
+print("field agreement diagnostic")
+# The screenshot case: eight fields agree, ECSA differs, because the second run
+# analysed a different ECSA file.
+A = rec([POL(), {'Label': 'a10', 'Analysis': 'ecsa', 'ECSA_m2_per_g': 28.8539,
+                 'average_RF': 12.1, 'Q_hupd_mC_cm2': 2.47}],
+        metrics={'polcurve': {'polcurve_b4': {'conditions': {'step': 'b4'},
+                                              'values': {}}},
+                 'ecsa': {'ecsa_a10': {'conditions': {'step': 'a10'},
+                                       'values': {}}}})
+B = rec([POL(), {'Label': 'a10', 'Analysis': 'ecsa', 'ECSA_m2_per_g': 27.4112,
+                 'average_RF': 12.1, 'Q_hupd_mC_cm2': 2.47}],
+        metrics=A['metrics'])
+agreed, differed = field_agreement(A, B)
+check('agreeing fields counted', agreed, 5)
+check('one field differs', len(differed), 1)
+check('and it is named', differed[0][2], 'ECSA_m2_per_g')
+check('with both values', (differed[0][3], differed[0][4]),
+      (28.8539, 27.4112))
+check_true('data matching still rejects it',
+           not compare_records(A, B).is_duplicate)
 
 print("grouping")
 check('transitive closure', group_matches([('A', 'B'), ('B', 'C')]), [['A', 'B', 'C']])

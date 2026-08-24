@@ -129,10 +129,11 @@ print(f"{OK}{len(runs)} entr(ies), "
       f"{len({r.get('sample_name') for r in runs})} distinct sample name(s)")
 
 candidates = dupdetect.index_prefilter(index)
+name_pairs = dupdetect.name_prefilter(index)
 print(f"{OK}{len(candidates)} candidate pair(s) share an index unit")
-if not candidates:
-    print(f"{INFO}No two differently-named samples report the same key values.")
-    print(f"{INFO}Nothing to review.")
+print(f"{OK}{len(name_pairs)} pair(s) differ only in name punctuation or case")
+if not candidates and not name_pairs:
+    print(f"{INFO}No two entries look like the same sample.")
     sys.exit(0)
 
 
@@ -168,8 +169,44 @@ if near:
         print(f"{INFO}  {label(a)} vs {label(b)}")
         print(f"{INFO}    {res.describe()}")
 
+# ── name variants: a separate class of evidence ──
+#
+# Data matching answers "the same measurement analysed twice". It cannot see a
+# cell whose name was typed two ways and then re-analysed with a different file
+# set, because the numbers legitimately differ. The names carry that plainly.
+name_matches = []
+seen_bins = {(a.get('bin_id'), b.get('bin_id')) for a, b, _ in matches}
+for a, b in name_pairs:
+    if (a.get('bin_id'), b.get('bin_id')) in seen_bins:
+        continue          # already confirmed on data; no need to report twice
+    try:
+        agreed, differed = dupdetect.field_agreement(detail_of(a), detail_of(b))
+    except Exception:
+        agreed, differed = 0, []
+    name_matches.append((a, b, agreed, differed))
+
+if name_matches:
+    print(f"\n{INFO}Same sample name, different spelling — "
+          f"{len(name_matches)} pair(s):")
+    for a, b, agreed, differed in name_matches:
+        print(f"{OK}{label(a)}  ==  {label(b)}")
+        print(f"{INFO}    names normalise identically: "
+              f"{dupdetect.normalised_name(a.get('sample_name'))}")
+        print(f"{INFO}    {agreed} field(s) agree exactly"
+              + (f", {len(differed)} differ" if differed else
+                 " and none differ"))
+        for an, st, fld, va, vb in differed[:4]:
+            print(f"{INFO}      {an}/{st or '—'} {fld}: {va!r} vs {vb!r}")
+        if len(differed) > 4:
+            print(f"{INFO}      … and {len(differed) - 4} more")
+        if differed:
+            print(f"{INFO}    Differing fields mean the two runs did not analyse")
+            print(f"{INFO}    the same inputs — a changed file set or parameter.")
+            print(f"{INFO}    Merging keeps the newer value per (analysis, step).")
+        print(f"{INFO}    bins {a.get('bin_id')} / {b.get('bin_id')}")
+
 if matches:
-    print(f"\n{INFO}Confirmed duplicates:")
+    print(f"\n{INFO}Confirmed duplicates (identical measurements):")
     weak = 0
     for a, b, res in matches:
         print(f"{OK}{label(a)}  ==  {label(b)}")
@@ -221,12 +258,13 @@ else:
 # ── 4. apply ──────────────────────────────────────────────────────
 head("4. Merge" + ("" if APPLY else " (dry run)"))
 
-if not matches:
+if not matches and not name_matches:
     print(f"{INFO}Nothing confirmed; nothing to merge.")
     sys.exit(0)
 
 groups = dupdetect.group_matches(
-    [(a.get('bin_id'), b.get('bin_id')) for a, b, _ in matches])
+    [(a.get('bin_id'), b.get('bin_id')) for a, b, _ in matches]
+    + [(a.get('bin_id'), b.get('bin_id')) for a, b, _ag, _d in name_matches])
 by_bin = {r.get('bin_id'): r for r in runs}
 
 print(f"{INFO}{len(groups)} group(s) would be consolidated:")
