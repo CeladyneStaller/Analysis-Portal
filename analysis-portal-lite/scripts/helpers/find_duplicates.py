@@ -170,10 +170,18 @@ if near:
 
 if matches:
     print(f"\n{INFO}Confirmed duplicates:")
+    weak = 0
     for a, b, res in matches:
         print(f"{OK}{label(a)}  ==  {label(b)}")
         print(f"{INFO}    {res.describe()}")
         print(f"{INFO}    bins {a.get('bin_id')} / {b.get('bin_id')}")
+        if getattr(res, 'source', 'summary') != 'summary':
+            weak += 1
+    if weak:
+        print(f"\n{INFO}{weak} match(es) used plot-annotation values rather than")
+        print(f"{INFO}the tier-1 summary, because one side predates it. Those")
+        print(f"{INFO}values are rounded for display, so the evidence is weaker")
+        print(f"{INFO}than a summary match — worth eyeballing before merging.")
 
 
 # ── 3. the premise check ──────────────────────────────────────────

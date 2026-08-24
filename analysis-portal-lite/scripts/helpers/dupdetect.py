@@ -95,6 +95,57 @@ def summary_fingerprint(detail: Dict[str, Any]) -> Fingerprint:
     return {k: v for k, v in fields.items() if v}
 
 
+def values_fingerprint(detail: Dict[str, Any]) -> Fingerprint:
+    """{(analysis, step): {field: value}} from per-plot `values`.
+
+    Records written before the tier-1 summary existed — every Full Analysis run
+    up to the orchestrator fix — carry `summary: []`. Their metrics are still
+    present as `values` parsed from the plot annotations, so they are not
+    unmatchable, just less precise: annotation text is rounded for display, so
+    an OCV reads 0.9 rather than 0.9001322.
+
+    Lower precision means weaker evidence, which is why this is a fallback and
+    not the primary source. The MIN_MATCHED_FIELDS floor still applies, so a
+    match needs several display-rounded fields to agree.
+    """
+    out: Fingerprint = {}
+    for bucket, plots in (detail.get('metrics') or {}).items():
+        for _name, entry in plots.items():
+            step = str((entry.get('conditions') or {}).get('step') or '')
+            key: UnitKey = (bucket, step)
+            fields = out.setdefault(key, {})
+            for name, value in (entry.get('values') or {}).items():
+                if isinstance(value, dict):
+                    value = value.get('value')
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                if not math.isfinite(value):
+                    continue
+                v = float(value)
+                if name in fields and fields[name] != v:
+                    fields[name] = math.nan      # ambiguous; dropped below
+                else:
+                    fields.setdefault(name, v)
+    cleaned = {k: {n: v for n, v in f.items() if math.isfinite(v)}
+               for k, f in out.items()}
+    return {k: v for k, v in cleaned.items() if v}
+
+
+def best_fingerprints(a: Dict[str, Any], b: Dict[str, Any]
+                      ) -> Tuple[Fingerprint, Fingerprint, str]:
+    """The most precise fingerprint pair the two records can both support.
+
+    Summary values are full-precision doubles; annotation values are rounded
+    for display. Comparing one against the other would be meaningless — the
+    field names differ too ('OCV' versus 'OCV', but 'V_at_1Acm2' versus
+    'V @ 1 A/cm²') — so both sides must come from the same source.
+    """
+    fa, fb = summary_fingerprint(a), summary_fingerprint(b)
+    if fa and fb:
+        return fa, fb, 'summary'
+    return values_fingerprint(a), values_fingerprint(b), 'plot values'
+
+
 def fingerprint_digest(fp: Fingerprint) -> str:
     """Stable hash of a whole fingerprint. Equal digests mean equal content."""
     payload = sorted(
@@ -117,7 +168,7 @@ class MatchResult:
     """
 
     __slots__ = ('is_duplicate', 'matched_fields', 'overlap_units',
-                 'contradiction', 'reason')
+                 'contradiction', 'reason', 'source')
 
     def __init__(self, is_duplicate: bool, matched_fields: int,
                  overlap_units: List[UnitKey],
@@ -128,6 +179,10 @@ class MatchResult:
         self.overlap_units = overlap_units
         self.contradiction = contradiction   # analysis, step, field, a, b
         self.reason = reason
+        # Which fingerprint the comparison used. 'plot values' is the rounded
+        # fallback for records predating the tier-1 summary — weaker evidence,
+        # and worth showing in a report so the reader can weight it.
+        self.source = 'summary'
 
     def __repr__(self):
         return (f'MatchResult(duplicate={self.is_duplicate}, '
@@ -136,8 +191,9 @@ class MatchResult:
     def describe(self) -> str:
         if self.is_duplicate:
             units = ', '.join(f'{a}/{s or "—"}' for a, s in self.overlap_units)
+            via = '' if self.source == 'summary' else f' via {self.source}'
             return (f'duplicate — {self.matched_fields} field(s) matched '
-                    f'exactly across {units}')
+                    f'exactly across {units}{via}')
         if self.contradiction:
             a, s, f, va, vb = self.contradiction
             return (f'not a duplicate — {a}/{s or "—"} {f} differs '
@@ -148,8 +204,10 @@ class MatchResult:
 def compare_records(a: Dict[str, Any], b: Dict[str, Any],
                     min_fields: int = MIN_MATCHED_FIELDS) -> MatchResult:
     """Compare two detail records under the exact-overlap rule."""
-    fa, fb = summary_fingerprint(a), summary_fingerprint(b)
-    return compare_fingerprints(fa, fb, min_fields=min_fields)
+    fa, fb, source = best_fingerprints(a, b)
+    res = compare_fingerprints(fa, fb, min_fields=min_fields)
+    res.source = source
+    return res
 
 
 def compare_fingerprints(fa: Fingerprint, fb: Fingerprint,
@@ -190,21 +248,28 @@ def compare_fingerprints(fa: Fingerprint, fb: Fingerprint,
 # ─────────────────────────────────────────────────────────────────────
 
 def _unit_hashes(entry: Dict[str, Any]) -> Set[str]:
-    """Hashes over each index unit's (Analysis, step, key_values).
+    """One hash per (Analysis, step, field, value) in the index entry.
 
-    Cheap: the index is already fetched, and this needs no detail bins. Recall
-    is what matters — a candidate that survives here is confirmed at full
-    precision afterwards, so false candidates cost only a fetch.
+    Per field, deliberately, not per unit. Hashing the whole `key_values` dict
+    means a record carrying fewer keys can never match one carrying more — and
+    that happens routinely, because the whitelist has grown: entries written
+    before `j @ V` was added hold two polcurve keys where newer ones hold seven.
+    Requiring the dicts to be equal made those invisible to the prefilter even
+    though the keys they share agree exactly, so the confirm step never got to
+    see them.
+
+    Recall is what matters here. A candidate that survives is confirmed at full
+    precision afterwards, so an extra candidate costs one cached fetch, while a
+    missed one is a duplicate that is never found.
     """
     out: Set[str] = set()
     for unit in entry.get('Data') or []:
-        kv = unit.get('key_values') or {}
-        if not kv:
-            continue      # nothing to match on; the confirm step would reject
-        payload = [unit.get('Analysis', ''), unit.get('step', ''),
-                   sorted((str(k), v) for k, v in kv.items())]
-        out.add(hashlib.sha256(
-            json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16])
+        analysis = str(unit.get('Analysis', ''))
+        step = str(unit.get('step', ''))
+        for name, value in (unit.get('key_values') or {}).items():
+            payload = [analysis, step, str(name), value]
+            out.add(hashlib.sha256(
+                json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16])
     return out
 
 
