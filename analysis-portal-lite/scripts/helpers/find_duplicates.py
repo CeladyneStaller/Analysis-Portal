@@ -3,8 +3,13 @@
 Find samples that are the same measurement under different names.
 
     python3 scripts/helpers/find_duplicates.py                 # report only
-    python3 scripts/helpers/find_duplicates.py --apply --keep-name <name>
+    python3 scripts/helpers/find_duplicates.py --apply --group 1 --keep-name <name>
     python3 scripts/helpers/find_duplicates.py --restore index-backup-....json --apply
+
+One group per invocation. Each group is a different physical sample and needs
+its own name decision, so there is no way to merge several at once — a single
+--keep-name applied across groups would give distinct cells the same identity,
+and sample-keyed merging would then collapse them into one bin.
 
 Read-only by default. The report lists every candidate pair, what matched, and
 for near-misses the one field that disagreed — seeing the near-misses is how the
@@ -33,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.helpers import dupdetect, jsonbin                    # noqa: E402
 from scripts.helpers.record import (                              # noqa: E402
-    merge_detail_record, merge_index_entry,
+    merge_detail_record, merge_index_entry, parse_run_date,
 )
 
 OK, BAD, INFO = "  ok  ", " FAIL ", "      "
@@ -45,6 +50,14 @@ if '--keep-name' in sys.argv:
         KEEP_NAME = sys.argv[i + 1]
 RESTORE = (next((a for a in sys.argv[1:] if a.endswith('.json')), None)
            if '--restore' in sys.argv else None)
+GROUP = None
+if '--group' in sys.argv:
+    i = sys.argv.index('--group')
+    if i + 1 < len(sys.argv):
+        try:
+            GROUP = int(sys.argv[i + 1])
+        except ValueError:
+            GROUP = -1
 
 # Samples whose mutual matching would falsify the premise this rests on:
 # qualification replicates are built to be identical, so if two *different*
@@ -209,13 +222,23 @@ groups = dupdetect.group_matches(
 by_bin = {r.get('bin_id'): r for r in runs}
 
 print(f"{INFO}{len(groups)} group(s) would be consolidated:")
-for g in groups:
+for n, g in enumerate(groups, start=1):
     names = [by_bin[b].get('sample_name') for b in g if b in by_bin]
-    print(f"{INFO}  {' + '.join(names)}  ({len(g)} entries → 1)")
+    print(f"{INFO}  [{n}] {' + '.join(names)}  ({len(g)} entries → 1)")
+    for nm in sorted(set(names)):
+        # A mistyped prefix usually fails the YYMMDD date parse, so this is a
+        # useful hint — but only a hint. The choice stays with the operator.
+        ok_date = parse_run_date(nm) is not None
+        print(f"{INFO}        {nm:32} "
+              f"{'run_date parses' if ok_date else 'no valid run_date prefix'}")
 
 if not APPLY:
-    print(f"\n{INFO}Nothing was written. To merge:")
-    print(f"{INFO}  --apply --keep-name \"<the correct sample name>\"")
+    print(f"\n{INFO}Nothing was written. To merge one group:")
+    print(f"{INFO}  --apply --group <n> --keep-name \"<the correct sample name>\"")
+    print(f"{INFO}")
+    print(f"{INFO}One group per run. Each group is a different sample and needs")
+    print(f"{INFO}its own name; one --keep-name across groups would give distinct")
+    print(f"{INFO}cells the same identity.")
     print(f"{INFO}The name is not chosen for you: recency is not evidence of")
     print(f"{INFO}correctness, and merging under a typo would discard the right")
     print(f"{INFO}name along with the record that held it.")
@@ -223,7 +246,29 @@ if not APPLY:
 
 if not KEEP_NAME:
     die("--apply requires --keep-name",
-        'e.g. --apply --keep-name "260421_GSMA-Qual-1"')
+        'e.g. --apply --group 1 --keep-name "260421_GSMA-Qual-1"')
+
+if GROUP is None:
+    if len(groups) > 1:
+        die(f"{len(groups)} groups found — --apply needs --group <n>",
+            "Each group is a different sample and takes its own --keep-name. "
+            "Applying one name across groups would give distinct cells the "
+            "same identity, and sample-keyed merging would then collapse them.")
+    GROUP = 1
+if not (1 <= GROUP <= len(groups)):
+    die(f"--group {GROUP} is out of range (1..{len(groups)})")
+
+selected = groups[GROUP - 1]
+sel_names = sorted({by_bin[b].get('sample_name') for b in selected if b in by_bin})
+print(f"{INFO}Merging group [{GROUP}]: {' + '.join(sel_names)}")
+if KEEP_NAME not in sel_names:
+    print(f"{BAD}--keep-name {KEEP_NAME!r} is not one of this group's names.")
+    print(f"{INFO}Names in group [{GROUP}]: {', '.join(sel_names)}")
+    print(f"{INFO}Renaming to something new is possible but is almost always a")
+    print(f"{INFO}typo in the command; re-run with one of the names above, or")
+    print(f"{INFO}rename deliberately afterwards.")
+    sys.exit(1)
+groups = [selected]
 
 stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 backup_path = Path(f'index-backup-{stamp}.json')
