@@ -427,6 +427,21 @@ async def view_compare(payload: dict):
             400, "fewer than two selections had stored sidecars — cleaning "
                  "plots cannot be compared from history")
 
+    # The comparison overlays plots of the same type and skips any type with
+    # fewer than two. A selection spanning several analyses with one plot each
+    # therefore produces nothing — which used to surface as a failed job with a
+    # generic message, minutes later. Reject it here instead.
+    counts = viewstore.comparable_groups(sources)
+    if not any(n >= 2 for n in counts.values()):
+        shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
+        breakdown = ', '.join(f'{k} ×{v}' for k, v in sorted(counts.items()))
+        raise HTTPException(
+            400,
+            "Nothing to compare: a comparison overlays plots of the same type, "
+            "and no type has two or more here. Selected: " + breakdown +
+            ". Pick the same plot type from two or more runs — for example the "
+            "polarization curve from each of two samples.")
+
     samples = []
     for s in sources:
         nm = s.get('sample_name') or s['job_id']

@@ -532,6 +532,12 @@
   .view-compare-bar .vcb-count { color: var(--text); font-weight: 500;
                                  font-size: 14px; }
   .view-compare-bar .vcb-spacer { margin-left: auto; }
+  .view-compare-bar .vcb-hint {
+    color: var(--amber);
+    font-size: 12px;
+    display: none;
+  }
+  .view-compare-bar .vcb-hint.show { display: inline; }
   .view-compare-bar button {
     border-radius: var(--radius);
     padding: 8px 16px;
@@ -1878,6 +1884,7 @@
 
     <div class="view-compare-bar" id="viewCompareBar">
       <span class="vcb-count"><span id="vcbCount">0</span> plots selected to compare</span>
+      <span class="vcb-hint" id="vcbHint"></span>
       <div class="vcb-spacer"></div>
       <button class="vcb-clear" onclick="clearViewCompare()">Clear</button>
       <button class="vcb-go" id="vcbGo" onclick="openViewCompareModal()">
@@ -2383,7 +2390,7 @@ function rdPlotRow(detail, p, bucketHasPlots, key) {
   const selBtn = p.renderable
     ? `<button class="rd-select ${_viewCompareSel.has(selKey) ? 'on' : ''}"
                data-selkey="${escapeAttr(selKey)}"
-               onclick="toggleViewCompare('${escapeAttr(runK)}','${escapeAttr(p.plot)}','${escapeAttr(detail.sample_name || '')}')">
+               onclick="toggleViewCompare('${escapeAttr(runK)}','${escapeAttr(p.plot)}','${escapeAttr(detail.sample_name || '')}','${escapeAttr(p.analysis || '')}')">
          ${_viewCompareSel.has(selKey) ? '✓ Selected' : 'Select to compare'}</button>`
     : '';
 
@@ -2433,6 +2440,11 @@ function toggleAllRdAnalyses(jobId) {
 
 // Select (or deselect) every renderable plot in a scope — the whole run, or one
 // analysis type. Toggle-on style: if all are already selected, this deselects.
+function analysisOf(detail, plot) {
+  const p = (detail.plots || []).find(x => x.plot === plot);
+  return (p && p.analysis) || '';
+}
+
 function selectAllRdPlots(jobId, plotsEncoded) {
   const plots = plotsFromAttr(plotsEncoded);
   const detail = _detailCache[jobId] || {};
@@ -2442,7 +2454,8 @@ function selectAllRdPlots(jobId, plotsEncoded) {
   plots.forEach(pl => {
     const key = jobId + '::' + pl;
     if (allSelected) _viewCompareSel.delete(key);
-    else _viewCompareSel.set(key, { job_id: jobId, plot: pl, sample_name: sample });
+    else _viewCompareSel.set(key, { job_id: jobId, plot: pl, sample_name: sample,
+                                    analysis: analysisOf(detail, pl) });
     // Reflect on the per-plot button if it's on screen.
     const btn = document.querySelector(`.rd-select[data-selkey="${cssEscape(key)}"]`);
     if (btn) {
@@ -2526,10 +2539,11 @@ function cssEscape(s) {
 // Parallel to the live compareSelections map, keyed "job_id::plot".
 const _viewCompareSel = new Map();  // key → {job_id, plot, sample_name}
 
-function toggleViewCompare(jobId, plot, sample) {
+function toggleViewCompare(jobId, plot, sample, analysis) {
   const key = jobId + '::' + plot;
   if (_viewCompareSel.has(key)) _viewCompareSel.delete(key);
-  else _viewCompareSel.set(key, { job_id: jobId, plot, sample_name: sample });
+  else _viewCompareSel.set(key, { job_id: jobId, plot, sample_name: sample,
+                                  analysis: analysis || '' });
 
   // Reflect state on the button that was clicked.
   const btn = document.querySelector(`.rd-select[data-selkey="${cssEscape(key)}"]`);
@@ -2545,7 +2559,30 @@ function updateViewCompareBar() {
   const bar = document.getElementById('viewCompareBar');
   document.getElementById('vcbCount').textContent = _viewCompareSel.size;
   bar.classList.toggle('show', _viewCompareSel.size > 0);
-  document.getElementById('vcbGo').disabled = _viewCompareSel.size < 2;
+
+  // A comparison overlays plots of the same analysis and skips anything with
+  // fewer than two, so selecting one plot from each of several analyses
+  // produces nothing. Say so here rather than letting it fail as a job.
+  const byAnalysis = {};
+  _viewCompareSel.forEach(s => {
+    const a = s.analysis || '';
+    byAnalysis[a] = (byAnalysis[a] || 0) + 1;
+  });
+  const pairable = Object.values(byAnalysis).some(n => n >= 2);
+  const go = document.getElementById('vcbGo');
+  go.disabled = _viewCompareSel.size < 2 || !pairable;
+
+  const hint = document.getElementById('vcbHint');
+  if (hint) {
+    if (_viewCompareSel.size >= 2 && !pairable) {
+      hint.textContent = 'Pick two or more plots of the same analysis — '
+        + 'a comparison overlays like with like.';
+      hint.classList.add('show');
+    } else {
+      hint.textContent = '';
+      hint.classList.remove('show');
+    }
+  }
 }
 
 function clearViewCompare() {

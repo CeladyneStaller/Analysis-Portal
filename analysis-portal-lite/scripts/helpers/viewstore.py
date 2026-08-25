@@ -336,5 +336,25 @@ def materialize_for_compare(selections: List[Dict[str, str]],
             'filename': f'{plot}.png',
             'output_dir': str(dirs[key]),
             'sample_name': detail.get('sample_name', ''),
+            # Carried so the caller can check the selection is comparable
+            # before spending an executor slot on it. The comparison script
+            # ignores keys it does not use.
+            'plot_type': str((decode_sidecars(detail).get(plot) or {})
+                             .get('plot_type', '')),
         })
     return sources
+
+
+def comparable_groups(sources: List[Dict[str, str]]) -> Dict[str, int]:
+    """{plot_type: count} for a staged selection.
+
+    The comparison script overlays plots of the same type and skips any type
+    with fewer than two, so a selection spanning four analyses with one plot
+    each produces nothing. Knowing that up front turns a failed job into an
+    immediate, explicable rejection.
+    """
+    counts: Dict[str, int] = {}
+    for s in sources:
+        pt = s.get('plot_type') or 'unknown'
+        counts[pt] = counts.get(pt, 0) + 1
+    return counts
