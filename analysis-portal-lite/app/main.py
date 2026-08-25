@@ -83,6 +83,9 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
                 sample_name = first.name[:18]
             else:
                 sample_name = first.stem[:18]
+            # Linux permits characters Windows does not, so a name derived from
+            # an uploaded filename can still be unusable downstream.
+            sample_name = sanitise_derived_name(sample_name)
 
     # Script short label
     short = scripts.SCRIPT_SHORT.get(script_name, script_name.replace(' ', ''))
@@ -505,6 +508,47 @@ async def view_cache():
     return viewstore.cache_stats()
 
 
+# Characters Windows forbids in a file or directory name. Sample names become
+# folder and file names on export and on the analysis stand, so a name carrying
+# one of these produces files that cannot be written or opened on Windows —
+# and the failure surfaces long after the analysis, somewhere unhelpful.
+FORBIDDEN_NAME_CHARS = '<>:"/\\|?*'
+
+
+def validate_sample_name(name):
+    """Return an error message for an unusable sample name, or None.
+
+    Only the characters Windows rejects outright. Trailing spaces and periods,
+    and the reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), are
+    also invalid on Windows but are not checked here — they are far rarer in
+    practice and rejecting them would surprise more often than it would help.
+    """
+    if name is None:
+        return None
+    text = str(name)
+    if not text.strip():
+        return None                      # empty is allowed; it gets derived
+    bad = sorted({c for c in text if c in FORBIDDEN_NAME_CHARS})
+    if bad:
+        return (f'Sample name cannot contain {" ".join(bad)} — '
+                f'these characters are not allowed in Windows file names. '
+                f'Forbidden: {" ".join(FORBIDDEN_NAME_CHARS.replace(chr(92)*2, chr(92)))}')
+    if any(ord(c) < 32 for c in text):
+        return 'Sample name cannot contain control characters.'
+    return None
+
+
+def sanitise_derived_name(name):
+    """Make a name derived from a filename safe.
+
+    Derived names are a fallback rather than something the user typed, so a
+    forbidden character is replaced instead of rejected — failing here would
+    report a problem with a name nobody entered.
+    """
+    return ''.join('_' if (c in FORBIDDEN_NAME_CHARS or ord(c) < 32) else c
+                   for c in str(name or ''))
+
+
 @app.post("/api/upload")
 async def upload_and_run(
     script: str = Form(...),
@@ -525,6 +569,14 @@ async def upload_and_run(
             f"not the upload flow. Select PNGs and click Compare instead.")
     if not files and not zipfile:
         raise HTTPException(400, "No files uploaded")
+
+    try:
+        _p = json.loads(params) if params else {}
+    except Exception:
+        _p = {}
+    _err = validate_sample_name(_p.get('sample_name'))
+    if _err:
+        raise HTTPException(400, _err)
 
     # Parse params JSON
     try:
@@ -950,6 +1002,14 @@ async def upload_multi(
                     break
     else:
         raise HTTPException(400, "No files uploaded")
+
+    # Validate every name before creating any job, so a bad name in the tenth
+    # sample does not leave nine jobs already running.
+    for _s in samples:
+        _err = validate_sample_name(_s.get('sample_name'))
+        if _err:
+            raise HTTPException(
+                400, f"{_err} (sample folder: {_s.get('folder', '?')})")
 
     # Create one job per sample
     job_results = []

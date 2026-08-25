@@ -358,6 +358,19 @@
   }
   .rd-tool-btn:hover { border-color: var(--accent); color: var(--accent); }
   .rd-tool-btn.rd-selall { color: var(--accent); border-color: var(--accent-strong); }
+  .name-error {
+    color: var(--red);
+    font-size: 12px;
+    margin-top: 5px;
+    display: none;
+  }
+  .name-error.show { display: block; }
+  input.name-invalid,
+  .sample-table input.name-invalid {
+    border-color: var(--red) !important;
+    background: var(--red-bg);
+  }
+
   .rd-dl {
     background: none;
     border: 1px solid var(--border);
@@ -1748,6 +1761,7 @@
 
       <div id="sample-container" style="display:none">
         <div class="sample-section" id="sample-table-wrap"></div>
+        <div class="name-error" id="sample-table-error"></div>
         <div class="matched-row">
           <span class="matched-label">All samples use same parameters?</span>
           <label class="toggle-switch">
@@ -3264,7 +3278,9 @@ function renderSampleTable() {
   samples.forEach((s, i) => {
     html += `<tr>
       <td><span class="sample-folder">${esc(s.displayName)}/</span></td>
-      <td><input type="text" value="${esc(s.sampleName)}" onchange="samples[${i}].sampleName=this.value"></td>
+      <td><input type="text" data-sample-name value="${esc(s.sampleName)}"
+                 oninput="markSampleName(this, null); validateAllSampleNames();"
+                 onchange="samples[${i}].sampleName=this.value"></td>
       <td>${s.files.length}</td>
     </tr>`;
   });
@@ -3308,6 +3324,15 @@ function switchEditingSample() {
 }
 window.switchEditingSample = switchEditingSample;
 
+// The params form is rebuilt whenever the script changes, so the listener is
+// attached after each render rather than once at load.
+function wireSampleNameField() {
+  const el = document.querySelector('[data-param="sample_name"]');
+  if (!el || el.dataset.nameWired) return;
+  el.dataset.nameWired = '1';
+  el.addEventListener('input', () => validateAllSampleNames());
+}
+
 function loadSampleParams(idx) {
   const s = samples[idx];
   if (!s) return;
@@ -3320,6 +3345,67 @@ function loadSampleParams(idx) {
       el.value = s.params[key];
     }
   });
+}
+
+// Characters Windows forbids in a file or directory name. Sample names become
+// folder and file names downstream, so one of these produces files that cannot
+// be written or opened on Windows — and the failure surfaces long after the
+// analysis, somewhere unhelpful. Mirrors FORBIDDEN_NAME_CHARS in main.py; the
+// server re-checks, since this is convenience rather than enforcement.
+const FORBIDDEN_NAME_CHARS = '<>:"/\\|?*';
+
+function sampleNameError(name) {
+  const text = String(name == null ? '' : name);
+  if (!text.trim()) return null;              // empty is fine; it gets derived
+  const bad = [...new Set([...text].filter(c => FORBIDDEN_NAME_CHARS.includes(c)))];
+  if (bad.length) {
+    return `Sample name cannot contain ${bad.join(' ')} — not allowed in `
+         + `Windows file names. Forbidden: ${[...FORBIDDEN_NAME_CHARS].join(' ')}`;
+  }
+  if ([...text].some(c => c.charCodeAt(0) < 32)) {
+    return 'Sample name cannot contain control characters.';
+  }
+  return null;
+}
+
+// Mark one input and show its message. Returns true when the value is usable.
+function markSampleName(el, msgEl) {
+  const err = sampleNameError(el.value);
+  el.classList.toggle('name-invalid', !!err);
+  if (msgEl) {
+    msgEl.textContent = err || '';
+    msgEl.classList.toggle('show', !!err);
+  }
+  return !err;
+}
+
+// Every sample name currently on screen, single-run field and table rows both.
+function validateAllSampleNames() {
+  let ok = true;
+  const single = document.querySelector('[data-param="sample_name"]');
+  if (single) {
+    let msg = document.getElementById('sample-name-error');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.id = 'sample-name-error';
+      msg.className = 'name-error';
+      single.parentElement.appendChild(msg);
+    }
+    if (!markSampleName(single, msg)) ok = false;
+  }
+  document.querySelectorAll('.sample-table input[data-sample-name]')
+    .forEach(el => { if (!markSampleName(el, null)) ok = false; });
+  const tableMsg = document.getElementById('sample-table-error');
+  if (tableMsg) {
+    const bad = document.querySelectorAll(
+      '.sample-table input[data-sample-name].name-invalid').length;
+    tableMsg.textContent = bad
+      ? `${bad} sample name(s) contain characters that are not allowed in `
+        + `Windows file names: ${[...FORBIDDEN_NAME_CHARS].join(' ')}`
+      : '';
+    tableMsg.classList.toggle('show', !!bad);
+  }
+  return ok;
 }
 
 function buildMultiManifest() {
@@ -3383,6 +3469,7 @@ function renderParams() {
   }
   html += '</div>';
   container.innerHTML = html;
+  wireSampleNameField();
 }
 
 function collectParams() {
@@ -3417,6 +3504,17 @@ async function buildZipBlob(fileList, progressFn) {
 document.getElementById('go').addEventListener('click', async () => {
   const script = document.getElementById('sel').value;
   if (!script) return;
+
+  // Stop before uploading. The server re-checks, but a rejection after the
+  // files have gone up wastes the transfer and reports the problem later than
+  // it needed to.
+  if (!validateAllSampleNames()) {
+    const bad = document.querySelector(
+      '[data-param="sample_name"].name-invalid, '
+      + '.sample-table input[data-sample-name].name-invalid');
+    if (bad) { bad.focus(); bad.scrollIntoView({block: 'center'}); }
+    return;
+  }
 
   const btn = document.getElementById('go');
   btn.disabled = true;
