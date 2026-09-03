@@ -62,6 +62,59 @@ RESTORE = _arg('--restore') if '--restore' in sys.argv else None
 PURGE = _arg('--purge') if '--purge' in sys.argv else None
 
 
+
+def _check_stray_args(known_flags, bare_flags, repeatable=frozenset()):
+    """Refuse anything the parser did not consume.
+
+    An unquoted argument is silently dropped otherwise: `--sample A B` parses
+    as one sample and changes only A, reporting success. On a tool that mutates
+    stored data, quietly acting on part of what was typed is worse than any
+    error message. Sample names here routinely contain spaces and parentheses —
+    '260817_..._Kolon M12-S8301', 'FCS6(67650)' — so the shell splitting an
+    argument is a matter of course rather than an edge case.
+    """
+    consumed = {0}
+    for i, a in enumerate(sys.argv):
+        if i == 0:
+            continue
+        if a in bare_flags:
+            consumed.add(i)
+        elif a in known_flags:
+            consumed.add(i)
+            if i + 1 < len(sys.argv):
+                consumed.add(i + 1)
+    stray = [(i, sys.argv[i]) for i in range(1, len(sys.argv))
+             if i not in consumed]
+    if not stray:
+        return
+
+    print(f" FAIL unrecognised argument(s): "
+          f"{', '.join(repr(v) for _i, v in stray)}")
+    first = stray[0][0]
+    prev = sys.argv[first - 1]
+    flag = next((sys.argv[i] for i in range(first - 1, 0, -1)
+                 if sys.argv[i].startswith('--')), None)
+    if prev.startswith('--'):
+        print("      Check the flag spelling; nothing was changed.")
+    elif flag in repeatable:
+        # A repeatable flag takes one value at a time, so several names are
+        # given by repeating it. Quoting them together would instead make a
+        # single name with a space in it.
+        vals = [prev] + [v for _i, v in stray]
+        print(f"      {flag} takes one value at a time. Repeat it:")
+        print("      " + ' '.join(f'{flag} "{v}"' for v in vals))
+        print("      Or list the names in a file and use --samples-file.")
+    else:
+        print("      These look like the tail of a value the shell split on a "
+              "space.")
+        print(f"      Quote it:  {flag or '--<flag>'} "
+              f"\"{prev} {' '.join(v for _i, v in stray)}\"")
+    sys.exit(1)
+
+_check_stray_args({'--sample', '--stand', '--restore', '--purge'},
+                  {'--apply'}, repeatable={'--sample'})
+
+
 def head(t):
     print(f"\n{t}\n" + "-" * len(t))
 

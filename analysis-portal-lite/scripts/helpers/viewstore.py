@@ -124,6 +124,24 @@ def list_runs(*, sample: Optional[str] = None,
     }
 
 
+def _stand_facets(present: set) -> List[str]:
+    """Filter options: the canonical stands plus any unnumbered value in use.
+
+    Ordered so an unnumbered family sits with its own numbered stands rather
+    than trailing the whole list, where 'FCTS' after 'FCTS 4' reads like a
+    mistake instead of the catch-all it is.
+    """
+    from scripts.helpers.record import stand_family
+    extras = sorted(present - set(STAND_OPTIONS))
+    out: List[str] = []
+    for family in ('Scribner', 'FCTS'):
+        out += [s for s in STAND_OPTIONS if stand_family(s) == family]
+        out += [e for e in extras if stand_family(e) == family]
+    # Anything whose family cannot be read at all still needs an option.
+    out += [e for e in extras if stand_family(e) is None]
+    return out
+
+
 def _sort_key(entry: Dict[str, Any]) -> str:
     """Experiment date when recoverable, else the analysis date."""
     return str(entry.get('run_date') or entry.get('timestamp', ''))[:10]
@@ -147,10 +165,11 @@ def index_facets(index: Optional[Dict[str, Any]] = None) -> Dict[str, List[str]]
         'samples': sorted(samples),
         'scripts': sorted(scripts),
         'analyses': sorted(analyses),
-        # The canonical list rather than the distinct values present, so a
-        # legacy bare family does not appear as its own option alongside the
-        # numbered stands it already matches.
-        'stands': list(STAND_OPTIONS),
+        # The canonical stands, plus any other value actually recorded — a
+        # bare 'Scribner' or 'FCTS' from before stands were numbered. Matching
+        # is exact, so without these those entries would match no filter at
+        # all. The extra options vanish as the data is backfilled.
+        'stands': _stand_facets(stands),
     }
 
 

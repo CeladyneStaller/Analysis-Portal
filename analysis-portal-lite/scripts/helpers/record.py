@@ -406,21 +406,22 @@ def stand_index(value: Any, default: int = 0) -> int:
 def stand_matches(entry_stand: Any, selected: Any) -> bool:
     """Whether an entry's recorded stand satisfies a filter selection.
 
-    Entries written before stands were numbered carry a bare family, and there
-    is no way to tell which numbered stand they came from. Rather than hide
-    them from every numbered filter, they match any stand in their family — so
-    a legacy Scribner run appears under both Scribner 1 and Scribner 2.
+    Exact. A bare family is its own value, not a wildcard over the numbered
+    stands in it: an entry recorded as 'Scribner' appears under 'Scribner' and
+    nowhere else. Earlier this matched any Scribner stand, which was useful
+    while every legacy run was unnumbered, but it made a numbered filter answer
+    "these ran on that stand, plus some that might have" — and once stands are
+    being backfilled deliberately, that is the wrong answer.
+
+    Nothing becomes unfilterable: `index_facets` offers any bare family still
+    present in the data as its own option, so those entries stay reachable and
+    the option disappears once the last of them is numbered.
     """
     if not selected:
         return True
     if not entry_stand:
         return False
-    if str(entry_stand).strip() == str(selected).strip():
-        return True
-    # A bare family matches any stand within it; a numbered stand does not
-    # match a different number.
-    return (str(entry_stand).strip() in ('Scribner', 'FCTS')
-            and stand_family(entry_stand) == stand_family(selected))
+    return str(entry_stand).strip() == str(selected).strip()
 
 
 def parse_stand(input_files: Optional[List[str]]) -> Optional[str]:

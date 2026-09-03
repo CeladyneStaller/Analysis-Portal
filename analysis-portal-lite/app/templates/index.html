@@ -2107,13 +2107,11 @@ function standFamily(value) {
 function standMatches(entryStand, selected) {
   if (!selected) return true;
   if (!entryStand) return false;
-  const a = String(entryStand).trim(), b = String(selected).trim();
-  if (a === b) return true;
-  // Entries written before stands were numbered carry a bare family and
-  // cannot say which stand they came from, so they match any stand within it:
-  // a legacy Scribner run appears under both Scribner 1 and Scribner 2.
-  return (a === 'Scribner' || a === 'FCTS')
-      && standFamily(a) === standFamily(b);
+  // Exact. A bare family is its own value, not a wildcard over the numbered
+  // stands in it — a numbered filter should answer "these ran on that stand",
+  // not "these, plus some that might have". Bare families remain selectable
+  // because the facet list carries any that are still recorded.
+  return String(entryStand).trim() === String(selected).trim();
 }
 
 // Everything a run contains, regardless of the active filter. Used to decide
