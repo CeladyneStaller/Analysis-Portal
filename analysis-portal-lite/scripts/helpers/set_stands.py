@@ -6,7 +6,8 @@ Inspect and correct the test stand recorded against stored runs.
     python3 scripts/helpers/set_stands.py --list              # every sample, by stand
     python3 scripts/helpers/set_stands.py --from FCTS         # samples on one stand
     python3 scripts/helpers/set_stands.py --from Scribner --to "Scribner 1" --apply
-    python3 scripts/helpers/set_stands.py --sample 260421_GSMA-Qual-1 --to "FCTS 2" --apply
+    python3 scripts/helpers/set_stands.py --sample A --sample B --to "FCTS 2" --apply
+    python3 scripts/helpers/set_stands.py --samples-file fcts2.txt --to "FCTS 2" --apply
     python3 scripts/helpers/set_stands.py --restore index-backup-....json --apply
 
 Runs analysed before stands were numbered carry a bare family — 'Scribner' or
@@ -39,18 +40,36 @@ OK, BAD, INFO = "  ok  ", " FAIL ", "      "
 APPLY = '--apply' in sys.argv
 
 
+def _args(flag):
+    """Every value given for a repeatable flag."""
+    return [sys.argv[i + 1] for i, a in enumerate(sys.argv)
+            if a == flag and i + 1 < len(sys.argv)]
+
+
 def _arg(flag):
-    if flag in sys.argv:
-        i = sys.argv.index(flag)
-        if i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
-    return None
+    vals = _args(flag)
+    return vals[0] if vals else None
 
 
 FROM = _arg('--from')
 TO = _arg('--to')
-SAMPLE = _arg('--sample')
+# Repeatable, and matching delete_samples.py. Moving a known list of samples to
+# a stand is the common case: the stand number is not in the data, so it is
+# named sample by sample from whatever record says which rig each ran on.
+SAMPLES = _args('--sample')
+SAMPLES_FILE = _arg('--samples-file')
 RESTORE = _arg('--restore') if '--restore' in sys.argv else None
+
+if SAMPLES_FILE:
+    try:
+        text = Path(SAMPLES_FILE).read_text()
+    except Exception as e:
+        print(f" FAIL cannot read {SAMPLES_FILE}: {e}")
+        sys.exit(1)
+    # One name per line; blanks and # comments ignored so a list can be
+    # annotated with which rig it came from.
+    SAMPLES += [ln.strip() for ln in text.splitlines()
+                if ln.strip() and not ln.strip().startswith('#')]
 
 # 'none' selects entries carrying no stand at all, which cannot be written as
 # an empty command-line argument without ambiguity.
@@ -132,11 +151,11 @@ LIST = '--list' in sys.argv
 # --from without --to is a question rather than a change: which samples carry
 # this stand? Answering it here is what makes the correction workflow usable —
 # see the group, decide, then re-run with --to.
-if LIST or (not TO and (FROM or SAMPLE)):
+if LIST or (not TO and (FROM or SAMPLES)):
     head("Samples by stand")
     groups = {}
     for r in runs:
-        if SAMPLE and r.get('sample_name') != SAMPLE:
+        if SAMPLES and r.get('sample_name') not in SAMPLES:
             continue
         key = current(r) or '(none)'
         if FROM is not None:
@@ -159,10 +178,11 @@ if LIST or (not TO and (FROM or SAMPLE)):
     print(f"\n{INFO}{total} sample(s) listed. Add --to \"<stand>\" to change them.")
     sys.exit(0)
 
-if not TO and not (FROM or SAMPLE):
+if not TO and not (FROM or SAMPLES):
     print(f"{INFO}Report only. To correct entries:")
     print(f'{INFO}  --from Scribner --to "Scribner 1" --apply')
-    print(f'{INFO}  --sample 260421_GSMA-Qual-1 --to "FCTS 2" --apply')
+    print(f'{INFO}  --sample A --sample B --to "FCTS 2" --apply')
+    print(f'{INFO}  --samples-file names.txt --to "FCTS 2" --apply')
     print(f'{INFO}  --from none --to "FCTS 1" --apply      (entries with no stand)')
     print(f"{INFO}")
     print(f"{INFO}To see which samples carry a stand before changing anything:")
@@ -175,13 +195,24 @@ if not TO and not (FROM or SAMPLE):
 
 if not TO:
     die("--to is required", f'one of: {", ".join(STAND_OPTIONS)}')
+
+# A name that matches nothing is far likelier to be a typo than a sample that
+# is not there, and quietly changing the rest of the list would move samples
+# the operator never checked.
+if SAMPLES:
+    known = {r.get('sample_name') for r in runs}
+    unknown = [n for n in SAMPLES if n not in known]
+    if unknown:
+        die(f"no sample named: {', '.join(repr(n) for n in unknown)}",
+            "Run with --list to see the names exactly as stored. "
+            "Nothing was changed.")
 if TO not in STAND_OPTIONS:
     die(f"--to {TO!r} is not a known stand",
         f'expected one of: {", ".join(STAND_OPTIONS)}')
 
 selected = []
 for r in runs:
-    if SAMPLE and r.get('sample_name') != SAMPLE:
+    if SAMPLES and r.get('sample_name') not in SAMPLES:
         continue
     if FROM is not None:
         if FROM in UNSET:
@@ -214,9 +245,13 @@ if crossing:
           f"(Scribner ↔ FCTS):")
     for r in crossing[:10]:
         print(f"{INFO}  {current(r)} → {TO}   {r.get('sample_name', '?')}")
-    print(f"{INFO}The family is derived from the data format, so this usually")
-    print(f"{INFO}means the wrong entries were selected. Narrow with --from or")
-    print(f"{INFO}--sample if that was not intended.")
+    if len(crossing) > 10:
+        print(f"{INFO}  … and {len(crossing) - 10} more")
+    print(f"{INFO}The family is derived from the data format — Scribner writes")
+    print(f"{INFO}.fcd, FCTS writes delimited text — so crossing it usually")
+    print(f"{INFO}means the wrong entries were selected. It is allowed, because")
+    print(f"{INFO}auto-detection can be wrong, but it has to be said out loud:")
+    print(f"{INFO}  --allow-family-change")
 
 
 # ── 3. apply ──────────────────────────────────────────────────────
@@ -225,6 +260,14 @@ head("3. Apply" + ("" if APPLY else " (dry run)"))
 if not APPLY:
     print(f"{INFO}Nothing was written. Re-run with --apply to make the change.")
     sys.exit(0)
+
+# Warning and then proceeding in the same run is the worst of both: the notice
+# scrolls past and the change happens anyway. A family change is rare enough
+# to be worth a second flag.
+if crossing and '--allow-family-change' not in sys.argv:
+    die(f"{len(crossing)} entr(ies) would change family (Scribner ↔ FCTS)",
+        "Add --allow-family-change if that is intended, or narrow the "
+        "selection. Nothing was changed.")
 
 stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 backup_path = Path(f'index-backup-{stamp}.json')
