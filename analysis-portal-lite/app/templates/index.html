@@ -2104,13 +2104,23 @@ function standFamily(value) {
   return null;
 }
 
+// The family an "All …" filter selects, or null if it is not one.
+function familyFilter(selected) {
+  const text = String(selected || '').trim();
+  if (text === 'All Scribner') return 'Scribner';
+  if (text === 'All FCTS') return 'FCTS';
+  return null;
+}
+
 function standMatches(entryStand, selected) {
   if (!selected) return true;
   if (!entryStand) return false;
-  // Exact. A bare family is its own value, not a wildcard over the numbered
-  // stands in it — a numbered filter should answer "these ran on that stand",
-  // not "these, plus some that might have". Bare families remain selectable
-  // because the facet list carries any that are still recorded.
+  // "All Scribner" and "All FCTS" select every stand in a family, numbered or
+  // not. Everything else is exact: a bare family is its own value, not a
+  // wildcard over the numbered stands in it, so 'Scribner 1' answers "ran on
+  // stand 1" rather than "ran on stand 1, plus some that might have".
+  const family = familyFilter(selected);
+  if (family) return standFamily(entryStand) === family;
   return String(entryStand).trim() === String(selected).trim();
 }
 

@@ -135,6 +135,9 @@ def _stand_facets(present: set) -> List[str]:
     extras = sorted(present - set(STAND_OPTIONS))
     out: List[str] = []
     for family in ('Scribner', 'FCTS'):
+        # The aggregate heads its own group, so the broad choice reads as the
+        # heading for the narrow ones rather than an extra entry among them.
+        out.append(f'All {family}')
         out += [s for s in STAND_OPTIONS if stand_family(s) == family]
         out += [e for e in extras if stand_family(e) == family]
     # Anything whose family cannot be read at all still needs an option.

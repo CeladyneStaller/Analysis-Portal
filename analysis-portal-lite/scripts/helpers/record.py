@@ -367,6 +367,23 @@ _FCTS_EXT = {'.csv', '.txt', '.tsv'}
 STAND_OPTIONS = ('Scribner 1', 'Scribner 2',
                  'FCTS 1', 'FCTS 2', 'FCTS 3', 'FCTS 4')
 
+# Filter-only values selecting every stand in a family, including runs recorded
+# before stands were numbered. This is the inverse of the behaviour dropped
+# earlier — there, a bare-family *entry* answered a numbered *filter*, which
+# made 'Scribner 1' mean "ran on stand 1, plus some that might have". Here the
+# filter is the wildcard and says so in its own name, so nothing is implied
+# about which stand a run came from.
+STAND_FAMILY_FILTERS = ('All Scribner', 'All FCTS')
+
+
+def is_family_filter(selected: Any) -> Optional[str]:
+    """The family an 'All …' filter selects, or None if it is not one."""
+    text = str(selected or '').strip()
+    for family in ('Scribner', 'FCTS'):
+        if text == f'All {family}':
+            return family
+    return None
+
 # Legacy values: the numeric codes the analysis scripts take, and the bare
 # family names written before stands were numbered.
 _STAND_FAMILY_BY_INDEX = {0: 'Scribner', 1: 'FCTS'}
@@ -416,11 +433,17 @@ def stand_matches(entry_stand: Any, selected: Any) -> bool:
     Nothing becomes unfilterable: `index_facets` offers any bare family still
     present in the data as its own option, so those entries stay reachable and
     the option disappears once the last of them is numbered.
+
+    The exception is deliberate and named: 'All Scribner' and 'All FCTS' select
+    every stand in a family, numbered or not.
     """
     if not selected:
         return True
     if not entry_stand:
         return False
+    family = is_family_filter(selected)
+    if family:
+        return stand_family(entry_stand) == family
     return str(entry_stand).strip() == str(selected).strip()
 
 
