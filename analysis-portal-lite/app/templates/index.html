@@ -2274,8 +2274,10 @@ function renderRunDetail(detail, key) {
     const summaryHtml = summaryRowsFor(detail, bucket, bucketPlots)
       .map(rdSummaryBlock).join('');
 
-    const bodyHtml = summaryHtml + bucketPlots.map(p =>
-      rdPlotRow(detail, p, anyRenderable, jobId)).join('');
+    // Plots first, then this analysis's summary beneath them. The plots are
+    // what the section is for; the scalars are the reference underneath.
+    const bodyHtml = bucketPlots.map(p =>
+      rdPlotRow(detail, p, anyRenderable, jobId)).join('') + summaryHtml;
 
     // Everything starts collapsed: a Full Analysis expands to a couple of
     // dozen plots, and opening a sample should show its shape first rather
@@ -2306,11 +2308,12 @@ function renderRunDetail(detail, key) {
     </div>`;
   });
 
-  // Any summary row that could not be attributed to an analysis is shown at
-  // the end rather than dropped, so nothing silently disappears.
-  orphanSummaryRows(detail, byBucket).map(rdSummaryBlock).forEach(b => {
-    html += b;
-  });
+  // Nothing is appended after the sections. An earlier version rendered
+  // unattributed summary rows here so none were silently dropped, but with an
+  // analysis filter active every *other* analysis's rows qualify as
+  // unattributed — so the whole sample's scalars appeared beneath a section
+  // that was supposed to show one characterization. A summary belongs to its
+  // analysis or it is not shown.
 
   html += '</div>';
   return html;
@@ -2333,14 +2336,6 @@ function summaryRowsFor(detail, bucket, bucketPlots) {
                      && summaryRowMatches(r, bucket, bucketPlots));
 }
 
-function orphanSummaryRows(detail, byBucket) {
-  const rows = Array.isArray(detail.summary) ? detail.summary : [];
-  return rows.filter(r => {
-    if (!r || typeof r !== 'object') return false;
-    return !Object.keys(byBucket).some(b =>
-      summaryRowMatches(r, b, byBucket[b]));
-  });
-}
 
 function rdSummaryBlock(row) {
   const label = row.Label || row.label || 'summary';
