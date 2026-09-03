@@ -2924,10 +2924,23 @@ function _updateCollapseAllBtn() {
 
 // ── Load scripts ────────────────────────────────
 (async () => {
+  const s = document.getElementById('sel');
   try {
     const r = await fetch('/api/scripts');
-    const d = await r.json();
-    const s = document.getElementById('sel');
+    const d = await r.json().catch(() => null);
+
+    // A failing registry returns {detail: "..."} rather than a script list.
+    // Reading straight through to d.scripts threw on undefined and left the
+    // reason — which the server does now report — visible only as a stack
+    // trace in the console. Surface it where the dropdown would have been.
+    if (!r.ok || !d || !Array.isArray(d.scripts)) {
+      const why = (d && (d.detail || d.error))
+        || `HTTP ${r.status} — the server did not return a script list`;
+      s.innerHTML = '<option value="" disabled selected>Scripts unavailable</option>';
+      showScriptLoadError(why);
+      return;
+    }
+
     s.innerHTML = '<option value="" disabled selected>Select a script…</option>';
     d.scripts.forEach(x => {
       scriptDefs[x.name] = x;
@@ -2937,8 +2950,28 @@ function _updateCollapseAllBtn() {
       o.title = x.description;
       s.appendChild(o);
     });
-  } catch(e) { console.error(e); }
+  } catch(e) {
+    s.innerHTML = '<option value="" disabled selected>Scripts unavailable</option>';
+    showScriptLoadError(String(e && e.message || e));
+  }
 })();
+
+function showScriptLoadError(msg) {
+  console.error('script registry:', msg);
+  const sel = document.getElementById('sel');
+  if (!sel) return;
+  let box = document.getElementById('scriptLoadError');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'scriptLoadError';
+    box.className = 'name-error show';
+    sel.parentElement.appendChild(box);
+  }
+  // The server message may already point at the diagnostic; don't repeat it.
+  const hint = ' — see /api/diag/imports for detail.';
+  box.textContent = /diag\/imports/.test(msg) ? msg : msg + hint;
+  box.classList.add('show');
+}
 
 // ── Session job tracking ────────────────────────
 function saveJobId(id) {
