@@ -2070,7 +2070,7 @@ function applyViewFilters() {
   const rows = _viewRuns.filter(r => {
     if (sample && !String(r.sample_name || '').toLowerCase().includes(sample)) return false;
     if (script && r.script !== script) return false;
-    if (stand && r.stand !== stand) return false;
+    if (stand && !standMatches(r.stand, stand)) return false;
     // Unfiltered analysis list — a row qualifies on what it actually holds,
     // not on the narrowed view shown in the table.
     if (analysis && !allRunAnalyses(r).includes(analysis)) return false;
@@ -2088,6 +2088,32 @@ function applyViewFilters() {
   renderViewRuns(rows);
   _lastViewRows = rows;
   updateTrend();
+}
+
+// Mirrors stand_matches() in record.py. The View tab fetches the whole index
+// once and filters in the browser, so the server-side matcher never runs for
+// this control — the two have to agree, and this is the one that is used.
+function standFamily(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  if (text === '0') return 'Scribner';
+  if (text === '1') return 'FCTS';
+  const lowered = text.toLowerCase();
+  if (lowered.startsWith('scribner')) return 'Scribner';
+  if (lowered.startsWith('fcts')) return 'FCTS';
+  return null;
+}
+
+function standMatches(entryStand, selected) {
+  if (!selected) return true;
+  if (!entryStand) return false;
+  const a = String(entryStand).trim(), b = String(selected).trim();
+  if (a === b) return true;
+  // Entries written before stands were numbered carry a bare family and
+  // cannot say which stand they came from, so they match any stand within it:
+  // a legacy Scribner run appears under both Scribner 1 and Scribner 2.
+  return (a === 'Scribner' || a === 'FCTS')
+      && standFamily(a) === standFamily(b);
 }
 
 // Everything a run contains, regardless of the active filter. Used to decide
