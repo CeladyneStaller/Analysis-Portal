@@ -17,6 +17,8 @@ Usage:
 """
 
 import math
+
+from scripts.helpers.record import stand_index
 import os, sys, glob, argparse, time
 import matplotlib
 matplotlib.use("Agg")
@@ -32,7 +34,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             geo_area=float(p.get('geo_area', 5.0)),
             loading=float(p.get('loading', 0.2)),
             membrane_thickness=None,
-            stand=int(p.get('stand', 0)),
+            stand=stand_index(p.get('stand'), default=0),
             ocv_interval_s=float(p.get('interval_s', 60.0)),
             activation_interval_s=float(p.get('activation_interval_s',
                                               p.get('interval_s', 60.0))),

@@ -360,6 +360,68 @@ def parse_run_date(sample_name: Optional[str]) -> Optional[str]:
 _SCRIBNER_EXT = {'.fcd'}
 _FCTS_EXT = {'.csv', '.txt', '.tsv'}
 
+# The stands in service. The number is an identifier, not a behavioural
+# distinction: Scribner 2 parses exactly as Scribner 1 does. Declaring both at
+# once means the stand is recorded with the run instead of being reconstructed
+# later from a file extension, which only ever recovered the family.
+STAND_OPTIONS = ('Scribner 1', 'Scribner 2',
+                 'FCTS 1', 'FCTS 2', 'FCTS 3', 'FCTS 4')
+
+# Legacy values: the numeric codes the analysis scripts take, and the bare
+# family names written before stands were numbered.
+_STAND_FAMILY_BY_INDEX = {0: 'Scribner', 1: 'FCTS'}
+
+
+def stand_family(value: Any) -> Optional[str]:
+    """'Scribner' or 'FCTS' from any accepted form, else None.
+
+    Accepts a numbered stand ('FCTS 3'), a bare family ('FCTS'), and the
+    numeric codes the scripts have always used ('0', 0, '1', 1).
+    """
+    if value is None or value == '':
+        return None
+    text = str(value).strip()
+    if text in ('0', '1'):
+        return _STAND_FAMILY_BY_INDEX[int(text)]
+    lowered = text.lower()
+    for family in ('Scribner', 'FCTS'):
+        if lowered.startswith(family.lower()):
+            return family
+    return None
+
+
+def stand_index(value: Any, default: int = 0) -> int:
+    """The 0/1 code the analysis scripts parse with.
+
+    The number after the family is deliberately ignored — a stand's identity
+    does not change how its files are read, which is the whole point of
+    letting the two be declared together.
+    """
+    family = stand_family(value)
+    if family is None:
+        return default
+    return 0 if family == 'Scribner' else 1
+
+
+def stand_matches(entry_stand: Any, selected: Any) -> bool:
+    """Whether an entry's recorded stand satisfies a filter selection.
+
+    Entries written before stands were numbered carry a bare family, and there
+    is no way to tell which numbered stand they came from. Rather than hide
+    them from every numbered filter, they match any stand in their family — so
+    a legacy Scribner run appears under both Scribner 1 and Scribner 2.
+    """
+    if not selected:
+        return True
+    if not entry_stand:
+        return False
+    if str(entry_stand).strip() == str(selected).strip():
+        return True
+    # A bare family matches any stand within it; a numbered stand does not
+    # match a different number.
+    return (str(entry_stand).strip() in ('Scribner', 'FCTS')
+            and stand_family(entry_stand) == stand_family(selected))
+
 
 def parse_stand(input_files: Optional[List[str]]) -> Optional[str]:
     """'Scribner', 'FCTS', or None when the files say nothing useful."""
@@ -707,6 +769,7 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
                         timestamp: str, input_files: Optional[List[str]],
                         output_dir: Path,
                         summary: Optional[Any] = None,
+                        stand: Optional[str] = None,
                         include_sidecars: bool = True,
                         compress_sidecars: bool = True) -> Dict[str, Any]:
     """Assemble the schema-2 detail bin body for one completed job.
@@ -767,6 +830,11 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
     }
     if summary:
         record['summary'] = summary
+    # A declared stand carries the number; the derived one only ever recovers
+    # the family from a file extension, so it is the fallback.
+    declared = stand_family(stand) and str(stand).strip()
+    if declared:
+        record['stand'] = declared
     if include_sidecars and sidecars:
         record['sidecars'] = (encode_sidecars(sidecars) if compress_sidecars
                               else sidecars)
@@ -889,7 +957,8 @@ def build_index_entry(detail_record: Dict[str, Any], bin_id: str) -> Dict[str, A
     run_date = parse_run_date(detail_record.get('sample_name'))
     if run_date:
         entry['run_date'] = run_date
-    stand = parse_stand(detail_record.get('input_files'))
+    stand = (detail_record.get('stand')
+             or parse_stand(detail_record.get('input_files')))
     if stand:
         entry['stand'] = stand
     return entry

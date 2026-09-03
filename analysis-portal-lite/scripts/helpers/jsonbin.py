@@ -398,6 +398,7 @@ def push_job_metrics(*,
                      output_dir: Path,
                      input_files: Optional[List[str]] = None,
                      summary: Optional[Any] = None,
+                     stand: Optional[str] = None,
                      script_short: str = '',
                      extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Persist one completed analysis as a detail bin plus an index entry.
@@ -441,7 +442,7 @@ def push_job_metrics(*,
         record = build_detail_record(
             job_id=job_id, sample_name=sample_name, script=script,
             timestamp=timestamp, input_files=input_files,
-            output_dir=Path(output_dir), summary=summary,
+            output_dir=Path(output_dir), summary=summary, stand=stand,
             include_sidecars=False)
         all_sidecars = load_sidecars(Path(output_dir))
     except Exception as e:

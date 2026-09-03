@@ -18,6 +18,7 @@ Usage:
   python ecsa_analysis.py --file data.csv   # analyze real CV data
 """
 
+import math
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -56,7 +57,10 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     csv_files = filtered if filtered else all_files
 
     # Test stand presets
-    stand = int(p.get('stand', 0))
+    from scripts.helpers.record import stand_index
+    # Accepts 'Scribner 2' as readily as the legacy '0'; the number is an
+    # identifier and does not affect parsing.
+    stand = stand_index(p.get('stand'), default=0)
 
     # Auto-detect: CSV-only files → FCTS
     has_fcd = any(f.suffix.lower() == '.fcd' for f in csv_files)
@@ -129,7 +133,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
                     'Q_hupd_mC_cm2', 'Q_co_mC_cm2',
                     'loading_mg_cm2', 'geo_area'):
             v = r.get(key)
-            if isinstance(v, (int, float)):
+            if isinstance(v, (int, float)) and math.isfinite(v):
                 row[key] = float(v)
         summary.append(row)
 

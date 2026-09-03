@@ -17,6 +17,9 @@ from scripts.electrolyzer_durability import run as elx_durability_run
 from scripts.fuelcell_analysis import run as fuelcell_run
 from scripts.ocv_analysis import run as ocv_run
 from scripts.activation_analysis import run as activation_run
+from scripts.electrode_cleaning_analysis import run as cleaning_run
+from scripts.polcurve_analysis_down import run as polcurve_down_run
+from scripts.polcurve_analysis_hfr_compare import run as polcurve_hfrcompare_run
 from scripts.compare_polcurves import run as plot_comparison_run
 
 SCRIPT_REGISTRY = {
@@ -24,8 +27,11 @@ SCRIPT_REGISTRY = {
     "EIS Analysis": eis_run,
     "H2 Crossover": crossover_run,
     "FC Polarization Curve": polcurve_run,
+    "FC Polarization Curve (Downswing)": polcurve_down_run,
+    "FC Polarization Curve (HFR Compare)": polcurve_hfrcompare_run,
     "OCV Analysis": ocv_run,
     "FC Activation": activation_run,
+    "FC Electrode Cleaning": cleaning_run,
     "Electrolyzer Pol Curve": elx_polcurve_run,
     "Electrolyzer Durability": elx_durability_run,
     "Fuel Cell Full Analysis": fuelcell_run,
@@ -39,8 +45,11 @@ SCRIPT_SHORT = {
     "EIS Analysis": "EIS",
     "H2 Crossover": "H2Xover",
     "FC Polarization Curve": "PolCurve",
+    "FC Polarization Curve (Downswing)": "PolCurveDown",
+    "FC Polarization Curve (HFR Compare)": "PolCurveHFRcmp",
     "OCV Analysis": "OCV",
     "FC Activation": "Activation",
+    "FC Electrode Cleaning": "Cleaning",
     "Electrolyzer Pol Curve": "ElxPolCurve",
     "Electrolyzer Durability": "ElxDurability",
     "Fuel Cell Full Analysis": "FCAnalysis",
@@ -62,9 +71,18 @@ SCRIPT_PARAMS = {
     "Fuel Cell ECSA": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select", "default": "0",
-         "options": [{"value": "0", "label": "Scribner"},
-                     {"value": "1", "label": "FCTS"}]},
+        {"key": "stand", "label": "Test Stand", "type": "select", "default": "",
+         # The number identifies the stand; it does not change how files are
+         # parsed. Blank keeps the previous behaviour of inferring the family
+         # from the file extensions, so a run left on the default is not
+         # labelled with a stand it may not have come from.
+         "options": [{"value": "", "label": "Auto-detect"},
+                     {"value": "Scribner 1", "label": "Scribner 1"},
+                     {"value": "Scribner 2", "label": "Scribner 2"},
+                     {"value": "FCTS 1", "label": "FCTS 1"},
+                     {"value": "FCTS 2", "label": "FCTS 2"},
+                     {"value": "FCTS 3", "label": "FCTS 3"},
+                     {"value": "FCTS 4", "label": "FCTS 4"}]},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "scan_rate", "label": "Scan Rate (V/s)", "type": "number",
@@ -115,6 +133,26 @@ SCRIPT_PARAMS = {
         {"key": "tafel_j_max", "label": "Tafel Region j_max (A/cm²)", "type": "number",
          "default": 0.10, "step": 0.001, "min": 0},
     ],
+    "FC Polarization Curve (Downswing)": [
+        _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
+        {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
+         "default": 5.0, "step": 0.1, "min": 0.1},
+        {"key": "tafel_j_min", "label": "Tafel Region j_min (A/cm²)", "type": "number",
+         "default": 0.01, "step": 0.001, "min": 0},
+        {"key": "tafel_j_max", "label": "Tafel Region j_max (A/cm²)", "type": "number",
+         "default": 0.10, "step": 0.001, "min": 0},
+    ],
+    "FC Polarization Curve (HFR Compare)": [
+        _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
+        {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
+         "default": 5.0, "step": 0.1, "min": 0.1},
+        {"key": "tafel_j_min", "label": "Tafel Region j_min (A/cm²)", "type": "number",
+         "default": 0.01, "step": 0.001, "min": 0},
+        {"key": "tafel_j_max", "label": "Tafel Region j_max (A/cm²)", "type": "number",
+         "default": 0.10, "step": 0.001, "min": 0},
+    ],
     "OCV Analysis": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
@@ -128,6 +166,22 @@ SCRIPT_PARAMS = {
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "interval_s", "label": "Resampling Interval (seconds)", "type": "number",
          "default": 60.0, "step": 1, "min": 1},
+    ],
+    "FC Electrode Cleaning": [
+        _SAMPLE_FIELD,
+        _IMAGE_FORMAT_FIELD,
+        {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
+         "default": 5.0, "step": 0.1, "min": 0.1},
+        {"key": "scan_rate", "label": "Scan Rate (V/s)", "type": "number",
+         "default": 0.5, "step": 0.05, "min": 0.001},
+        {"key": "v_hupd_low", "label": "H_UPD low (V)", "type": "number",
+         "default": 0.05, "step": 0.01, "min": 0},
+        {"key": "v_hupd_high", "label": "H_UPD high (V)", "type": "number",
+         "default": 0.40, "step": 0.01, "min": 0},
+        {"key": "v_dl_low", "label": "DL low (V)", "type": "number",
+         "default": 0.40, "step": 0.01, "min": 0},
+        {"key": "v_dl_high", "label": "DL high (V)", "type": "number",
+         "default": 0.50, "step": 0.01, "min": 0},
     ],
     "Electrolyzer Pol Curve": [
         _SAMPLE_FIELD,
@@ -158,9 +212,18 @@ SCRIPT_PARAMS = {
     "Fuel Cell Full Analysis": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select", "default": "0",
-         "options": [{"value": "0", "label": "Scribner"},
-                     {"value": "1", "label": "FCTS"}]},
+        {"key": "stand", "label": "Test Stand", "type": "select", "default": "",
+         # The number identifies the stand; it does not change how files are
+         # parsed. Blank keeps the previous behaviour of inferring the family
+         # from the file extensions, so a run left on the default is not
+         # labelled with a stand it may not have come from.
+         "options": [{"value": "", "label": "Auto-detect"},
+                     {"value": "Scribner 1", "label": "Scribner 1"},
+                     {"value": "Scribner 2", "label": "Scribner 2"},
+                     {"value": "FCTS 1", "label": "FCTS 1"},
+                     {"value": "FCTS 2", "label": "FCTS 2"},
+                     {"value": "FCTS 3", "label": "FCTS 3"},
+                     {"value": "FCTS 4", "label": "FCTS 4"}]},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",

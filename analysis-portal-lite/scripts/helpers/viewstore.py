@@ -24,7 +24,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from scripts.helpers import jsonbin
-from scripts.helpers.record import decode_sidecars
+from scripts.helpers.record import (
+    STAND_OPTIONS, decode_sidecars, stand_matches,
+)
 
 # Detail bins used to be immutable, which is why this cache has no expiry.
 # Sample-keyed merging makes them mutable: a later run rewrites the same bin.
@@ -97,7 +99,10 @@ def list_runs(*, sample: Optional[str] = None,
     if analysis:
         runs = [r for r in runs if analysis in _entry_analyses(r)]
     if stand:
-        runs = [r for r in runs if r.get('stand') == stand]
+        # Entries predating numbered stands carry a bare family and match any
+        # stand within it — there is no way to tell which one they came from,
+        # and hiding them from every numbered filter would be worse.
+        runs = [r for r in runs if stand_matches(r.get('stand'), stand)]
     if since:
         runs = [r for r in runs if str(r.get('timestamp', '')) >= since]
     if until:
@@ -142,7 +147,10 @@ def index_facets(index: Optional[Dict[str, Any]] = None) -> Dict[str, List[str]]
         'samples': sorted(samples),
         'scripts': sorted(scripts),
         'analyses': sorted(analyses),
-        'stands': sorted(stands),
+        # The canonical list rather than the distinct values present, so a
+        # legacy bare family does not appear as its own option alongside the
+        # numbered stands it already matches.
+        'stands': list(STAND_OPTIONS),
     }
 
 

@@ -194,6 +194,10 @@ def _on_job_done(job_id: str, future):
                     # Tier 1 summary scalars. Scripts that do not yet return a
                     # 'summary' key simply omit it; the record tolerates absence.
                     'summary': (result.get("script_result") or {}).get("summary"),
+                    # Declared on the form; blank means it was auto-detected,
+                    # in which case the record falls back to deriving the
+                    # family from the file extensions.
+                    'stand': (jobs[job_id].get("params") or {}).get("stand"),
                 }
         except Exception as e:
             jobs[job_id].update({
