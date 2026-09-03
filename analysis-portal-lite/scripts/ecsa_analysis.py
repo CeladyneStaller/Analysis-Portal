@@ -57,10 +57,16 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     csv_files = filtered if filtered else all_files
 
     # Test stand presets
-    from scripts.helpers.record import stand_index
     # Accepts 'Scribner 2' as readily as the legacy '0'; the number is an
-    # identifier and does not affect parsing.
-    stand = stand_index(p.get('stand'), default=0)
+    # identifier and does not affect parsing. Imported at call time with a
+    # fallback so a helper that has not been deployed yet cannot break the
+    # script registry — see the note in fuelcell_analysis._stand_index.
+    try:
+        from scripts.helpers.record import stand_index
+        stand = stand_index(p.get('stand'), default=0)
+    except Exception:
+        _t = str(p.get('stand') or '').strip().lower()
+        stand = 1 if (_t == '1' or _t.startswith('fcts')) else 0
 
     # Auto-detect: CSV-only files → FCTS
     has_fcd = any(f.suffix.lower() == '.fcd' for f in csv_files)

@@ -17,8 +17,6 @@ Usage:
 """
 
 import math
-
-from scripts.helpers.record import stand_index
 import os, sys, glob, argparse, time
 import matplotlib
 matplotlib.use("Agg")
@@ -34,7 +32,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             geo_area=float(p.get('geo_area', 5.0)),
             loading=float(p.get('loading', 0.2)),
             membrane_thickness=None,
-            stand=stand_index(p.get('stand'), default=0),
+            stand=_stand_index(p.get('stand')),
             ocv_interval_s=float(p.get('interval_s', 60.0)),
             activation_interval_s=float(p.get('activation_interval_s',
                                               p.get('interval_s', 60.0))),
@@ -93,6 +91,28 @@ _SUMMARY_KEYS = {
                   'K_H2_mol_cm_s_Pa', 'j_avg_mean_mA_cm2',
                   'membrane_thickness_um', 'geo_area'),
 }
+
+
+def _stand_index(value, default=0):
+    """The 0/1 code the parsers take, from any accepted stand value.
+
+    Resolved at call time with a local fallback, deliberately. Every analysis
+    module is imported by scripts/__init__.py to build the registry, so a
+    module-level import that fails — a helper deployed a moment later than the
+    script that uses it, say — takes down the whole registry and with it every
+    endpoint that touches it, including the script list and the View tab. A
+    missing helper should cost this one parameter, not the portal.
+    """
+    try:
+        from scripts.helpers.record import stand_index
+        return stand_index(value, default)
+    except Exception:
+        text = str(value or '').strip().lower()
+        if text == '1' or text.startswith('fcts'):
+            return 1
+        if text == '0' or text.startswith('scribner'):
+            return 0
+        return default
 
 
 def _finite(v):
