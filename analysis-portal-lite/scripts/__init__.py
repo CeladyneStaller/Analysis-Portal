@@ -8,19 +8,38 @@ The "sample_name" field is prepended to all output filenames by the
 job runner (main.py), so individual scripts don't need to handle it.
 """
 
-from scripts.ecsa_analysis import run as ecsa_run
-from scripts.eis_analysis import run as eis_run
-from scripts.h2_crossover_analysis import run as crossover_run
-from scripts.polcurve_analysis import run as polcurve_run
-from scripts.electrolyzer_polcurve import run as elx_polcurve_run
-from scripts.electrolyzer_durability import run as elx_durability_run
-from scripts.fuelcell_analysis import run as fuelcell_run
-from scripts.ocv_analysis import run as ocv_run
-from scripts.activation_analysis import run as activation_run
-from scripts.electrode_cleaning_analysis import run as cleaning_run
-from scripts.polcurve_analysis_down import run as polcurve_down_run
-from scripts.polcurve_analysis_hfr_compare import run as polcurve_hfrcompare_run
-from scripts.compare_polcurves import run as plot_comparison_run
+import importlib
+
+# Analysis modules are imported tolerantly. This package is imported by every
+# endpoint that lists or runs a script, so a single missing or broken module
+# here takes the whole portal down — dropdowns included — rather than just
+# removing one entry. Two deployments of this portal carry different script
+# sets, so absence is normal rather than exceptional.
+MISSING_SCRIPTS = {}
+
+
+def _optional(module, attr="run"):
+    """The module's run(), or None if it is not present or fails to import."""
+    try:
+        return getattr(importlib.import_module(f"scripts.{module}"), attr)
+    except Exception as exc:                       # noqa: BLE001
+        MISSING_SCRIPTS[module] = f"{type(exc).__name__}: {exc}"
+        return None
+
+
+ecsa_run = _optional("ecsa_analysis")
+eis_run = _optional("eis_analysis")
+crossover_run = _optional("h2_crossover_analysis")
+polcurve_run = _optional("polcurve_analysis")
+elx_polcurve_run = _optional("electrolyzer_polcurve")
+elx_durability_run = _optional("electrolyzer_durability")
+fuelcell_run = _optional("fuelcell_analysis")
+ocv_run = _optional("ocv_analysis")
+activation_run = _optional("activation_analysis")
+cleaning_run = _optional("electrode_cleaning_analysis")
+polcurve_down_run = _optional("polcurve_analysis_down")
+polcurve_hfrcompare_run = _optional("polcurve_analysis_hfr_compare")
+plot_comparison_run = _optional("compare_polcurves")
 
 SCRIPT_REGISTRY = {
     "Fuel Cell ECSA": ecsa_run,
@@ -232,3 +251,15 @@ SCRIPT_PARAMS = {
          "default": 60.0, "step": 1, "min": 1},
     ],
 }
+
+
+# Entries whose module was absent are removed rather than left pointing at
+# None, so callers never have to test for it. SCRIPT_SHORT and SCRIPT_PARAMS
+# are trimmed to match, keeping the three dicts consistent.
+SCRIPT_REGISTRY = {k: v for k, v in SCRIPT_REGISTRY.items() if v is not None}
+SCRIPT_SHORT = {k: v for k, v in SCRIPT_SHORT.items() if k in SCRIPT_REGISTRY}
+SCRIPT_PARAMS = {k: v for k, v in SCRIPT_PARAMS.items() if k in SCRIPT_REGISTRY}
+
+if MISSING_SCRIPTS:
+    for _m, _why in sorted(MISSING_SCRIPTS.items()):
+        print(f"[scripts] not registered: {_m} ({_why})", flush=True)
