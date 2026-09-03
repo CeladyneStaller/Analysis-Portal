@@ -2,7 +2,9 @@
 """
 Inspect and correct the test stand recorded against stored runs.
 
-    python3 scripts/helpers/set_stands.py                     # report only
+    python3 scripts/helpers/set_stands.py                     # counts per stand
+    python3 scripts/helpers/set_stands.py --list              # every sample, by stand
+    python3 scripts/helpers/set_stands.py --from FCTS         # samples on one stand
     python3 scripts/helpers/set_stands.py --from Scribner --to "Scribner 1" --apply
     python3 scripts/helpers/set_stands.py --sample 260421_GSMA-Qual-1 --to "FCTS 2" --apply
     python3 scripts/helpers/set_stands.py --restore index-backup-....json --apply
@@ -125,11 +127,47 @@ if not legacy and '(none)' not in counts:
 # ── 2. select ─────────────────────────────────────────────────────
 head("2. Selection")
 
+LIST = '--list' in sys.argv
+
+# --from without --to is a question rather than a change: which samples carry
+# this stand? Answering it here is what makes the correction workflow usable —
+# see the group, decide, then re-run with --to.
+if LIST or (not TO and (FROM or SAMPLE)):
+    head("Samples by stand")
+    groups = {}
+    for r in runs:
+        if SAMPLE and r.get('sample_name') != SAMPLE:
+            continue
+        key = current(r) or '(none)'
+        if FROM is not None:
+            if FROM in UNSET:
+                if current(r) is not None:
+                    continue
+            elif current(r) != FROM:
+                continue
+        groups.setdefault(key, []).append(r)
+
+    if not groups:
+        print(f"{INFO}No entries match.")
+        sys.exit(0)
+    for stand in sorted(groups):
+        names = sorted({r.get('sample_name', '?') for r in groups[stand]})
+        print(f"\n{INFO}{stand}  ({len(names)} sample(s))")
+        for n in names:
+            print(f"    {n}")
+    total = sum(len({r.get('sample_name') for r in v}) for v in groups.values())
+    print(f"\n{INFO}{total} sample(s) listed. Add --to \"<stand>\" to change them.")
+    sys.exit(0)
+
 if not TO and not (FROM or SAMPLE):
     print(f"{INFO}Report only. To correct entries:")
     print(f'{INFO}  --from Scribner --to "Scribner 1" --apply')
     print(f'{INFO}  --sample 260421_GSMA-Qual-1 --to "FCTS 2" --apply')
     print(f'{INFO}  --from none --to "FCTS 1" --apply      (entries with no stand)')
+    print(f"{INFO}")
+    print(f"{INFO}To see which samples carry a stand before changing anything:")
+    print(f"{INFO}  --list                 every sample, grouped by stand")
+    print(f"{INFO}  --from FCTS            just the samples tagged FCTS")
     print(f"{INFO}")
     print(f"{INFO}Which numbered stand a legacy run came from is not in the data.")
     print(f"{INFO}This applies your knowledge; it does not infer anything.")
