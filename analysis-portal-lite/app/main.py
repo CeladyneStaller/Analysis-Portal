@@ -285,9 +285,49 @@ async def index():
     return HTMLResponse((TEMPLATE_DIR / "index.html").read_text())
 
 
+@app.get("/api/diag/imports")
+async def diag_imports():
+    """Why the script registry is or is not working.
+
+    Deliberately importable-independent: it reports an import failure instead
+    of raising one, so it still answers when /api/scripts cannot. A bare 500
+    says nothing, and the traceback goes to the deploy log where it is easy to
+    miss.
+    """
+    import traceback
+    out = {"ok": False, "registered": [], "missing": {}, "error": None}
+    try:
+        import scripts
+        out["ok"] = True
+        out["registered"] = sorted(scripts.SCRIPT_REGISTRY)
+        out["missing"] = getattr(scripts, "MISSING_SCRIPTS", {})
+        out["has_tolerant_registry"] = hasattr(scripts, "MISSING_SCRIPTS")
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        out["traceback"] = traceback.format_exc().splitlines()[-12:]
+    # The helper most likely to be deployed out of step with its callers.
+    try:
+        from scripts.helpers import record
+        out["record_helpers"] = {
+            name: hasattr(record, name)
+            for name in ("stand_index", "stand_family", "stand_matches",
+                         "parse_stand", "json_safe")}
+    except Exception as e:
+        out["record_helpers"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 @app.get("/api/scripts")
 async def list_scripts():
-    from scripts import SCRIPT_REGISTRY, SCRIPT_PARAMS
+    # Report the reason rather than letting FastAPI return a bare
+    # "Internal Server Error", which strands the caller with a JSON parse
+    # failure and no idea what broke.
+    try:
+        from scripts import SCRIPT_REGISTRY, SCRIPT_PARAMS
+    except Exception as e:
+        raise HTTPException(
+            500, f"Script registry failed to import — {type(e).__name__}: {e}. "
+                 f"See /api/diag/imports for detail.")
     # Internal scripts that should not appear in the user-facing dropdown.
     # These are invoked via dedicated endpoints (e.g. /api/compare) instead.
     INTERNAL_ONLY = {"Plot Comparison"}
