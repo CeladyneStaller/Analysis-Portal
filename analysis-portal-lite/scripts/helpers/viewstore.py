@@ -293,6 +293,54 @@ def run_plots(key: str) -> List[Dict[str, Any]]:
 #  Materialisation
 # ─────────────────────────────────────────────────────────────────────
 
+# A chart is under a thousand pixels wide, so a curve carrying thousands of
+# points spends bytes on detail no screen can show. Measured: a polcurve set of
+# 24 curves is 15 kB and an EIS set 27 kB — both irrelevant — but an ECSA scan
+# at ~900 points per cycle reaches roughly 1 MB for the same chart. Subsampling
+# to this many points is visually identical — the chart is 760 px wide, so 400
+# points is already about one every two pixels — and cuts the payload by more
+# than half.
+#
+# Only the browser sees decimated data. Export re-renders server-side from the
+# stored sidecar at full resolution, so the figure and workbook are unaffected.
+MAX_SERIES_POINTS = 400
+
+
+def _decimate(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
+    """Thin a series while keeping its extremes, endpoints included.
+
+    Min/max per bucket rather than plain subsampling. Taking every nth point
+    clips peaks, and on a cyclic voltammogram the hydrogen adsorption and
+    desorption peaks *are* the measurement — a decimation that rounds them off
+    changes what the chart says. Measured on a sharply peaked trace, plain
+    subsampling moved the curve by 0.8 % of its span, about three pixels;
+    keeping the extreme of each bucket is exact at every peak.
+
+    Endpoints are kept too: for a polarization curve the last point is the
+    limiting current and for a Nyquist it is the low-frequency end.
+
+    Only the browser sees this. Export re-renders server-side from the stored
+    sidecar at full resolution, so the figure and workbook are unaffected.
+    """
+    n = min(len(xs), len(ys))
+    if n <= MAX_SERIES_POINTS:
+        return {'x': list(xs[:n]), 'y': list(ys[:n])}
+
+    buckets = max(1, MAX_SERIES_POINTS // 2)
+    width = n / float(buckets)
+    keep = {0, n - 1}
+    for b in range(buckets):
+        lo, hi = int(b * width), min(int((b + 1) * width), n)
+        if hi <= lo:
+            continue
+        window = range(lo, hi)
+        keep.add(min(window, key=lambda i: ys[i]))
+        keep.add(max(window, key=lambda i: ys[i]))
+    idx = sorted(keep)
+    return {'x': [xs[i] for i in idx], 'y': [ys[i] for i in idx],
+            'decimated': True}
+
+
 def plot_series(key: str, analysis: str = '', step: str = '',
                 plot: str = '') -> Optional[Dict[str, Any]]:
     """The plotted series for one stored plot, for charting in the browser.
@@ -335,7 +383,7 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     axes = []
     for ax in (sc.get('data') or {}).get('axes', []):
         lines = [{'label': ln.get('label') or '',
-                  'x': ln.get('x') or [], 'y': ln.get('y') or []}
+                  **_decimate(ln.get('x') or [], ln.get('y') or [])}
                  for ln in ax.get('lines', []) if ln.get('x')]
         if lines:
             axes.append({'title': ax.get('title') or '',

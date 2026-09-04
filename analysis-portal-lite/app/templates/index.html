@@ -515,6 +515,15 @@
   }
 
   /* ── Comparisons tab ─────────────────────────────────────── */
+  .cmp-views { display: inline-flex; align-items: center; gap: 6px; }
+  .cmp-views select {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    font-family: var(--font); font-size: 12px; padding: 5px 8px;
+    max-width: 170px; text-transform: none; letter-spacing: 0;
+  }
+  .cmp-views select:focus { outline: none; border-color: var(--accent); }
+
   .cmp-types { display: flex; gap: 6px; padding: 11px 18px;
     border-bottom: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
   .cmp-type { background: var(--bg); border: 1px solid var(--border);
@@ -2197,6 +2206,16 @@
       <div class="section-head">
         Comparison
         <span class="count" id="cmpCurveCount">0</span>
+        <span class="cmp-views">
+          <select id="cmpViewSel" onchange="cmpLoadView(this.value)"
+                  title="Saved views are kept in this browser only">
+            <option value="">Saved views…</option>
+          </select>
+          <button class="view-refresh" onclick="cmpSaveView()"
+                  title="Save the current curves and options under a name">Save</button>
+          <button class="view-refresh" id="cmpDelView" onclick="cmpDeleteView()"
+                  title="Delete the selected saved view">Delete</button>
+        </span>
         <button class="view-refresh" id="cmpExport" onclick="exportComparison()"
                 title="Render this comparison server-side and download the figure and workbook">
           ⭳ Export PNG + xlsx</button>
@@ -4003,6 +4022,7 @@ function cmpRender() {
 
   document.getElementById('cmpExport').disabled = series.length < 2;
   cmpRenderPick();
+  cmpRenderViews();
   cmpLoadSeries();
 }
 
@@ -4118,6 +4138,135 @@ function cmpToggleAll(k) {
     steps.forEach(x => CMP_SEL.get(k).add(x));
   }
   cmpRender();
+}
+
+// ── Saved views ─────────────────────────────────────────────────
+//
+// A named curve set, kept in localStorage. What is saved is the *selection* —
+// which samples, which steps, which options — never the series: those are
+// refetched, so a view opened next month reflects the data as it stands rather
+// than a snapshot of it.
+//
+// localStorage is per browser and per origin, so a saved view is personal and
+// cannot be handed to a colleague. That is the trade for needing no schema
+// change and no write path; a shared view would have to live in the index.
+const CMP_VIEWS_KEY = 'cmpSavedViews';
+
+function cmpReadViews() {
+  try {
+    const raw = localStorage.getItem(CMP_VIEWS_KEY);
+    const v = raw ? JSON.parse(raw) : {};
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch (e) {
+    // Disabled storage, or something else writing the same key. Losing saved
+    // views is a nuisance; throwing here would take the whole tab down.
+    console.warn('saved views unreadable:', e);
+    return {};
+  }
+}
+function cmpWriteViews(views) {
+  try {
+    localStorage.setItem(CMP_VIEWS_KEY, JSON.stringify(views));
+    return true;
+  } catch (e) {
+    alert('Could not save the view: ' + e.message);
+    return false;
+  }
+}
+
+function cmpSaveView() {
+  const sel = cmpSelected();
+  if (!sel.length) { alert('Add some curves before saving a view.'); return; }
+  const views = cmpReadViews();
+  const current = document.getElementById('cmpViewSel').value;
+  const name = (prompt('Name for this view:', current || '') || '').trim();
+  if (!name) return;
+  if (views[name] && !confirm(`Replace the saved view "${name}"?`)) return;
+
+  views[name] = {
+    type: CMP_TYPE,
+    // Plain objects and arrays: a Map and a Set do not survive JSON.
+    sel: Object.fromEntries([...CMP_SEL].map(([k, v]) => [k, [...v]])),
+    hidden: [...CMP_HIDDEN],
+    opt: { ...CMP_OPT },
+    saved: new Date().toISOString(),
+  };
+  if (cmpWriteViews(views)) {
+    cmpRenderViews(name);
+  }
+}
+
+function cmpLoadView(name) {
+  if (!name) { cmpRenderViews(''); return; }
+  const v = cmpReadViews()[name];
+  if (!v) { cmpRenderViews(''); return; }
+
+  CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
+  CMP_OPT = { irfree: false, power: false, ...(v.opt || {}) };
+  CMP_HIDDEN = new Set(v.hidden || []);
+
+  // A saved view names samples that may since have been renamed, merged or
+  // deleted. Dropping those quietly would misrepresent the comparison, and
+  // refusing to open the view at all would be worse — so the rest loads and
+  // the note says what went missing.
+  const gone = [];
+  CMP_SEL = new Map();
+  Object.entries(v.sel || {}).forEach(([k, steps]) => {
+    const run = cmpRunFor(k);
+    if (!run) {
+      // Count the curves lost, not the samples: a sample that contributed
+      // four steps and is now gone costs four curves, and reporting it as one
+      // understates what changed.
+      (steps || []).forEach(st => gone.push(`${k} · ${st}`));
+      return;
+    }
+    const have = new Set(cmpUnitsFor(run, CMP_TYPE).map(u => u.step));
+    const keep = (steps || []).filter(st => have.has(st));
+    (steps || []).forEach(st => {
+      if (!have.has(st)) gone.push(`${run.sample_name || k} · ${st}`);
+    });
+    if (keep.length) CMP_SEL.set(k, new Set(keep));
+  });
+
+  cmpRenderViews(name);
+  cmpRender();
+  if (gone.length) {
+    const note = document.getElementById('cmpNote');
+    note.innerHTML = `<span class="warn">Opened “${escapeHtml(name)}” without
+      ${gone.length} curve${gone.length === 1 ? '' : 's'} that ${gone.length === 1
+        ? 'is' : 'are'} no longer stored: ${escapeHtml(gone.slice(0, 4).join(', '))}${
+        gone.length > 4 ? `, and ${gone.length - 4} more` : ''}.</span>`;
+  }
+}
+
+function cmpDeleteView() {
+  const sel = document.getElementById('cmpViewSel');
+  const name = sel.value;
+  if (!name) return;
+  if (!confirm(`Delete the saved view "${name}"?`)) return;
+  const views = cmpReadViews();
+  delete views[name];
+  if (cmpWriteViews(views)) cmpRenderViews('');
+}
+
+function cmpRenderViews(selected) {
+  const sel = document.getElementById('cmpViewSel');
+  if (!sel) return;
+  const views = cmpReadViews();
+  const names = Object.keys(views).sort((a, b) =>
+    String(views[b].saved || '').localeCompare(String(views[a].saved || '')));
+  const cur = selected !== undefined ? selected : sel.value;
+  sel.innerHTML = '<option value="">'
+    + (names.length ? 'Saved views…' : 'No saved views') + '</option>'
+    + names.map(n => {
+        const v = views[n];
+        const n_ = Object.values(v.sel || {}).reduce((a, x) => a + x.length, 0);
+        const ty = (CMP_TYPES[v.type] || {}).label || v.type || '';
+        return `<option value="${escapeAttr(n)}" ${n === cur ? 'selected' : ''}`
+             + ` title="${escapeAttr(`${n_} curve(s) · ${ty}`)}">${escapeHtml(n)}</option>`;
+      }).join('');
+  sel.value = cur || '';
+  document.getElementById('cmpDelView').disabled = !sel.value;
 }
 
 // Export hands the selection to the existing server-side comparison rather
