@@ -593,6 +593,20 @@
   .cmp-chartwrap svg .ln { fill: none; stroke-width: 1.8;
     stroke-linejoin: round; stroke-linecap: round; }
 
+  .cmp-ranges { display: inline-flex; align-items: center; gap: 4px; }
+  .cmp-rlab { color: var(--text-dim); font-family: var(--mono); font-size: 11px;
+    margin-left: 4px; }
+  .cmp-range {
+    width: 70px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); font-family: var(--mono);
+    font-size: 11px; padding: 4px 6px; text-align: right;
+  }
+  .cmp-range:focus { outline: none; border-color: var(--accent); }
+  .cmp-range.set { border-color: var(--accent-strong); color: var(--accent); }
+  .cmp-range::placeholder { color: var(--text-dim); opacity: .55; }
+  #cmpChart { cursor: grab; }
+  #cmpChart.panning { cursor: grabbing; }
+
   .cmp-picker { border-top: 1px solid var(--border); }
   .cmp-pickhead { display: flex; align-items: center; gap: 8px; padding: 11px 18px;
     border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -3910,6 +3924,7 @@ function cmpChart(series, cfg) {
   const xs = series.flatMap(s => s.pts.map(p => p[0]));
   const ys = series.flatMap(s => s.pts.map(p => p[1]));
   if (!xs.length) {
+    CMP_SCALE = null;
     return `<div class="cmp-empty">${CMP_LOADING ? 'Loading curves…'
       : 'No curves selected — add one below.'}</div>`;
   }
@@ -3917,7 +3932,25 @@ function cmpChart(series, cfg) {
   let y0 = Math.min(...ys), y1 = Math.max(...ys);
   const pad = (y1 - y0) * 0.08 || 0.05; y0 -= pad; y1 += pad;
   if (cfg.zeroY) y0 = 0;
-  if (cfg.equal) {
+  // An explicit window — set by the wheel, by dragging, or by typing a range —
+  // replaces the fitted one. Each bound is separate, so a single typed maximum
+  // holds while the other three still follow the data.
+  const V = CMP_VIEW;
+  const fixedX = V && (V.x0 != null || V.x1 != null);
+  const fixedY = V && (V.y0 != null || V.y1 != null);
+  if (V) {
+    if (V.x0 != null) x0 = V.x0;
+    if (V.x1 != null) x1 = V.x1;
+    if (V.y0 != null) y0 = V.y0;
+    if (V.y1 != null) y1 = V.y1;
+  }
+  if (cfg.equal && (fixedX || fixedY)) {
+    // Equal units per pixel still holds under an explicit window: keep the
+    // requested range and size the box to it, rather than overriding what was
+    // asked for.
+    ih = Math.max(150, Math.min(430, iw * (y1 - y0) / (x1 - x0 || 1)));
+    H = ih + T + B;
+  } else if (cfg.equal) {
     // Nyquist wants equal units per pixel: a depressed semicircle is a real
     // feature of the impedance, and stretching an axis to fill a fixed box
     // invents or hides it. Size the box to the data instead of padding the
@@ -3930,6 +3963,9 @@ function cmpChart(series, cfg) {
   }
   const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
   const sy = v => T + ih - ((v - y0) / (y1 - y0)) * ih;
+  // Kept so the wheel and drag handlers can invert the transform — they need
+  // to know what data coordinate the pointer is over.
+  CMP_SCALE = { L, T, iw, ih, W, H, x0, x1, y0, y1 };
   const tk = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + (b - a) / n * i);
   const fm = v => Math.abs(v) >= 100 ? v.toFixed(0)
                 : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3);
@@ -3942,11 +3978,16 @@ function cmpChart(series, cfg) {
     `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${fm(v)}</text>`; });
   g += `<line class="axis" x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"/>` +
        `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${T + ih}"/>`;
+  // Zooming in puts most of every curve outside the axes, so the drawing is
+  // clipped to the plot box — without this the lines run across the labels.
+  g += `<defs><clipPath id="cmpClip"><rect x="${L}" y="${T}" width="${iw}"
+        height="${ih}"/></clipPath></defs><g clip-path="url(#cmpClip)">`;
   series.forEach(s => {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
     g += `<path class="ln" d="${d}" stroke="${s.color}"` +
          `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}><title>${escapeHtml(s.title)}</title></path>`;
   });
+  g += '</g>';
   g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(cfg.x)}</text>` +
        `<text class="alab" transform="translate(15,${T + ih / 2}) rotate(-90)" text-anchor="middle">${escapeHtml(cfg.y)}</text>`;
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
@@ -3965,12 +4006,27 @@ function cmpRender() {
         onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
     + '<span class="cmp-hint">Colour is the sample, dash is the step.</span>';
 
+  const box = (k, ph) => {
+    const v = CMP_VIEW && CMP_VIEW[k] != null ? String(+(CMP_VIEW[k].toPrecision(4))) : '';
+    return `<input class="cmp-range${v ? ' set' : ''}" type="text" value="${escapeAttr(v)}"
+      placeholder="${ph}" title="Blank follows the data"
+      onchange="cmpSetBound('${k}', this.value)">`;
+  };
   document.getElementById('cmpOpts').innerHTML =
     (t.opts.length
       ? t.opts.map(([k, l]) =>
           `<label><input type="checkbox" ${CMP_OPT[k] ? 'checked' : ''}
             onchange="CMP_OPT['${k}']=this.checked;cmpRender()"> ${escapeHtml(l)}</label>`).join('')
-      : '<span style="opacity:.6">No axis options for this type</span>');
+      : '')
+    + `<span class="cmp-ranges">
+         <span class="cmp-rlab">x</span>${box('x0', 'min')}${box('x1', 'max')}
+         <span class="cmp-rlab">y</span>${box('y0', 'min')}${box('y1', 'max')}
+         <button class="btn btn-sm" onclick="cmpResetView()"
+                 ${cmpHasView() ? '' : 'disabled'}>Reset</button>
+       </span>`
+    + (cmpHasView()
+        ? '<span class="cmp-hint">Zoomed — scroll to zoom, drag to pan.</span>'
+        : '<span class="cmp-hint">Scroll over the plot to zoom, drag to pan.</span>');
 
   const sel = cmpSelected();
   document.getElementById('cmpCount').textContent = String(sel.length);
@@ -4040,6 +4096,7 @@ function cmpRender() {
       + 'Export renders the same comparison server-side, with its readouts and workbook.';
 
   document.getElementById('cmpExport').disabled = series.length < 2;
+  cmpWireChart();
   cmpRenderPick();
   cmpRenderViews();
   cmpLoadSeries();
@@ -4159,6 +4216,108 @@ function cmpToggleAll(k) {
   cmpRender();
 }
 
+// ── Zoom, pan and axis ranges ───────────────────────────────────
+//
+// One idea, three ways in: the wheel, a drag, and four range boxes all set the
+// same explicit window. Any bound left null follows the data, so typing a
+// single maximum holds that edge while the rest still fits automatically.
+let CMP_VIEW = null;     // {x0,x1,y0,y1} — any may be null
+let CMP_SCALE = null;    // the last chart's transform, for inverting
+let CMP_PAN = null;
+
+const cmpHasView = () => !!(CMP_VIEW &&
+  ['x0', 'x1', 'y0', 'y1'].some(k => CMP_VIEW[k] != null));
+
+// Pointer position in data coordinates. The SVG is drawn in viewBox units and
+// laid out at whatever width the panel gives it, so the two have to be related
+// before the pointer means anything.
+function cmpPointToData(ev) {
+  const svg = document.querySelector('#cmpChart svg');
+  if (!svg || !CMP_SCALE) return null;
+  const r = svg.getBoundingClientRect();
+  const vx = (ev.clientX - r.left) * (CMP_SCALE.W / r.width);
+  const vy = (ev.clientY - r.top) * (CMP_SCALE.H / r.height);
+  const { L, T, iw, ih, x0, x1, y0, y1 } = CMP_SCALE;
+  return {
+    x: x0 + ((vx - L) / iw) * (x1 - x0),
+    y: y0 + ((T + ih - vy) / ih) * (y1 - y0),
+    inside: vx >= L && vx <= L + iw && vy >= T && vy <= T + ih,
+  };
+}
+
+function cmpWheel(ev) {
+  if (!CMP_SCALE) return;
+  const at = cmpPointToData(ev);
+  if (!at || !at.inside) return;
+  // Only once the pointer is over the plot itself, so the page still scrolls
+  // when the cursor is merely passing over the panel.
+  ev.preventDefault();
+  const f = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
+  const { x0, x1, y0, y1 } = CMP_SCALE;
+  // Zoom about the pointer rather than the centre: the point under the cursor
+  // stays put, which is what makes zooming feel like it is aimed.
+  CMP_VIEW = {
+    x0: at.x - (at.x - x0) * f, x1: at.x + (x1 - at.x) * f,
+    y0: at.y - (at.y - y0) * f, y1: at.y + (y1 - at.y) * f,
+  };
+  cmpRender();
+}
+
+// Panning keeps the grabbed data point under the cursor, computed from
+// absolute pointer positions against the transform captured at mousedown.
+// Accumulating ev.movementX instead would drift, and movementX is unset on
+// synthetic events, so the behaviour could not be tested.
+function cmpPanStart(ev) {
+  if (ev.button !== 0 || !CMP_SCALE) return;
+  const at = cmpPointToData(ev);
+  if (!at || !at.inside) return;
+  CMP_PAN = { grabbed: { x: at.x, y: at.y }, scale: { ...CMP_SCALE },
+              rect: document.querySelector('#cmpChart svg').getBoundingClientRect() };
+  document.querySelector('#cmpChart').classList.add('panning');
+  ev.preventDefault();
+}
+function cmpPanMove(ev) {
+  if (!CMP_PAN) return;
+  const { grabbed, scale: v, rect: r } = CMP_PAN;
+  if (!r.width || !r.height) return;
+  // Where the pointer is now, in the coordinates the chart had when grabbed.
+  const vx = (ev.clientX - r.left) * (v.W / r.width);
+  const vy = (ev.clientY - r.top) * (v.H / r.height);
+  const nowX = v.x0 + ((vx - v.L) / v.iw) * (v.x1 - v.x0);
+  const nowY = v.y0 + ((v.T + v.ih - vy) / v.ih) * (v.y1 - v.y0);
+  const dx = nowX - grabbed.x, dy = nowY - grabbed.y;
+  CMP_VIEW = { x0: v.x0 - dx, x1: v.x1 - dx, y0: v.y0 - dy, y1: v.y1 - dy };
+  cmpRender();
+}
+function cmpPanEnd() {
+  CMP_PAN = null;
+  const el = document.querySelector('#cmpChart');
+  if (el) el.classList.remove('panning');
+}
+
+function cmpSetBound(which, raw) {
+  const v = String(raw).trim();
+  CMP_VIEW = CMP_VIEW || { x0: null, x1: null, y0: null, y1: null };
+  // Blank returns that edge to following the data, so the boxes can be used
+  // one at a time rather than all four or none.
+  CMP_VIEW[which] = v === '' ? null : (isFinite(parseFloat(v)) ? parseFloat(v) : null);
+  if (!cmpHasView()) CMP_VIEW = null;
+  cmpRender();
+}
+function cmpResetView() { CMP_VIEW = null; cmpRender(); }
+
+// The chart is replaced on every render, so the listeners live on the
+// container, which is not.
+function cmpWireChart() {
+  const el = document.getElementById('cmpChart');
+  if (!el || el.dataset.wired) return;
+  el.dataset.wired = '1';
+  el.addEventListener('wheel', cmpWheel, { passive: false });
+  el.addEventListener('mousedown', cmpPanStart);
+  window.addEventListener('mousemove', cmpPanMove);
+  window.addEventListener('mouseup', cmpPanEnd);
+}
+
 // ── Reordering the curve panel ──────────────────────────────────
 //
 // Colour comes from a sample's position, so dragging is how a sample's colour
@@ -4271,6 +4430,9 @@ function cmpSaveView() {
     sel: Object.fromEntries([...CMP_SEL].map(([k, v]) => [k, [...v]])),
     hidden: [...CMP_HIDDEN],
     opt: { ...CMP_OPT },
+    // A view saved while zoomed should reopen zoomed: the window is part of
+    // what was being looked at, not incidental to it.
+    view: CMP_VIEW ? { ...CMP_VIEW } : null,
     saved: new Date().toISOString(),
   };
   if (cmpWriteViews(views)) {
@@ -4286,6 +4448,7 @@ function cmpLoadView(name) {
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
   CMP_OPT = { irfree: false, power: false, ...(v.opt || {}) };
   CMP_HIDDEN = new Set(v.hidden || []);
+  CMP_VIEW = v.view ? { ...v.view } : null;
 
   // A saved view names samples that may since have been renamed, merged or
   // deleted. Dropping those quietly would misrepresent the comparison, and
