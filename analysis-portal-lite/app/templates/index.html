@@ -533,7 +533,17 @@
     background: var(--accent-glow); }
   .cmp-hint { color: var(--text-dim); font-size: 11.5px; }
 
-  .cmp-body { display: grid; grid-template-columns: 300px 1fr; min-height: 430px; }
+  /* Wider than before, because the panel now carries each step's index values
+     beside its line. 500px is what the content measures: about 160px for the
+     dash, step and conditions, 270px for three metrics, and the row actions.
+     At 430px the conditions were being clipped to "80.3 …", which loses the
+     distinction between a 95 % RH step and a 50 % one — the whole reason those
+     rows are separate curves. */
+  .cmp-body { display: grid; grid-template-columns: 500px 1fr; min-height: 430px; }
+  @media (max-width: 1280px) {
+    .cmp-body { grid-template-columns: 1fr; }
+    .cmp-side { border-right: none; border-bottom: 1px solid var(--border); }
+  }
   .cmp-side { border-right: 1px solid var(--border); display: flex;
     flex-direction: column; min-width: 0; }
   .cmp-sidehead { padding: 10px 13px; border-bottom: 1px solid var(--border);
@@ -568,14 +578,28 @@
   .cmp-grp.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
 
   .cmp-steps { padding: 0 0 5px; }
-  .cmp-strow { display: flex; align-items: center; gap: 7px;
-    padding: 3px 10px 3px 22px; font-size: 12px; }
+  /* Two columns per step: what the curve is on the left, what it measured on
+     the right. The values are the reason to look at the legend at all — the
+     chart shows shape, these say how much. */
+  .cmp-strow {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center; gap: 8px;
+    padding: 3px 10px 3px 22px; font-size: 12px;
+  }
   .cmp-strow:hover { background: var(--accent-glow); }
   .cmp-strow.off { opacity: .34; }
+  .cmp-scol1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
   .cmp-strow .st { font-family: var(--mono); font-size: 11px; color: var(--accent);
     min-width: 38px; }
-  .cmp-strow .cond { flex: 1; color: var(--text-dim); font-size: 10px;
+  .cmp-strow .cond { color: var(--text-dim); font-size: 10px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cmp-scol2 { display: flex; gap: 9px; align-items: baseline; }
+  .cmp-kv { display: inline-flex; gap: 4px; align-items: baseline;
+    white-space: nowrap; }
+  .cmp-kv .k { color: var(--text-dim); font-size: 9.5px; }
+  .cmp-kv .v { font-family: var(--mono); font-size: 11px; }
+  .cmp-kv.empty .k, .cmp-kv.empty { color: var(--text-dim); opacity: .5; }
+  .cmp-sacts { display: flex; gap: 2px; }
 
   .cmp-main { display: flex; flex-direction: column; min-width: 0; }
   .cmp-opts { display: flex; gap: 14px; align-items: center; padding: 9px 16px;
@@ -584,6 +608,15 @@
   .cmp-opts label { display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer; }
   .cmp-chartwrap { flex: 1; padding: 14px 18px; overflow-x: auto; }
+  .cmp-chartbox {
+    resize: both; overflow: hidden;
+    width: 760px; height: 430px;
+    min-width: 420px; min-height: 260px;
+    max-width: 100%;
+  }
+  /* The native handle is nearly invisible on a dark surface, so the corner is
+     tinted enough to look grabbable. */
+  .cmp-chartbox::-webkit-resizer { background: var(--surface-raised); }
   .cmp-chartwrap svg .grid { stroke: var(--border); stroke-width: 1; }
   .cmp-chartwrap svg .axis { stroke: var(--border-hover); stroke-width: 1; }
   .cmp-chartwrap svg .tick { fill: var(--text-dim); font-size: 10px;
@@ -2262,7 +2295,12 @@
         </div>
         <div class="cmp-main">
           <div class="cmp-opts" id="cmpOpts"></div>
-          <div class="cmp-chartwrap"><div id="cmpChart"></div></div>
+          <div class="cmp-chartwrap">
+            <div class="cmp-chartbox" id="cmpChartBox"
+                 title="Drag the corner to resize the plot">
+              <div id="cmpChart"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3827,9 +3865,39 @@ function cmpUnitsFor(run, type) {
     if (d.Analysis !== type) return;
     const step = String(d.step || '');
     if (!step || seen.has(step)) return;
-    seen.set(step, { step, cond: conditionSummary(d.Conditions || {}) });
+    seen.set(step, { step, cond: conditionSummary(d.Conditions || {}),
+                     kv: d.key_values || {} });
   });
   return [...seen.values()];
+}
+
+// The metrics worth putting beside a curve, per analysis. A step carries more
+// than fits, and the useful ones differ by type — an EIS row wants its
+// resistances, a polcurve row wants what the curve is judged on.
+const CMP_METRICS = {
+  polcurve:  ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'Peak P'],
+  eis:       ['HFR', 'R_ohm', 'R_ct'],
+  crossover: ['|j_xover|', 'H₂ flux'],
+  ecsa:      ['Average ECSA', 'Average RF'],
+};
+const CMP_METRIC_MAX = 3;
+
+// {name, value} for one unit, canonicalised so a summary field name and its
+// annotation spelling do not appear as two different metrics.
+function cmpUnitMetrics(unit) {
+  const want = CMP_METRICS[CMP_TYPE] || [];
+  const have = {};
+  Object.entries(unit.kv || {}).forEach(([k, v]) => {
+    if (typeof v === 'number' && isFinite(v)) have[canonMetric(k)] = v;
+  });
+  const out = [];
+  want.forEach(n => { if (n in have) out.push({ name: n, value: have[n] }); });
+  // Anything present but not on the preference list still shows if there is
+  // room, rather than being invisible because it is new.
+  Object.keys(have).sort().forEach(n => {
+    if (!want.includes(n)) out.push({ name: n, value: have[n] });
+  });
+  return out.slice(0, CMP_METRIC_MAX);
 }
 function cmpSamples() {
   return (_viewRuns || []).filter(r => cmpUnitsFor(r, CMP_TYPE).length);
@@ -3919,8 +3987,12 @@ const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
 
 // ── chart ───────────────────────────────────────────────────────
 function cmpChart(series, cfg) {
-  const W = 760, L = 66, R = 18, T = 14, B = 46;
-  let H = 430, iw = W - L - R, ih = H - T - B;
+  // The plot is redrawn at whatever size the container has rather than being
+  // scaled to fit it: stretching the SVG would stretch the type and the line
+  // weights with it.
+  const L = 66, R = 18, T = 14, B = 46;
+  const W = CMP_SIZE.w, iw = W - L - R;
+  let H = CMP_SIZE.h, ih = H - T - B;
   const xs = series.flatMap(s => s.pts.map(p => p[0]));
   const ys = series.flatMap(s => s.pts.map(p => p[1]));
   if (!xs.length) {
@@ -3947,8 +4019,8 @@ function cmpChart(series, cfg) {
   if (cfg.equal && (fixedX || fixedY)) {
     // Equal units per pixel still holds under an explicit window: keep the
     // requested range and size the box to it, rather than overriding what was
-    // asked for.
-    ih = Math.max(150, Math.min(430, iw * (y1 - y0) / (x1 - x0 || 1)));
+    // asked for. Capped by the height the user has chosen.
+    ih = Math.max(150, Math.min(CMP_SIZE.h - T - B, iw * (y1 - y0) / (x1 - x0 || 1)));
     H = ih + T + B;
   } else if (cfg.equal) {
     // Nyquist wants equal units per pixel: a depressed semicircle is a real
@@ -3958,7 +4030,7 @@ function cmpChart(series, cfg) {
     x0 = Math.min(...xs); x1 = Math.max(...xs);
     const px = (x1 - x0) * 0.05 || 0.01; x0 -= px; x1 += px;
     y0 = Math.min(0, Math.min(...ys)); y1 = Math.max(...ys) * 1.10;
-    ih = Math.max(150, Math.min(430, iw * (y1 - y0) / (x1 - x0)));
+    ih = Math.max(150, Math.min(CMP_SIZE.h - T - B, iw * (y1 - y0) / (x1 - x0)));
     H = ih + T + B;
   }
   const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
@@ -4058,15 +4130,24 @@ function cmpRender() {
         const off = CMP_HIDDEN.has(cmpKey(k, u.step));
         const sr = CMP_SERIES.get(cmpKey(k, CMP_TYPE + '::' + u.step));
         const nodata = sr === null;
+        const mets = cmpUnitMetrics(u);
         return `<div class="cmp-strow${off || nodata ? ' off' : ''}"
                   ${nodata ? 'title="No plot data stored for this step"' : ''}>
-          ${cmpDashSvg(color, cmpDashOf(u.step))}
-          <span class="st">${escapeHtml(u.step)}</span>
-          <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
-          <span class="cmp-act" title="Show or hide"
-                onclick="cmpToggleStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">${off ? '○' : '●'}</span>
-          <span class="cmp-act" title="Remove"
-                onclick="cmpDropStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">×</span>
+          <span class="cmp-scol1">
+            ${cmpDashSvg(color, cmpDashOf(u.step))}
+            <span class="st">${escapeHtml(u.step)}</span>
+            <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
+          </span>
+          <span class="cmp-scol2">${mets.length
+            ? mets.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.name)}</span>`
+                + `<span class="v">${escapeHtml(fmtNum(m.value))}</span></span>`).join('')
+            : '<span class="cmp-kv empty">—</span>'}</span>
+          <span class="cmp-sacts">
+            <span class="cmp-act" title="Show or hide"
+                  onclick="cmpToggleStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">${off ? '○' : '●'}</span>
+            <span class="cmp-act" title="Remove"
+                  onclick="cmpDropStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">×</span>
+          </span>
         </div>`; }).join('')}</div>
     </div>`;
   }).join('') || '<div class="cmp-empty" style="padding:26px 16px;font-size:12px">No curves yet.</div>';
@@ -4097,6 +4178,7 @@ function cmpRender() {
 
   document.getElementById('cmpExport').disabled = series.length < 2;
   cmpWireChart();
+  cmpObserveSize();
   cmpRenderPick();
   cmpRenderViews();
   cmpLoadSeries();
@@ -4214,6 +4296,32 @@ function cmpToggleAll(k) {
     steps.forEach(x => CMP_SEL.get(k).add(x));
   }
   cmpRender();
+}
+
+// ── Chart size ──────────────────────────────────────────────────
+//
+// The wrapper carries a native CSS resize handle and a ResizeObserver redraws
+// at the new size. Letting the SVG scale to fit instead would have been one
+// line, but it stretches the tick labels and line weights along with the plot.
+const CMP_MIN_W = 420, CMP_MIN_H = 260;
+let CMP_SIZE = { w: 760, h: 430 };
+let CMP_RO = null;
+
+function cmpObserveSize() {
+  const box = document.getElementById('cmpChartBox');
+  if (!box || CMP_RO) return;
+  CMP_RO = new ResizeObserver(entries => {
+    const r = entries[0].contentRect;
+    const w = Math.max(CMP_MIN_W, Math.round(r.width));
+    const h = Math.max(CMP_MIN_H, Math.round(r.height));
+    if (w === CMP_SIZE.w && h === CMP_SIZE.h) return;
+    CMP_SIZE = { w, h };
+    // Redrawing inside the observer's own callback is what triggers the
+    // "loop completed with undelivered notifications" warning, so it waits a
+    // frame.
+    requestAnimationFrame(() => cmpRender());
+  });
+  CMP_RO.observe(box);
 }
 
 // ── Zoom, pan and axis ranges ───────────────────────────────────
