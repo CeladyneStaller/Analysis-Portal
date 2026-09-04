@@ -92,10 +92,21 @@
   /* ── Layout ─────────────────────────────────── */
 
   .shell {
-    max-width: 700px;
+    /* Full display width. The former 700px cap suited the upload form but
+       wasted most of a wide monitor on the View tab, where the table and the
+       per-analysis grids are the whole point. Padding keeps content off the
+       bezel; set --max-shell if an ultrawide turns out to be too much to
+       track across. */
+    max-width: var(--max-shell, none);
     margin: 0 auto;
-    padding: 56px 20px 80px;
+    padding: 56px 28px 80px;
   }
+
+  /* The page fills the display, but a form does not benefit from doing so —
+     a label and its input a foot apart is worse than unused space. The form
+     caps itself and stays left-aligned; the data surfaces are free to use
+     the full width. */
+  .params-head, .params-grid, .sample-section { max-width: 980px; }
 
   header {
     margin-bottom: 44px;
@@ -302,7 +313,16 @@
   }
 
   /* ─── View tab: run detail ────────────────── */
-  .runs-table tr.detail-row > td { padding: 0; background: var(--bg); }
+  /* A td does not constrain its children's width, so a wide grid inside one
+     grows the cell instead of scrolling in it — the far columns were being
+     clipped by the panel with no way to reach them. max-width:0 makes the
+     cell take its width from the table, which the scroll container then
+     inherits. */
+  .runs-table tr.detail-row > td {
+    padding: 0; background: var(--bg);
+    max-width: 0;
+  }
+  .runs-table tr.detail-row > td > .run-detail { width: 100%; }
   .run-detail { padding: 16px 14px 20px; }
   .run-detail.loading { color: var(--text-dim); font-size: 13px; }
   .rd-analysis { margin-bottom: 18px; }
@@ -373,6 +393,57 @@
     border-color: var(--red) !important;
     background: var(--red-bg);
   }
+
+  /* Per-analysis grid: labels in a left gutter, one column per plot, values
+     directly beneath the plot they belong to. One grid, so alignment is
+     structural rather than eyeballed. */
+  .pg-scroll { overflow-x: auto; padding-bottom: 2px; }
+  .pgrid { display: grid; gap: 0 8px; margin: 0 0 14px; min-width: min-content; }
+  .pg-label {
+    font-size: 10.5px; color: var(--text-dim); padding: 5px 9px 5px 0;
+    white-space: nowrap; text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  .pg-unit { opacity: .6; }
+  .pg-val {
+    font-family: var(--mono); font-size: 12px; padding: 5px 0;
+    text-align: center; border-bottom: 1px solid var(--border);
+  }
+  .pg-val.miss { color: var(--text-dim); opacity: .45; }
+  .pg-head { grid-row: 1; }
+  .pg-step {
+    font-family: var(--mono); font-size: 11.5px; color: var(--accent);
+    text-align: center; padding: 8px 0 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pg-cond {
+    font-size: 10.5px; color: var(--text-dim); text-align: center;
+    padding: 0 4px 6px; border-bottom: 1px solid var(--border); line-height: 1.35;
+  }
+  .pg-thumb {
+    /* Grows with its column but not without limit: past about 260px the
+       plots crowd the values underneath off the screen, and the values are
+       the reason the two are stacked in the first place. */
+    aspect-ratio: 4 / 3; max-width: 260px; margin: 0 auto;
+    background: var(--surface-raised);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 11px; font-family: var(--mono);
+    cursor: pointer; overflow: hidden;
+  }
+  .pg-thumb:hover { border-color: var(--accent); }
+  .pg-thumb .thumb-spin { color: var(--text-dim); font-size: 11px; }
+  .pg-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .pg-thumb.unrenderable {
+    cursor: default; text-align: center; line-height: 1.4;
+    border-style: dashed; opacity: .55;
+  }
+  .pg-thumb.unrenderable:hover { border-color: var(--border); }
+  .pg-acts {
+    display: flex; gap: 4px; justify-content: center; margin: 4px 0 2px;
+  }
+  .pg-sel { margin-top: 0; padding: 2px 9px; font-size: 11px; }
+  .pg-dl { padding: 2px 8px; font-size: 11px; }
 
   .rd-dl {
     background: none;
@@ -2308,13 +2379,7 @@ function renderRunDetail(detail, key) {
     // Summary rows belonging to this analysis, rendered inside its section
     // rather than in a block below every section — a Full Analysis produces a
     // dozen rows, and detached from their analysis they are hard to read.
-    const summaryHtml = summaryRowsFor(detail, bucket, bucketPlots)
-      .map(rdSummaryBlock).join('');
-
-    // Plots first, then this analysis's summary beneath them. The plots are
-    // what the section is for; the scalars are the reference underneath.
-    const bodyHtml = bucketPlots.map(p =>
-      rdPlotRow(detail, p, anyRenderable, jobId)).join('') + summaryHtml;
+    const bodyHtml = rdAnalysisGrid(detail, bucket, bucketPlots, jobId);
 
     // Everything starts collapsed: a Full Analysis expands to a couple of
     // dozen plots, and opening a sample should show its shape first rather
@@ -2354,6 +2419,167 @@ function renderRunDetail(detail, key) {
 
   html += '</div>';
   return html;
+}
+
+// ── Per-analysis grid ───────────────────────────────────────────
+// Each plot owns a column and its numbers sit directly beneath it, with the
+// metric names in a left gutter. Built as one CSS grid so the plot and its
+// values cannot drift apart — previously each step rendered its own key/value
+// block, which meant four polcurve steps produced four unaligned grids and
+// nothing could be read across.
+
+// Summary rows use the scripts' field names and plot annotations use display
+// names, so the same quantity arrives under two spellings — V_at_1Acm2 and
+// "V @ 1 A/cm²" are one measurement, and left alone the grid shows it twice.
+// Mirrors the alias lists in record.KEY_VALUES.
+const METRIC_ALIASES = {
+  'OCV': ['OCV', 'OCV (V)'],
+  'V @ 1 A/cm²': ['V_at_1Acm2', 'V @ 1 A/cm²', 'V@1A (V)', 'V at 1 A/cm2'],
+  'j @ 0.7 V': ['j_at_0.7V', 'j @ 0.7 V'],
+  'j @ 0.65 V': ['j_at_0.65V', 'j @ 0.65 V'],
+  'j @ 0.6 V': ['j_at_0.6V', 'j @ 0.6 V'],
+  'j @ 0.5 V': ['j_at_0.5V', 'j @ 0.5 V'],
+  'j @ 0.4 V': ['j_at_0.4V', 'j @ 0.4 V'],
+  'Peak P': ['peak_power_W_cm2', 'Peak P', 'Peak Power'],
+  'j @ peak P': ['j_at_peak_power'],
+  'Mean HFR': ['HFR_mean'],
+  'HFR': ['HFR'],
+  'R_ohm': ['R_ohm'], 'R_ct': ['R_ct'], 'R_mt': ['R_mt'],
+  '|j_xover|': ['j_xover_mA_cm2', '|j_xover|'],
+  'H₂ flux': ['J_H2_nmol_cm2_s'],
+  'K_H₂': ['K_H2_mol_cm_s_Pa'],
+  'Average ECSA': ['average_ECSA_m2_per_g', 'Average ECSA'],
+  'Average RF': ['average_RF'],
+  'Tafel slope': ['tafel_slope_mVdec'],
+  'Cycles': ['n_cycles', 'Cycles'],
+  'DL reduction': ['DL_reduction_pct', 'DL_reduction'],
+};
+const METRIC_CANON = (() => {
+  const m = {};
+  Object.entries(METRIC_ALIASES).forEach(([canon, names]) =>
+    names.forEach(n => { if (!(n in m)) m[n] = canon; }));
+  return m;
+})();
+function canonMetric(name) { return METRIC_CANON[name] || name; }
+
+// Values for one plot, preferring the tier-1 summary over the annotation text.
+// The summary carries full precision; annotation values are rounded for
+// display, and a record written before tier-1 existed has only the latter.
+function plotMetrics(detail, bucket, plot) {
+  const out = {};
+  Object.entries(plot.values || {}).forEach(([k, v]) => {
+    const num = (v && typeof v === 'object') ? v.value : v;
+    if (typeof num === 'number' && isFinite(num)) {
+      out[canonMetric(k)] = { value: num, unit: (v && v.unit) || '' };
+    }
+  });
+  const step = String((plot.conditions || {}).step || '');
+  (detail.summary || []).forEach(row => {
+    if (!row || typeof row !== 'object') return;
+    if (row.Analysis && row.Analysis !== bucket) return;
+    const label = String(row.Label || row.label || '');
+    const belongs = label && (plot.plot.includes(label)
+      || (step && String(parseStepOf(label)) === step));
+    if (!belongs) return;
+    Object.entries(row).forEach(([k, v]) => {
+      if (k === 'Label' || k === 'label' || k === 'Analysis') return;
+      if (typeof v === 'number' && isFinite(v)) {
+        const c = canonMetric(k);
+        out[c] = { value: v, unit: (out[c] && out[c].unit) || '' };
+      }
+    });
+  });
+  return out;
+}
+
+// Steps look like b4, c6, b17b — a letter, digits, optionally one more letter.
+function parseStepOf(text) {
+  const m = String(text).match(/(?:^|_)([A-Za-z]\d+[A-Za-z]?)(?=_|$)/);
+  return m ? m[1] : '';
+}
+
+function conditionSummary(cond) {
+  const bits = [];
+  if (cond.T_C != null) bits.push(`${cond.T_C} °C`);
+  if (cond.RH_pct != null) bits.push(`${cond.RH_pct} % RH`);
+  if (cond.P_value != null) bits.push(`${cond.P_value} ${cond.P_unit || ''}`.trim());
+  [['H2_slpm','H₂'], ['Air_slpm','Air'], ['N2_slpm','N₂'], ['O2_slpm','O₂']]
+    .forEach(([k, lab]) => { if (cond[k] != null) bits.push(`${lab} ${cond[k]}`); });
+  return bits.join(' · ');
+}
+
+function rdAnalysisGrid(detail, bucket, plots, jobId) {
+  const cols = plots.map(p => ({
+    plot: p,
+    step: String((p.conditions || {}).step || ''),
+    cond: conditionSummary(p.conditions || {}),
+    vals: plotMetrics(detail, bucket, p),
+  }));
+
+  // Metric rows are the union across this analysis's plots, in first-seen
+  // order so the ordering follows the scripts rather than the alphabet.
+  const names = [];
+  cols.forEach(c => Object.keys(c.vals).forEach(n => {
+    if (!names.includes(n)) names.push(n);
+  }));
+  if (!cols.length) return '';
+
+  const n = cols.length;
+  // Sized so the ordinary case fits without scrolling: a four-step polcurve
+  // set is the common shape, and arriving already cut off reads as broken.
+  // Beyond that the section scrolls rather than shrinking plots to illegible.
+  const template = n === 1
+    ? '132px minmax(150px, 300px)'
+    : `132px repeat(${n}, minmax(122px, 1fr))`;
+
+  let cells = '';
+  const anyRenderable = plots.some(p => p.renderable);
+  if (anyRenderable) {
+    cells += '<div class="pg-head"></div>';
+    cells += cols.map(c => {
+      const key = jobId + '::' + c.plot.plot;
+      const on = _viewCompareSel.has(key);
+      if (!c.plot.renderable) {
+        return `<div class="pg-head"><div class="pg-thumb unrenderable"
+                  title="sidecar not stored">plot data<br>not stored</div></div>`;
+      }
+      return `<div class="pg-head">
+        <div class="pg-thumb" data-plot="${escapeAttr(c.plot.plot)}"
+             title="${escapeAttr(c.plot.plot)}"
+             onclick="openHistoricalPlot('${escapeAttr(jobId)}','${escapeAttr(c.plot.plot)}')">
+          <span class="thumb-spin">loading…</span></div>
+        <div class="pg-acts">
+          <button class="rd-select pg-sel ${on ? 'on' : ''}"
+                  data-selkey="${escapeAttr(key)}"
+                  onclick="toggleViewCompare('${escapeAttr(jobId)}','${escapeAttr(c.plot.plot)}','${escapeAttr(detail.sample_name || '')}','${escapeAttr(bucket)}')">
+            ${on ? '✓' : 'Compare'}</button>
+          <button class="rd-dl pg-dl"
+                  onclick="downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(bucket)}','${escapeAttr(c.plot.plot)}')"
+                  title="Download this plot's data">⭳</button>
+        </div></div>`;
+    }).join('');
+  }
+
+  cells += '<div class="pg-label first">Step</div>'
+    + cols.map(c => `<div class="pg-step">${escapeHtml(c.step || '—')}</div>`).join('');
+  if (cols.some(c => c.cond)) {
+    cells += '<div class="pg-label">Conditions</div>'
+      + cols.map(c => `<div class="pg-cond">${escapeHtml(c.cond || '—')}</div>`).join('');
+  }
+  names.forEach(name => {
+    const unit = cols.map(c => c.vals[name] && c.vals[name].unit).find(Boolean) || '';
+    cells += `<div class="pg-label">${escapeHtml(name)}`
+      + (unit ? ` <span class="pg-unit">${escapeHtml(unit)}</span>` : '') + '</div>';
+    cells += cols.map(c => {
+      const v = c.vals[name];
+      return v == null
+        ? '<div class="pg-val miss">—</div>'
+        : `<div class="pg-val">${escapeHtml(fmtNum(v.value))}</div>`;
+    }).join('');
+  });
+
+  return `<div class="pg-scroll"><div class="pgrid"
+    style="grid-template-columns:${template}">${cells}</div></div>`;
 }
 
 // ── Summary attribution ─────────────────────────────────────────
@@ -2505,7 +2731,7 @@ async function hydrateThumbs(jobId) {
   if (!dr) return;
   // Only visible sections: rendering is a server-side matplotlib call per plot,
   // so a collapsed section must not trigger one.
-  const thumbs = dr.querySelectorAll('.rd-analysis.open .rd-thumb[data-plot]');
+  const thumbs = dr.querySelectorAll('.rd-analysis.open [data-plot]');
   for (const el of thumbs) {
     const plot = el.dataset.plot;
     const key = jobId + '::' + plot;
