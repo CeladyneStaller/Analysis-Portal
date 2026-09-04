@@ -461,6 +461,10 @@
   }
   .rd-tool-btn:hover { border-color: var(--accent); color: var(--accent); }
   .rd-tool-btn.rd-selall { color: var(--accent); border-color: var(--accent-strong); }
+  .stand-warn {
+    color: var(--amber); font-size: 12px; margin-top: 5px; line-height: 1.45;
+  }
+
   .name-error {
     color: var(--red);
     font-size: 12px;
@@ -4888,6 +4892,8 @@ function checkReady() {
   } else {
     document.getElementById('go').disabled = !(hasScript && files.length > 0);
   }
+  // The file list has just changed, so the stand may now contradict it.
+  checkStandMismatch();
 }
 
 // ── Multi-sample functions ─────────────────────────
@@ -5087,11 +5093,60 @@ window.switchEditingSample = switchEditingSample;
 
 // The params form is rebuilt whenever the script changes, so the listener is
 // attached after each render rather than once at load.
+// The stand now defaults to Scribner 1 rather than to Auto-detect, which
+// saves a click on the common case but means a run left on the default can be
+// labelled with a rig it did not come from. The file format says which family
+// it really was — Scribner writes .fcd, FCTS writes delimited text — so a
+// contradiction is worth pointing out before the analysis runs, not after it
+// is stored under the wrong stand.
+const STAND_EXT = { '.fcd': 'Scribner', '.csv': 'FCTS', '.txt': 'FCTS', '.tsv': 'FCTS' };
+
+function detectedStandFamily(list) {
+  const fams = new Set();
+  (list || []).forEach(f => {
+    const name = String(f.path || f.name || '');
+    const dot = name.lastIndexOf('.');
+    const fam = dot < 0 ? null : STAND_EXT[name.slice(dot).toLowerCase()];
+    if (fam) fams.add(fam);
+  });
+  // Only speak up when the files agree with each other; a mixed upload has
+  // nothing confident to say.
+  return fams.size === 1 ? [...fams][0] : null;
+}
+
+function checkStandMismatch() {
+  const sel = document.getElementById('param-stand');
+  const host = document.getElementById('params-container');
+  if (!host) return;
+  let box = document.getElementById('standMismatch');
+  const chosen = sel ? sel.value : '';
+  const family = chosen.startsWith('Scribner') ? 'Scribner'
+               : chosen.startsWith('FCTS') ? 'FCTS' : null;
+  const detected = detectedStandFamily(files);
+  const clash = family && detected && family !== detected;
+
+  if (!clash) { if (box) box.remove(); return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'standMismatch';
+    box.className = 'stand-warn';
+    sel.parentElement.appendChild(box);
+  }
+  box.textContent = `These files look like ${detected} data, but the stand is `
+    + `set to ${chosen}. The analysis reads the format correctly either way — `
+    + `only the recorded stand would be wrong.`;
+}
+
 function wireSampleNameField() {
   const el = document.querySelector('[data-param="sample_name"]');
   if (!el || el.dataset.nameWired) return;
   el.dataset.nameWired = '1';
   el.addEventListener('input', () => validateAllSampleNames());
+  const st = document.getElementById('param-stand');
+  if (st && !st.dataset.standWired) {
+    st.dataset.standWired = '1';
+    st.addEventListener('change', checkStandMismatch);
+  }
 }
 
 function loadSampleParams(idx) {
@@ -5231,6 +5286,7 @@ function renderParams() {
   html += '</div>';
   container.innerHTML = html;
   wireSampleNameField();
+  checkStandMismatch();
 }
 
 function collectParams() {

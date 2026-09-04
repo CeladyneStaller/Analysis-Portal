@@ -90,18 +90,19 @@ SCRIPT_PARAMS = {
     "Fuel Cell ECSA": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select", "default": "",
+        {"key": "stand", "label": "Test Stand", "type": "select",
+         "default": "Scribner 1",
          # The number identifies the stand; it does not change how files are
-         # parsed. Blank keeps the previous behaviour of inferring the family
-         # from the file extensions, so a run left on the default is not
-         # labelled with a stand it may not have come from.
-         "options": [{"value": "", "label": "Auto-detect"},
-                     {"value": "Scribner 1", "label": "Scribner 1"},
+         # parsed. Auto-detect infers only the family from the file extensions
+         # and records no number, so it sits last: it is the fallback for a run
+         # whose rig is not known, not the normal choice.
+         "options": [{"value": "Scribner 1", "label": "Scribner 1"},
                      {"value": "Scribner 2", "label": "Scribner 2"},
                      {"value": "FCTS 1", "label": "FCTS 1"},
                      {"value": "FCTS 2", "label": "FCTS 2"},
                      {"value": "FCTS 3", "label": "FCTS 3"},
-                     {"value": "FCTS 4", "label": "FCTS 4"}]},
+                     {"value": "FCTS 4", "label": "FCTS 4"},
+                     {"value": "", "label": "Auto-detect"}]},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "scan_rate", "label": "Scan Rate (V/s)", "type": "number",
@@ -231,18 +232,19 @@ SCRIPT_PARAMS = {
     "Fuel Cell Full Analysis": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select", "default": "",
+        {"key": "stand", "label": "Test Stand", "type": "select",
+         "default": "Scribner 1",
          # The number identifies the stand; it does not change how files are
-         # parsed. Blank keeps the previous behaviour of inferring the family
-         # from the file extensions, so a run left on the default is not
-         # labelled with a stand it may not have come from.
-         "options": [{"value": "", "label": "Auto-detect"},
-                     {"value": "Scribner 1", "label": "Scribner 1"},
+         # parsed. Auto-detect infers only the family from the file extensions
+         # and records no number, so it sits last: it is the fallback for a run
+         # whose rig is not known, not the normal choice.
+         "options": [{"value": "Scribner 1", "label": "Scribner 1"},
                      {"value": "Scribner 2", "label": "Scribner 2"},
                      {"value": "FCTS 1", "label": "FCTS 1"},
                      {"value": "FCTS 2", "label": "FCTS 2"},
                      {"value": "FCTS 3", "label": "FCTS 3"},
-                     {"value": "FCTS 4", "label": "FCTS 4"}]},
+                     {"value": "FCTS 4", "label": "FCTS 4"},
+                     {"value": "", "label": "Auto-detect"}]},
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",
