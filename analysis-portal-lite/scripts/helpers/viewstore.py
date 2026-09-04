@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from scripts.helpers import jsonbin
 from scripts.helpers.record import (
-    STAND_OPTIONS, decode_sidecars, stand_matches,
+    STAND_OPTIONS, decode_sidecars, plot_bucket, stand_matches,
 )
 
 # Detail bins used to be immutable, which is why this cache has no expiry.
@@ -292,6 +292,90 @@ def run_plots(key: str) -> List[Dict[str, Any]]:
 # ─────────────────────────────────────────────────────────────────────
 #  Materialisation
 # ─────────────────────────────────────────────────────────────────────
+
+def plot_series(key: str, analysis: str = '', step: str = '',
+                plot: str = '') -> Optional[Dict[str, Any]]:
+    """The plotted series for one stored plot, for charting in the browser.
+
+    Every other read path returns a rendered PNG. The numbers behind it are in
+    the sidecar all along — this hands them over so a chart can be drawn client
+    side and re-drawn on every toggle without another server round trip.
+
+    A plot is addressed either by name, or by (analysis, step), which is what
+    the index carries and therefore what a picker built from the index can ask
+    for.
+
+    Returns None when the plot is not stored — cleaning sidecars are excluded
+    at write time, so this is an ordinary outcome rather than an error.
+    """
+    detail = fetch_detail(key)
+    sidecars = decode_sidecars(detail)
+    if not sidecars:
+        return None
+
+    name = plot
+    if not name:
+        for bucket, plots in (detail.get('metrics') or {}).items():
+            if analysis and bucket != analysis:
+                continue
+            for pname, entry in plots.items():
+                if str((entry.get('conditions') or {}).get('step') or '') == step:
+                    name = pname
+                    break
+            if name:
+                break
+    sc = sidecars.get(name)
+    if not sc:
+        return None
+
+    # Axes are passed through with their labels but without the annotation
+    # text and reference lines: those are readout furniture for a rendered
+    # figure, and a comparison of several curves cannot show one curve's
+    # readout box without implying it applies to all of them.
+    axes = []
+    for ax in (sc.get('data') or {}).get('axes', []):
+        lines = [{'label': ln.get('label') or '',
+                  'x': ln.get('x') or [], 'y': ln.get('y') or []}
+                 for ln in ax.get('lines', []) if ln.get('x')]
+        if lines:
+            axes.append({'title': ax.get('title') or '',
+                         'xlabel': ax.get('xlabel') or '',
+                         'ylabel': ax.get('ylabel') or '',
+                         'is_twin': bool(ax.get('is_twin')),
+                         'lines': lines})
+    if not axes:
+        return None
+    return {'key': key, 'plot': name, 'plot_type': sc.get('plot_type', ''),
+            'analysis': analysis or plot_bucket(sc.get('plot_type', 'unknown')),
+            'step': step, 'sample_name': detail.get('sample_name', ''),
+            'axes': axes}
+
+
+def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Series for several plots in one call.
+
+    A chart of twenty curves is twenty sidecars; asking for them one at a time
+    would be twenty round trips against a cache that already holds the detail
+    records after the first. Selections that are not stored come back in
+    `missing` rather than failing the batch — one unavailable curve should not
+    cost the other nineteen.
+    """
+    out, missing = [], []
+    for sel in selections or []:
+        key = str(sel.get('key') or '')
+        try:
+            got = plot_series(key, str(sel.get('analysis') or ''),
+                              str(sel.get('step') or ''),
+                              str(sel.get('plot') or ''))
+        except Exception as e:
+            missing.append({**sel, 'reason': f'{type(e).__name__}: {e}'})
+            continue
+        if got:
+            out.append(got)
+        else:
+            missing.append({**sel, 'reason': 'no stored plot data'})
+    return {'series': out, 'missing': missing}
+
 
 def materialize_sidecars(key: str, dest_dir: Path,
                          plots: Optional[List[str]] = None) -> List[str]:

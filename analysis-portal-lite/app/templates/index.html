@@ -514,6 +514,114 @@
     color: var(--amber);
   }
 
+  /* ── Comparisons tab ─────────────────────────────────────── */
+  .cmp-types { display: flex; gap: 6px; padding: 11px 18px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
+  .cmp-type { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text-dim); border-radius: var(--radius); padding: 6px 13px;
+    font-size: 13px; cursor: pointer; font-family: var(--font); }
+  .cmp-type.on { border-color: var(--accent); color: var(--accent);
+    background: var(--accent-glow); }
+  .cmp-hint { color: var(--text-dim); font-size: 11.5px; }
+
+  .cmp-body { display: grid; grid-template-columns: 300px 1fr; min-height: 430px; }
+  .cmp-side { border-right: 1px solid var(--border); display: flex;
+    flex-direction: column; min-width: 0; }
+  .cmp-sidehead { padding: 10px 13px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; }
+  .cmp-sidehead .spacer, .cmp-pickhead .spacer { margin-left: auto; }
+  .cmp-t { font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-dim); }
+  /* The panel is the legend, so every row carries the colour and line style
+     its curve is drawn with and nothing is repeated under the chart. */
+  .cmp-curves { flex: 1; overflow: auto; min-height: 0; }
+  .cmp-grp { border-bottom: 1px solid var(--border); }
+  .cmp-grphead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  .cmp-grphead:hover { background: var(--accent-glow); }
+  .cmp-sw { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto; }
+  .cmp-grphead .nm { flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .cmp-grphead .cnt { font-size: 10.5px; color: var(--text-dim);
+    font-family: var(--mono); }
+  .cmp-act { opacity: .45; cursor: pointer; font-size: 12px; padding: 0 3px; }
+  .cmp-act:hover { opacity: 1; color: var(--accent); }
+  .cmp-steps { padding: 0 0 5px; }
+  .cmp-strow { display: flex; align-items: center; gap: 7px;
+    padding: 3px 10px 3px 22px; font-size: 12px; }
+  .cmp-strow:hover { background: var(--accent-glow); }
+  .cmp-strow.off { opacity: .34; }
+  .cmp-strow .st { font-family: var(--mono); font-size: 11px; color: var(--accent);
+    min-width: 38px; }
+  .cmp-strow .cond { flex: 1; color: var(--text-dim); font-size: 10px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .cmp-main { display: flex; flex-direction: column; min-width: 0; }
+  .cmp-opts { display: flex; gap: 14px; align-items: center; padding: 9px 16px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; font-size: 12px;
+    color: var(--text-dim); }
+  .cmp-opts label { display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; }
+  .cmp-chartwrap { flex: 1; padding: 14px 18px; overflow-x: auto; }
+  .cmp-chartwrap svg .grid { stroke: var(--border); stroke-width: 1; }
+  .cmp-chartwrap svg .axis { stroke: var(--border-hover); stroke-width: 1; }
+  .cmp-chartwrap svg .tick { fill: var(--text-dim); font-size: 10px;
+    font-family: var(--mono); }
+  .cmp-chartwrap svg .alab { fill: var(--text-dim); font-size: 11px;
+    font-family: var(--font); }
+  .cmp-chartwrap svg .ln { fill: none; stroke-width: 1.8;
+    stroke-linejoin: round; stroke-linecap: round; }
+
+  .cmp-picker { border-top: 1px solid var(--border); }
+  .cmp-pickhead { display: flex; align-items: center; gap: 8px; padding: 11px 18px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .cmp-search { flex: 1; min-width: 170px; max-width: 300px; position: relative; }
+  .cmp-search input { width: 100%; height: 32px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-family: var(--font); font-size: 12.5px;
+    padding: 6px 10px 6px 27px; }
+  .cmp-search input:focus { outline: none; border-color: var(--accent); }
+  .cmp-mag { position: absolute; left: 9px; top: 6px; color: var(--text-dim);
+    font-size: 13px; pointer-events: none; }
+  .cmp-pre { display: inline-flex; align-items: center; height: 32px;
+    overflow: hidden; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); }
+  .cmp-pre .pre { font-size: 10.5px; color: var(--text-dim);
+    padding: 0 4px 0 9px; white-space: nowrap; }
+  .cmp-pre select { background: none; border: none; color: var(--text);
+    font-family: var(--font); font-size: 12.5px; padding: 6px 7px 6px 2px;
+    outline: none; max-width: 170px; }
+  .cmp-pre.set { border-color: var(--accent-strong); background: var(--accent-glow); }
+  .cmp-pre.set .pre, .cmp-pre.set select { color: var(--accent); }
+  .cmp-fchips { display: none; gap: 6px; align-items: center; flex-wrap: wrap;
+    padding: 9px 18px; border-bottom: 1px solid var(--border); }
+  .cmp-fchips.show { display: flex; }
+
+  .cmp-prow { display: grid; grid-template-columns: 250px 96px 1fr auto;
+    gap: 12px; align-items: center; padding: 9px 18px;
+    border-bottom: 1px solid var(--border); }
+  .cmp-prow:last-child { border-bottom: none; }
+  .cmp-prow:hover { background: var(--accent-glow); }
+  .cmp-pname { font-size: 12.5px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .cmp-pstand { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
+  .cmp-chiprow { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* Chips toggle, so the picker shows what is on the chart rather than being
+     write-only. */
+  .cmp-chip { display: inline-flex; flex-direction: column; align-items: flex-start;
+    gap: 1px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 3px 9px; cursor: pointer;
+    min-width: 74px; }
+  .cmp-chip:hover { border-color: var(--accent); }
+  .cmp-chip .cs { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .cmp-chip .cc { font-size: 9.5px; color: var(--text-dim); white-space: nowrap; }
+  .cmp-chip.on { border-color: var(--accent); background: var(--accent-glow); }
+  .cmp-chip.on .cs { color: var(--accent); }
+  .cmp-note { color: var(--text-dim); font-size: 12px; padding: 11px 18px;
+    border-top: 1px solid var(--border); }
+  .cmp-note .warn { color: var(--amber); }
+  .cmp-empty { padding: 44px; text-align: center; color: var(--text-dim);
+    font-size: 13px; }
+
   .pg-scroll { overflow-x: auto; padding-bottom: 2px; }
   .pgrid { display: grid; gap: 0 8px; margin: 0 0 14px; min-width: min-content; }
   .pg-label {
@@ -1915,6 +2023,7 @@
   <div class="tabbar">
     <button class="tab active" id="tab-analysis" onclick="switchTab('analysis')">Analysis</button>
     <button class="tab" id="tab-view" onclick="switchTab('view')">View</button>
+    <button class="tab" id="tab-compare" onclick="switchTab('compare')">Comparisons</button>
   </div>
 
   <div class="tabview active" id="view-analysis">
@@ -2083,6 +2192,59 @@
       </button>
     </div>
   </div>
+  <div class="tabview" id="view-compare">
+    <div class="section">
+      <div class="section-head">
+        Comparison
+        <span class="count" id="cmpCurveCount">0</span>
+        <button class="view-refresh" id="cmpExport" onclick="exportComparison()"
+                title="Render this comparison server-side and download the figure and workbook">
+          ⭳ Export PNG + xlsx</button>
+      </div>
+
+      <div class="cmp-types" id="cmpTypes"></div>
+
+      <div class="cmp-body">
+        <div class="cmp-side">
+          <div class="cmp-sidehead">
+            <span class="cmp-t">Curves — legend</span>
+            <span class="spacer"></span>
+            <span class="cmp-hint" id="cmpCount"></span>
+            <button class="btn btn-sm" onclick="cmpClear()">Clear</button>
+          </div>
+          <div class="cmp-curves" id="cmpCurves"></div>
+        </div>
+        <div class="cmp-main">
+          <div class="cmp-opts" id="cmpOpts"></div>
+          <div class="cmp-chartwrap"><div id="cmpChart"></div></div>
+        </div>
+      </div>
+
+      <div class="cmp-picker">
+        <div class="cmp-pickhead">
+          <span class="cmp-t">Add curves</span>
+          <span class="cmp-search"><span class="cmp-mag">⌕</span>
+            <input id="cf-q" placeholder="Search samples…" oninput="cmpRenderPick()"></span>
+          <span class="cmp-pre" id="cfw-stand"><span class="pre">Stand</span>
+            <select id="cf-stand" onchange="CF.stand=this.value;cmpRenderPick()"></select></span>
+          <span class="cmp-pre" id="cfw-cond"><span class="pre">Condition</span>
+            <select id="cf-cond" onchange="CF.cond=this.value;cmpRenderPick()"></select></span>
+          <span class="cmp-pre" id="cfw-has"><span class="pre">Show</span>
+            <select id="cf-has" onchange="CF.has=this.value;cmpRenderPick()">
+              <option value="">all samples</option>
+              <option value="none">not yet added</option>
+              <option value="some">already added</option>
+            </select></span>
+          <span class="spacer"></span>
+          <span class="cmp-hint" id="cmpPickHint"></span>
+        </div>
+        <div class="cmp-fchips" id="cmpFChips"></div>
+        <div id="cmpPick"></div>
+      </div>
+
+      <div class="cmp-note" id="cmpNote"></div>
+    </div>
+  </div>
 
   <div class="compare-modal" id="compareModal" onclick="closeCompareModalBg(event)">
     <div class="compare-modal-inner">
@@ -2138,6 +2300,7 @@
   </div>
 
 </div>
+
 
 <script>
 // ── State ───────────────────────────────────────
@@ -2203,7 +2366,12 @@ function switchTab(name) {
   document.getElementById('tab-view').classList.toggle('active', name === 'view');
   document.getElementById('view-analysis').classList.toggle('active', name === 'analysis');
   document.getElementById('view-view').classList.toggle('active', name === 'view');
-  if (name === 'view' && !_viewLoaded) loadViewRuns(false);
+  document.getElementById('tab-compare').classList.toggle('active', name === 'compare');
+  document.getElementById('view-compare').classList.toggle('active', name === 'compare');
+  // Comparisons reads the same index the View tab does, so it is loaded once
+  // and both tabs share it.
+  if ((name === 'view' || name === 'compare') && !_viewLoaded) loadViewRuns(false);
+  if (name === 'compare') cmpRender();
 }
 
 async function loadViewRuns(force) {
@@ -2333,6 +2501,8 @@ function applyViewFilters() {
       ? `${_viewRuns.length} run${_viewRuns.length === 1 ? '' : 's'}`
       : `${rows.length} of ${_viewRuns.length} runs`;
   renderFilterChips({ sample, script, analysis, stand, since, until });
+  // The Comparisons picker is built from the same index, so it follows a load.
+  if (document.getElementById('cmpPick')) cmpRenderPick();
   renderViewRuns(rows);
   _lastViewRows = rows;
   updateTrend();
@@ -3560,6 +3730,427 @@ function showScriptLoadError(msg) {
   const hint = ' — see /api/diag/imports for detail.';
   box.textContent = /diag\/imports/.test(msg) ? msg : msg + hint;
   box.classList.add('show');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Comparisons tab
+// ══════════════════════════════════════════════════════════════
+//
+// Colour identifies the sample, dash identifies the step. A sample contributes
+// one curve per step, so five samples at four steps is twenty curves — a flat
+// palette would run out at eight and then repeat, silently making two
+// different cells look like one.
+//
+// PAL is ordered for maximum separation across the first six (39° minimum hue
+// distance): the obvious ordering put blue and cyan at positions 1 and 6, so
+// six samples — an ordinary number — placed two near-identical colours on one
+// chart.
+const CMP_PAL = ['#47b5ff','#f87171','#4ade80','#fbbf24','#c084fc',
+                 '#a3e635','#22d3ee','#fb923c'];
+const CMP_DASH = ['', '6 3', '2 3', '9 3 2 3', '1 3', '12 4', '4 2 1 2'];
+const CMP_MAX = 20;
+
+// One chart holds one analysis type: different types have different axes, so
+// they cannot share a plot. Cleaning is absent because its sidecars are not
+// stored — offering a type that always comes back empty would be worse than
+// not offering it.
+const CMP_TYPES = {
+  polcurve:  { label: 'Polarization curve',
+               opts: [['irfree', 'iR-free voltage'], ['power', 'Power density']] },
+  eis:       { label: 'EIS — Nyquist', equal: true, opts: [] },
+  crossover: { label: 'H₂ crossover', opts: [] },
+  ecsa:      { label: 'ECSA', opts: [] },
+};
+
+let CMP_TYPE = 'polcurve';
+let CMP_SEL = new Map();            // sample key -> Set of step codes
+let CMP_HIDDEN = new Set();         // "key::step"
+let CMP_OPT = { irfree: false, power: false };
+let CF = { stand: '', cond: '', has: '' };
+let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
+let CMP_LOADING = false;
+
+const cmpKey = (k, st) => k + '::' + st;
+const cmpOrder = () => [...CMP_SEL.keys()];
+
+// Every (analysis, step) unit the index holds for a sample, for the current
+// type. The picker is built from the index, so it needs no detail fetch.
+function cmpUnitsFor(run, type) {
+  const seen = new Map();
+  (run.Data || []).forEach(d => {
+    if (d.Analysis !== type) return;
+    const step = String(d.step || '');
+    if (!step || seen.has(step)) return;
+    seen.set(step, { step, cond: conditionSummary(d.Conditions || {}) });
+  });
+  return [...seen.values()];
+}
+function cmpSamples() {
+  return (_viewRuns || []).filter(r => cmpUnitsFor(r, CMP_TYPE).length);
+}
+const cmpRunFor = k => (_viewRuns || []).find(r => runKey(r) === k);
+
+// Dash comes from the step vocabulary of the analysis, not from a step's
+// position within a sample. Indexing by position made c6 dashed beside b4 and
+// solid without it — the same step drawing differently depending on what sat
+// next to it. Deriving it from the data also makes it independent of the order
+// curves were added, and stable when a sample is removed.
+function cmpStepVocab() {
+  const seen = [];
+  cmpSamples().forEach(r => cmpUnitsFor(r, CMP_TYPE).forEach(u => {
+    if (!seen.includes(u.step)) seen.push(u.step);
+  }));
+  return seen;
+}
+function cmpDashOf(step) {
+  const i = cmpStepVocab().indexOf(step);
+  return CMP_DASH[(i < 0 ? 0 : i) % CMP_DASH.length];
+}
+const cmpColorOf = k => CMP_PAL[cmpOrder().indexOf(k) % CMP_PAL.length];
+
+function cmpSelected() {
+  const out = [];
+  cmpOrder().forEach(k => {
+    const run = cmpRunFor(k);
+    if (!run) return;
+    cmpUnitsFor(run, CMP_TYPE).forEach(u => {
+      if (CMP_SEL.get(k).has(u.step)) out.push({ key: k, run, ...u });
+    });
+  });
+  return out;
+}
+
+// ── series, fetched in one batch ────────────────────────────────
+async function cmpLoadSeries() {
+  const want = cmpSelected()
+    .map(s => ({ key: s.key, analysis: CMP_TYPE, step: s.step }))
+    .filter(s => !CMP_SERIES.has(cmpKey(s.key, CMP_TYPE + '::' + s.step)));
+  if (!want.length) return;
+  CMP_LOADING = true;
+  try {
+    const r = await fetch('/api/view/series', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selections: want }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    (d.series || []).forEach(sr =>
+      CMP_SERIES.set(cmpKey(sr.key, CMP_TYPE + '::' + sr.step), sr));
+    // A selection with no stored sidecar is cached as null so it is not
+    // requested again on every redraw.
+    (d.missing || []).forEach(m =>
+      CMP_SERIES.set(cmpKey(m.key, CMP_TYPE + '::' + m.step), null));
+  } catch (e) {
+    console.error('series:', e);
+  } finally {
+    CMP_LOADING = false;
+    cmpRender();
+  }
+}
+
+// Which line of the sidecar to draw. Only the primary series by default: a
+// polcurve sidecar also carries iR-free, HFR and every cycle, and with steps
+// already multiplying the curve count, drawing all of them would put a hundred
+// lines on the chart. The extras are axis options instead.
+function cmpPickLine(sr) {
+  if (!sr || !sr.axes || !sr.axes.length) return null;
+  const main = sr.axes[0];
+  if (CMP_TYPE === 'polcurve' && CMP_OPT.power) {
+    const tw = sr.axes.find(a => /power/i.test(a.ylabel || a.title || ''));
+    if (tw) return { pts: zip(tw.lines[0]), xlabel: main.xlabel, ylabel: tw.ylabel };
+  }
+  if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) {
+    const ir = main.lines.find(l => /ir[- ]?free/i.test(l.label));
+    // Say which voltage is drawn. Left as "Cell voltage" the chart looked
+    // identical to the uncorrected one apart from the curves having moved.
+    if (ir) return { pts: zip(ir), xlabel: main.xlabel,
+                     ylabel: 'iR-free voltage (V)' };
+  }
+  return { pts: zip(main.lines[0]), xlabel: main.xlabel, ylabel: main.ylabel };
+}
+const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
+                              .filter(p => typeof p[1] === 'number');
+
+// ── chart ───────────────────────────────────────────────────────
+function cmpChart(series, cfg) {
+  const W = 760, L = 66, R = 18, T = 14, B = 46;
+  let H = 430, iw = W - L - R, ih = H - T - B;
+  const xs = series.flatMap(s => s.pts.map(p => p[0]));
+  const ys = series.flatMap(s => s.pts.map(p => p[1]));
+  if (!xs.length) {
+    return `<div class="cmp-empty">${CMP_LOADING ? 'Loading curves…'
+      : 'No curves selected — add one below.'}</div>`;
+  }
+  let x0 = 0, x1 = Math.max(...xs) * 1.04;
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = (y1 - y0) * 0.08 || 0.05; y0 -= pad; y1 += pad;
+  if (cfg.zeroY) y0 = 0;
+  if (cfg.equal) {
+    // Nyquist wants equal units per pixel: a depressed semicircle is a real
+    // feature of the impedance, and stretching an axis to fill a fixed box
+    // invents or hides it. Size the box to the data instead of padding the
+    // axis, which otherwise leaves a band of empty plot below zero.
+    x0 = Math.min(...xs); x1 = Math.max(...xs);
+    const px = (x1 - x0) * 0.05 || 0.01; x0 -= px; x1 += px;
+    y0 = Math.min(0, Math.min(...ys)); y1 = Math.max(...ys) * 1.10;
+    ih = Math.max(150, Math.min(430, iw * (y1 - y0) / (x1 - x0)));
+    H = ih + T + B;
+  }
+  const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
+  const sy = v => T + ih - ((v - y0) / (y1 - y0)) * ih;
+  const tk = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + (b - a) / n * i);
+  const fm = v => Math.abs(v) >= 100 ? v.toFixed(0)
+                : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3);
+  let g = '';
+  tk(y0, y1, 5).forEach(v => { g +=
+    `<line class="grid" x1="${L}" y1="${sy(v).toFixed(1)}" x2="${L + iw}" y2="${sy(v).toFixed(1)}"/>` +
+    `<text class="tick" x="${L - 8}" y="${(sy(v) + 3.5).toFixed(1)}" text-anchor="end">${fm(v)}</text>`; });
+  tk(x0, x1, 6).forEach(v => { g +=
+    `<line class="grid" x1="${sx(v).toFixed(1)}" y1="${T}" x2="${sx(v).toFixed(1)}" y2="${T + ih}"/>` +
+    `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${fm(v)}</text>`; });
+  g += `<line class="axis" x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"/>` +
+       `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${T + ih}"/>`;
+  series.forEach(s => {
+    const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
+    g += `<path class="ln" d="${d}" stroke="${s.color}"` +
+         `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}><title>${escapeHtml(s.title)}</title></path>`;
+  });
+  g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(cfg.x)}</text>` +
+       `<text class="alab" transform="translate(15,${T + ih / 2}) rotate(-90)" text-anchor="middle">${escapeHtml(cfg.y)}</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+const cmpDashSvg = (color, d, w) =>
+  `<svg width="${w || 24}" height="8" style="flex:0 0 auto"><line x1="0" y1="4" ` +
+  `x2="${w || 24}" y2="4" stroke="${color}" stroke-width="2"` +
+  `${d ? ` stroke-dasharray="${d}"` : ''}/></svg>`;
+
+// ── render ──────────────────────────────────────────────────────
+function cmpRender() {
+  const t = CMP_TYPES[CMP_TYPE];
+  document.getElementById('cmpTypes').innerHTML =
+    Object.entries(CMP_TYPES).map(([k, v]) =>
+      `<button class="cmp-type${k === CMP_TYPE ? ' on' : ''}"
+        onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
+    + '<span class="cmp-hint">Colour is the sample, dash is the step.</span>';
+
+  document.getElementById('cmpOpts').innerHTML =
+    (t.opts.length
+      ? t.opts.map(([k, l]) =>
+          `<label><input type="checkbox" ${CMP_OPT[k] ? 'checked' : ''}
+            onchange="CMP_OPT['${k}']=this.checked;cmpRender()"> ${escapeHtml(l)}</label>`).join('')
+      : '<span style="opacity:.6">No axis options for this type</span>');
+
+  const sel = cmpSelected();
+  document.getElementById('cmpCount').textContent = String(sel.length);
+  document.getElementById('cmpCurveCount').textContent = String(sel.length);
+
+  // The panel is the legend: every row shows the colour and line style its
+  // curve is drawn with, so nothing is repeated under the chart.
+  document.getElementById('cmpCurves').innerHTML = cmpOrder().map(k => {
+    const run = cmpRunFor(k);
+    if (!run) return '';
+    const color = cmpColorOf(k);
+    const mine = cmpUnitsFor(run, CMP_TYPE).filter(u => CMP_SEL.get(k).has(u.step));
+    if (!mine.length) return '';
+    return `<div class="cmp-grp">
+      <div class="cmp-grphead">
+        <span class="cmp-sw" style="background:${color}"></span>
+        <span class="nm" title="${escapeAttr(run.sample_name || '')}">${escapeHtml(run.sample_name || '—')}</span>
+        <span class="cnt">${mine.length}</span>
+        <span class="cmp-act" title="Remove sample"
+              onclick="cmpDropSample('${escapeAttr(k)}')">×</span>
+      </div>
+      <div class="cmp-steps">${mine.map(u => {
+        const off = CMP_HIDDEN.has(cmpKey(k, u.step));
+        const sr = CMP_SERIES.get(cmpKey(k, CMP_TYPE + '::' + u.step));
+        const nodata = sr === null;
+        return `<div class="cmp-strow${off || nodata ? ' off' : ''}"
+                  ${nodata ? 'title="No plot data stored for this step"' : ''}>
+          ${cmpDashSvg(color, cmpDashOf(u.step))}
+          <span class="st">${escapeHtml(u.step)}</span>
+          <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
+          <span class="cmp-act" title="Show or hide"
+                onclick="cmpToggleStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">${off ? '○' : '●'}</span>
+          <span class="cmp-act" title="Remove"
+                onclick="cmpDropStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">×</span>
+        </div>`; }).join('')}</div>
+    </div>`;
+  }).join('') || '<div class="cmp-empty" style="padding:26px 16px;font-size:12px">No curves yet.</div>';
+
+  // chart
+  let xlab = '', ylab = '';
+  const series = [];
+  sel.forEach(u => {
+    if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
+    const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    if (!sr) return;
+    const line = cmpPickLine(sr);
+    if (!line || !line.pts.length) return;
+    xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;
+    series.push({ pts: line.pts, color: cmpColorOf(u.key), dash: cmpDashOf(u.step),
+                  title: `${sr.sample_name || ''} · ${u.step}` });
+  });
+  document.getElementById('cmpChart').innerHTML = cmpChart(series,
+    { x: xlab || 'x', y: ylab || 'y', equal: !!t.equal,
+      zeroY: CMP_TYPE === 'polcurve' && CMP_OPT.power });
+
+  document.getElementById('cmpNote').innerHTML = sel.length > CMP_MAX
+    ? `<span class="warn">${sel.length} curves — past about ${CMP_MAX} the chart
+       stops being readable and the payload gets heavy. Narrow by condition, or
+       hide the steps you are not comparing.</span>`
+    : 'Drawn from the stored analysis data — nothing is re-analysed. '
+      + 'Export renders the same comparison server-side, with its readouts and workbook.';
+
+  document.getElementById('cmpExport').disabled = series.length < 2;
+  cmpRenderPick();
+  cmpLoadSeries();
+}
+
+// ── picker ──────────────────────────────────────────────────────
+function cmpConditions() {
+  const c = new Set();
+  cmpSamples().forEach(r => cmpUnitsFor(r, CMP_TYPE).forEach(u => {
+    if (u.cond) c.add(u.cond); }));
+  return [...c].sort();
+}
+function cmpClearFilter(w) { CF[w] = ''; cmpRenderPick(); }
+function cmpClearFilters() {
+  CF = { stand: '', cond: '', has: '' };
+  const q = document.getElementById('cf-q'); if (q) q.value = '';
+  cmpRenderPick();
+}
+
+function cmpRenderPick() {
+  const stands = [...new Set((_viewRuns || []).map(r => r.stand).filter(Boolean))].sort();
+  const fams = [...new Set(stands.map(v => String(v).split(' ')[0]))].map(f => 'All ' + f);
+  const ss = document.getElementById('cf-stand');
+  if (ss) ss.innerHTML = '<option value="">All</option>' +
+    [...fams, ...stands].map(v =>
+      `<option ${CF.stand === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const cs = document.getElementById('cf-cond');
+  if (cs) cs.innerHTML = '<option value="">All</option>' +
+    cmpConditions().map(v =>
+      `<option ${CF.cond === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const hs = document.getElementById('cf-has'); if (hs) hs.value = CF.has;
+  [['cfw-stand', CF.stand], ['cfw-cond', CF.cond], ['cfw-has', CF.has]]
+    .forEach(([id, v]) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('set', !!v);
+    });
+
+  const q = (document.getElementById('cf-q')?.value || '').toLowerCase();
+  const rows = cmpSamples()
+    .filter(r => !q || String(r.sample_name || '').toLowerCase().includes(q))
+    // The stand filter reuses the View tab's matcher rather than a second copy.
+    .filter(r => standMatches(r.stand, CF.stand))
+    .filter(r => !CF.cond || cmpUnitsFor(r, CMP_TYPE).some(u => u.cond === CF.cond))
+    .filter(r => {
+      const n = (CMP_SEL.get(runKey(r)) || new Set()).size;
+      return CF.has === 'none' ? n === 0 : CF.has === 'some' ? n > 0 : true;
+    });
+
+  const chips = [];
+  if (CF.stand) chips.push(['stand', CF.stand, 'stand']);
+  if (CF.cond) chips.push(['condition', CF.cond, 'cond']);
+  if (CF.has) chips.push(['showing', CF.has === 'none' ? 'not yet added' : 'already added', 'has']);
+  const host = document.getElementById('cmpFChips');
+  host.innerHTML = chips.map(([k, v, id]) =>
+    `<span class="vf-chip"><span class="k">${escapeHtml(k)}</span>${escapeHtml(v)}
+      <span class="x" onclick="cmpClearFilter('${id}')">×</span></span>`).join('')
+    + (chips.length ? '<button class="vf-clear" onclick="cmpClearFilters()">Clear filters</button>' : '');
+  host.classList.toggle('show', chips.length > 0);
+
+  const nsteps = rows.reduce((a, r) =>
+    a + cmpUnitsFor(r, CMP_TYPE).filter(u => !CF.cond || u.cond === CF.cond).length, 0);
+  document.getElementById('cmpPickHint').textContent =
+    `${rows.length} sample${rows.length === 1 ? '' : 's'} · ${nsteps} step${nsteps === 1 ? '' : 's'}`;
+
+  document.getElementById('cmpPick').innerHTML = rows.map(r => {
+    const k = runKey(r), have = CMP_SEL.get(k) || new Set();
+    const units = cmpUnitsFor(r, CMP_TYPE).filter(u => !CF.cond || u.cond === CF.cond);
+    const all = units.length && units.every(u => have.has(u.step));
+    return `<div class="cmp-prow">
+      <span class="cmp-pname" title="${escapeAttr(r.sample_name || '')}">${escapeHtml(r.sample_name || '—')}</span>
+      <span class="cmp-pstand">${escapeHtml(r.stand || '—')}</span>
+      <span class="cmp-chiprow">${units.map(u => `
+        <span class="cmp-chip${have.has(u.step) ? ' on' : ''}"
+              onclick="cmpToggleAdd('${escapeAttr(k)}','${escapeAttr(u.step)}')">
+          <span class="cs">${escapeHtml(u.step)}</span>
+          <span class="cc">${escapeHtml(u.cond || '—')}</span></span>`).join('')}</span>
+      <button class="btn btn-sm" onclick="cmpToggleAll('${escapeAttr(k)}')">${all ? 'none' : 'all'}</button>
+    </div>`;
+  }).join('') || '<div class="cmp-empty" style="padding:22px;font-size:12px">No samples match these filters</div>';
+}
+
+// ── actions ─────────────────────────────────────────────────────
+function cmpSetType(k) { CMP_TYPE = k; CF.cond = ''; cmpRender(); }
+function cmpToggleStep(k, st) {
+  const kk = cmpKey(k, st);
+  CMP_HIDDEN.has(kk) ? CMP_HIDDEN.delete(kk) : CMP_HIDDEN.add(kk);
+  cmpRender();
+}
+function cmpDropStep(k, st) {
+  const set = CMP_SEL.get(k); if (!set) return;
+  set.delete(st); if (!set.size) CMP_SEL.delete(k);
+  cmpRender();
+}
+function cmpDropSample(k) { CMP_SEL.delete(k); cmpRender(); }
+function cmpClear() { CMP_SEL = new Map(); CMP_HIDDEN = new Set(); cmpRender(); }
+function cmpToggleAdd(k, st) {
+  if (!CMP_SEL.has(k)) CMP_SEL.set(k, new Set());
+  const set = CMP_SEL.get(k);
+  set.has(st) ? set.delete(st) : set.add(st);
+  if (!set.size) CMP_SEL.delete(k);
+  cmpRender();
+}
+function cmpToggleAll(k) {
+  const run = cmpRunFor(k); if (!run) return;
+  // Only the steps currently shown: with a condition filter on, an "all" that
+  // quietly added the hidden ones would contradict what is on screen.
+  const steps = cmpUnitsFor(run, CMP_TYPE)
+    .filter(u => !CF.cond || u.cond === CF.cond).map(u => u.step);
+  const have = CMP_SEL.get(k) || new Set();
+  if (steps.length && steps.every(x => have.has(x))) {
+    steps.forEach(x => have.delete(x));
+    if (!have.size) CMP_SEL.delete(k);
+  } else {
+    if (!CMP_SEL.has(k)) CMP_SEL.set(k, new Set());
+    steps.forEach(x => CMP_SEL.get(k).add(x));
+  }
+  cmpRender();
+}
+
+// Export hands the selection to the existing server-side comparison rather
+// than sending this chart's SVG. That path produces the figure and workbook the
+// reports use; two renderings of one comparison would drift.
+async function exportComparison() {
+  const sels = [];
+  cmpSelected().forEach(u => {
+    if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
+    const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}` });
+  });
+  if (sels.length < 2) return;
+  const btn = document.getElementById('cmpExport');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/view/compare', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selections: sels }),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+    // The comparison runs as an ordinary job, so it appears in the Jobs list
+    // with its outputs, exactly as one started from the View tab does.
+    switchTab('analysis');
+    saveJobId(d.job_id);
+    renderJob(d.job_id, d);
+    polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Session job tracking ────────────────────────

@@ -560,6 +560,29 @@ async def view_export(key: str = Query(...), analysis: str = Query(None),
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@app.post("/api/view/series")
+async def view_series(payload: dict):
+    """Plotted series for a set of stored plots, for charting in the browser.
+
+    Every other read path returns a picture. This returns the numbers, so the
+    Comparisons tab can redraw on every toggle without a round trip and without
+    an executor job. Read-only; nothing is rendered or analysed.
+    """
+    from scripts.helpers import viewstore
+    sels = payload.get('selections') or []
+    if not isinstance(sels, list) or not sels:
+        raise HTTPException(400, "selections is required")
+    if len(sels) > 64:
+        # A chart of sixty-four curves answers nothing, and the payload is the
+        # part of this feature most likely to bite.
+        raise HTTPException(400, f"too many selections ({len(sels)}); "
+                                 f"64 is the most this returns at once")
+    try:
+        return viewstore.plot_series_batch(sels)
+    except Exception as e:
+        raise HTTPException(502, f"could not read series: {e}")
+
+
 @app.get("/api/view/cache")
 async def view_cache():
     """Cache diagnostics for the view store."""
