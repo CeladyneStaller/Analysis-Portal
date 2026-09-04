@@ -554,6 +554,19 @@
     font-family: var(--mono); }
   .cmp-act { opacity: .45; cursor: pointer; font-size: 12px; padding: 0 3px; }
   .cmp-act:hover { opacity: 1; color: var(--accent); }
+  .cmp-handle {
+    color: var(--text-dim); opacity: .4; cursor: grab; font-size: 12px;
+    line-height: 1; flex: 0 0 auto; user-select: none;
+  }
+  .cmp-grp:hover .cmp-handle { opacity: .8; }
+  .cmp-handle:active { cursor: grabbing; }
+  .cmp-grp.dragging { opacity: .4; }
+  /* The insertion point is drawn as a line on the edge the group would land
+     on, rather than by highlighting the whole row — a highlight says "this
+     one" where a drop needs to say "here". */
+  .cmp-grp.drop-above { box-shadow: inset 0 2px 0 var(--accent); }
+  .cmp-grp.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
+
   .cmp-steps { padding: 0 0 5px; }
   .cmp-strow { display: flex; align-items: center; gap: 7px;
     padding: 3px 10px 3px 22px; font-size: 12px; }
@@ -3971,8 +3984,14 @@ function cmpRender() {
     const color = cmpColorOf(k);
     const mine = cmpUnitsFor(run, CMP_TYPE).filter(u => CMP_SEL.get(k).has(u.step));
     if (!mine.length) return '';
-    return `<div class="cmp-grp">
+    return `<div class="cmp-grp" draggable="true" data-cmpkey="${escapeAttr(k)}"
+        ondragstart="cmpDragStart(event,'${escapeAttr(k)}')"
+        ondragover="cmpDragOver(event,'${escapeAttr(k)}')"
+        ondragleave="cmpDragLeave(event)"
+        ondrop="cmpDrop(event,'${escapeAttr(k)}')"
+        ondragend="cmpDragEnd()">
       <div class="cmp-grphead">
+        <span class="cmp-handle" title="Drag to reorder — order sets the colour">⠿</span>
         <span class="cmp-sw" style="background:${color}"></span>
         <span class="nm" title="${escapeAttr(run.sample_name || '')}">${escapeHtml(run.sample_name || '—')}</span>
         <span class="cnt">${mine.length}</span>
@@ -4138,6 +4157,69 @@ function cmpToggleAll(k) {
     steps.forEach(x => CMP_SEL.get(k).add(x));
   }
   cmpRender();
+}
+
+// ── Reordering the curve panel ──────────────────────────────────
+//
+// Colour comes from a sample's position, so dragging is how a sample's colour
+// is chosen — first in the list is the first colour. Making the order also
+// mean something visually is the point: a legend whose order bears no relation
+// to the chart is just a list.
+//
+// Samples reorder; steps within a sample do not. Dash is derived from the step
+// vocabulary of the analysis so that the same step draws the same way in every
+// sample, and letting a drag override that would undo it.
+let CMP_DRAG = null;
+
+function cmpDragStart(ev, key) {
+  CMP_DRAG = key;
+  ev.dataTransfer.effectAllowed = 'move';
+  // Firefox will not start a drag unless something is set.
+  try { ev.dataTransfer.setData('text/plain', key); } catch (e) { /* ignore */ }
+  ev.currentTarget.classList.add('dragging');
+}
+
+function cmpDragOver(ev, key) {
+  if (!CMP_DRAG || key === CMP_DRAG) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  const el = ev.currentTarget;
+  const r = el.getBoundingClientRect();
+  const above = (ev.clientY - r.top) < r.height / 2;
+  el.classList.toggle('drop-above', above);
+  el.classList.toggle('drop-below', !above);
+}
+
+function cmpDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-above', 'drop-below');
+}
+
+function cmpDrop(ev, key) {
+  ev.preventDefault();
+  const src = CMP_DRAG;
+  const el = ev.currentTarget;
+  const above = el.classList.contains('drop-above');
+  cmpDragEnd();
+  if (!src || src === key) return;
+
+  const keys = [...CMP_SEL.keys()].filter(x => x !== src);
+  let at = keys.indexOf(key);
+  if (at < 0) return;
+  if (!above) at += 1;
+  keys.splice(at, 0, src);
+
+  // A Map keeps insertion order, so reordering means rebuilding it. The step
+  // sets are carried over by reference — only the order changes.
+  const next = new Map();
+  keys.forEach(x => next.set(x, CMP_SEL.get(x)));
+  CMP_SEL = next;
+  cmpRender();
+}
+
+function cmpDragEnd() {
+  CMP_DRAG = null;
+  document.querySelectorAll('.cmp-grp').forEach(e =>
+    e.classList.remove('dragging', 'drop-above', 'drop-below'));
 }
 
 // ── Saved views ─────────────────────────────────────────────────
