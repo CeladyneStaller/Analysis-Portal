@@ -883,6 +883,15 @@
     border: 1px solid var(--accent-strong); color: var(--text-dim); }
   .cmp-box b { color: var(--text); font-weight: 500; }
 
+  /* Statistical curve colours. Mid-tone by necessity: a colour light enough
+     to read on the dark surface and dark enough to read on white. */
+  :root {
+    --stat-1: var(--text);
+    --stat-2: #0e8a7f;
+    --stat-3: #ae4ede;
+    --stat-4: #de377d;
+  }
+
   .cmp-grp.stat { background: rgba(223,229,237,.035); }
   .cmp-grp.off { opacity: .45; }
   .cmp-badge { background: rgba(223,229,237,.13); color: var(--text);
@@ -2681,12 +2690,23 @@ function _updateThemeButton(mode) {
   }
 }
 
+// A theme switch changes the statistical palette, and the chart is drawn with
+// resolved colours rather than CSS classes, so it has to be redrawn.
+function _themeChangedRedraw() {
+  if (typeof cmpRender === 'function'
+      && document.getElementById('view-compare')
+      && document.getElementById('view-compare').classList.contains('active')) {
+    cmpRender();
+  }
+}
+
 function cycleTheme() {
   // Cycle: auto → light → dark → auto
   const order = ['auto', 'light', 'dark'];
   const current = _getThemeMode();
   const next = order[(order.indexOf(current) + 1) % order.length];
   _applyThemeMode(next);
+  _themeChangedRedraw();
 }
 
 // Initialize the button label on load to match the persisted choice.
@@ -4192,7 +4212,22 @@ function cmpSelected() {
 // values — each cell reaches a different limiting current — so the mean is
 // interpolated onto a common grid, and that grid can only span the range every
 // contributing curve covers. Past it the mean would quietly be of fewer curves.
-const CMP_STAT_PAL = ['#dfe5ed', '#22d3ee', '#fb923c', '#f472b6'];
+// Statistical curves are named by CSS variable, not by literal hex, because
+// the portal has a light theme and a fixed palette cannot serve both. The
+// first entry is deliberately neutral — it says "this is a mean, not one of
+// the samples" — and follows the text colour, so it is near-white on dark and
+// near-black on light. The other three are mid-tone: light enough to read on
+// the dark surface, dark enough to read on white.
+//
+// Measured before the change: the old near-white scored 1.27 contrast on the
+// light background and the cyan 1.81, which is invisible. Everything here
+// clears 4.0 on both.
+const CMP_STAT_VARS = ['--stat-1', '--stat-2', '--stat-3', '--stat-4'];
+function cmpStatColor(i) {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(CMP_STAT_VARS[i % CMP_STAT_VARS.length]).trim();
+  return v || '#6e7a8a';
+}
 const CMP_SPREADS = { sd: '± 1 s.d.', sd2: '± 2 s.d.',
                       minmax: 'min/max', sem: '± s.e.' };
 const CMP_STYLES = { band: 'band', bars: 'bars', none: 'line only' };
@@ -4549,7 +4584,7 @@ function cmpRender() {
       String(r.name).split('_').slice(1).join('_') + ' · ' + r.step) : [];
     return `<div class="cmp-grp stat${st.visible ? '' : ' off'}">
       <div class="cmp-grphead">
-        <span class="cmp-sw" style="background:${st.color}"></span>
+        <span class="cmp-sw" style="background:${cmpStatColor(st.slot)}"></span>
         <span class="nm" title="${escapeAttr(st.name)}">${escapeHtml(st.name)}</span>
         <span class="cmp-badge">mean of ${data ? data.avg.n : 0}</span>
         <span class="cmp-act" title="${st.visible
@@ -4561,7 +4596,7 @@ function cmpRender() {
         <div class="cmp-strow">
           <span class="cmp-scol1">
             <svg width="24" height="8" style="flex:0 0 auto"><line x1="0" y1="4"
-              x2="24" y2="4" stroke="${st.color}" stroke-width="2.6"/></svg>
+              x2="24" y2="4" stroke="${cmpStatColor(st.slot)}" stroke-width="2.6"/></svg>
             <span class="st">mean</span>
             <span class="cond">${st.axis === 'x'
               ? 'x averaged at each y' : 'y averaged at each x'}</span></span>
@@ -4680,7 +4715,8 @@ function cmpRender() {
   document.getElementById('cmpChart').innerHTML = cmpChart(series,
     { x: xlab || 'x', y: ylab || 'y', equal: !!t.equal,
       zeroY: CMP_TYPE === 'polcurve' && CMP_OPT.power,
-      stats: stats.map(x => ({ ...x.st, data: x.data })) });
+      stats: stats.map(x => ({ ...x.st, data: x.data,
+                              color: cmpStatColor(x.st.slot) })) });
 
   if (CMP_PICKING) {
     document.getElementById('cmpNote').innerHTML =
@@ -5164,7 +5200,9 @@ function cmpCreateStat() {
     spread: document.getElementById('cmpSpread').value,
     style: document.getElementById('cmpStyle').value,
     members: document.getElementById('cmpShowMembers').checked,
-    color: CMP_STAT_PAL[CMP_STATS.length % CMP_STAT_PAL.length],
+    // The slot is stored, not the colour: a saved view reopened in the other
+    // theme must take that theme's palette, not the one it was made in.
+    slot: CMP_STATS.length % CMP_STAT_VARS.length,
     visible: true, type: CMP_TYPE,
   };
   if (!cmpStatData(stat)) return;
