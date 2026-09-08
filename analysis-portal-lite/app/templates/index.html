@@ -648,6 +648,33 @@
   .adm-secthead { font-size: 11px; letter-spacing: .05em;
     text-transform: uppercase; color: var(--text-dim); margin-bottom: 9px; }
   .adm-secthead.danger { color: var(--red); opacity: .85; }
+  .adm-pick { border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; margin-bottom: 12px; }
+  .adm-pickbar { display: flex; align-items: center; gap: 7px;
+    padding: 8px 10px; background: var(--bg);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .adm-picksearch {
+    flex: 1; min-width: 140px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-family: var(--font); font-size: 12px;
+    padding: 5px 9px;
+  }
+  .adm-picksearch:focus { outline: none; border-color: var(--accent); }
+  .adm-picklist { max-height: 240px; overflow: auto; }
+  /* A row is the label, so the whole line is a hit target rather than a
+     12px box. */
+  .adm-pickrow {
+    display: grid; grid-template-columns: 18px 1fr auto auto auto;
+    gap: 10px; align-items: center; padding: 6px 11px;
+    border-bottom: 1px solid var(--border); font-size: 12.5px;
+    cursor: pointer;
+  }
+  .adm-pickrow:last-child { border-bottom: none; }
+  .adm-pickrow:hover { background: var(--accent-glow); }
+  .adm-pickrow.on { background: var(--accent-glow); }
+  .adm-pickrow .nm { min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+
   .adm-list { width: 100%; min-height: 120px; }
 
   .cmp-types { display: flex; gap: 6px; padding: 11px 18px;
@@ -4930,6 +4957,94 @@ const admSampleOpts = sel => ADM_SAMPLES.map(x =>
   `<option value="${escapeAttr(x.key)}" ${x.key === sel ? 'selected' : ''}>`
   + `${escapeHtml(x.sample_name)}</option>`).join('');
 
+// ── sample tick list ────────────────────────────────────────────
+//
+// A <select multiple> was the first shape and the wrong one: it hides what is
+// selected once the list scrolls, loses the selection on a mis-click, and
+// shows nothing about a sample but its name. The case that made it untenable
+// is the ordinary one — a batch labelled "Scribner" that is really some on
+// stand 1 and some on stand 2, where the whole job is picking the subset.
+//
+// One implementation, used by every pane that acts on more than one sample.
+const ADM_PICKS = {};        // hostId -> Set of keys
+
+function admPickInit(hostId, keys) {
+  ADM_PICKS[hostId] = new Set(keys || []);
+}
+
+function admPickRender(hostId, rows, onChange) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const sel = ADM_PICKS[hostId] || (ADM_PICKS[hostId] = new Set());
+  const q = (host.dataset.q || '').toLowerCase();
+  const shown = rows.filter(r => !q
+    || String(r.sample_name).toLowerCase().includes(q)
+    || String(r.stand || '').toLowerCase().includes(q));
+  // Select-all acts on what is visible, not on everything: with a search
+  // active, "all" meaning the hidden rows too would be a trap.
+  const allShown = shown.length > 0 && shown.every(r => sel.has(r.key));
+
+  host.innerHTML = `
+    <div class="adm-pick">
+      <div class="adm-pickbar">
+        <input type="text" class="adm-picksearch" placeholder="Filter samples…"
+               value="${escapeAttr(host.dataset.q || '')}"
+               oninput="admPickSearch('${escapeAttr(hostId)}', this.value)">
+        <button class="btn btn-sm" onclick="admPickAll('${escapeAttr(hostId)}', true)"
+                ${allShown ? 'disabled' : ''}>Select all${q ? ' shown' : ''}</button>
+        <button class="btn btn-sm" onclick="admPickAll('${escapeAttr(hostId)}', false)"
+                ${sel.size ? '' : 'disabled'}>Deselect all</button>
+        <span class="adm-spacer"></span>
+        <span class="adm-note"><b>${sel.size}</b> of ${rows.length} selected${
+          q ? ` · ${shown.length} shown` : ''}</span>
+      </div>
+      <div class="adm-picklist">
+        ${shown.length ? shown.map(r => `
+          <label class="adm-pickrow${sel.has(r.key) ? ' on' : ''}">
+            <input type="checkbox" ${sel.has(r.key) ? 'checked' : ''}
+                   onchange="admPickToggle('${escapeAttr(hostId)}','${escapeAttr(r.key)}')">
+            <span class="nm">${escapeHtml(r.sample_name)}</span>
+            <span class="adm-mono adm-dim">${escapeHtml(r.run_date || '')}</span>
+            <span class="adm-mono ${r.stand ? '' : 'adm-dim'}">${
+              escapeHtml(r.stand || 'no stand')}</span>
+            ${r.badge ? `<span class="adm-pill ${r.badgeClass || ''}">${
+              escapeHtml(r.badge)}</span>` : ''}
+          </label>`).join('')
+        : '<div class="adm-empty">No samples match that filter.</div>'}
+      </div>
+    </div>`;
+  host._rows = rows;
+  host._onChange = onChange || host._onChange;
+}
+
+function admPickSearch(hostId, q) {
+  const host = document.getElementById(hostId);
+  host.dataset.q = q;
+  admPickRender(hostId, host._rows, host._onChange);
+  const inp = host.querySelector('.adm-picksearch');
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function admPickAll(hostId, on) {
+  const host = document.getElementById(hostId);
+  const q = (host.dataset.q || '').toLowerCase();
+  const shown = (host._rows || []).filter(r => !q
+    || String(r.sample_name).toLowerCase().includes(q)
+    || String(r.stand || '').toLowerCase().includes(q));
+  const sel = ADM_PICKS[hostId];
+  if (on) shown.forEach(r => sel.add(r.key));
+  else shown.forEach(r => sel.delete(r.key));
+  admPickRender(hostId, host._rows, host._onChange);
+  if (host._onChange) host._onChange();
+}
+function admPickToggle(hostId, key) {
+  const sel = ADM_PICKS[hostId];
+  sel.has(key) ? sel.delete(key) : sel.add(key);
+  const host = document.getElementById(hostId);
+  admPickRender(hostId, host._rows, host._onChange);
+  if (host._onChange) host._onChange();
+}
+const admPicked = hostId => [...(ADM_PICKS[hostId] || [])];
+
 // ── duplicates ──────────────────────────────────────────────────
 function admPaneDuplicates() {
   document.getElementById('admBody').innerHTML = `
@@ -4981,6 +5096,7 @@ function admRenderGroups() {
             : '<span class="adm-pill keep">exact</span>'}</td></tr>`).join('')}
       </tbody></table></div>
     </div>
+    <div id="admGrpMembers"></div>
     <div class="adm-row"><div class="grow">
       <label>Keep which name</label>
       <select id="admKeepName"></select></div></div>
@@ -4993,16 +5109,39 @@ function admPickGroup(i) {
   ADM_STATE.group = i;
   const g = (ADM_STATE.groups || [])[i];
   if (!g) return;
-  document.getElementById('admKeepName').innerHTML = admOpts(g.names, g.names[0]);
-  document.getElementById('admApply').disabled = false;
+  // Members are ticked too. A group of three can hold one entry that is not
+  // actually the same cell — matching is evidence, not proof — and merging it
+  // in would be the corruption this tool exists to undo.
+  admPickInit('admGrpMembers', g.keys);
+  admPickRender('admGrpMembers',
+    (g.members || []).map(m => ({ ...m, badge: 'in this group' })),
+    admGroupChanged);
+  admGroupChanged();
+}
+function admGroupChanged() {
+  const g = (ADM_STATE.groups || [])[ADM_STATE.group || 0];
+  if (!g) return;
+  const picked = new Set(admPicked('admGrpMembers'));
+  const names = (g.members || []).filter(m => picked.has(m.key))
+                                 .map(m => m.sample_name);
+  const uniq = [...new Set(names)];
+  const keep = document.getElementById('admKeepName');
+  keep.innerHTML = admOpts(uniq, uniq[0]);
+  // Two entries are the minimum for a merge; one ticked is nothing to do.
+  document.getElementById('admApply').disabled = picked.size < 2;
+  document.getElementById('admFoot').textContent = picked.size < 2
+    ? 'Tick at least two entries to merge.'
+    : `Merging ${picked.size} entr(ies) — one group at a time.`;
 }
 
 // ── rename ──────────────────────────────────────────────────────
 function admPaneRename() {
   document.getElementById('admBody').innerHTML = `
-    <p class="adm-lede">Renames a stored sample. The name is written to the
+    <p class="adm-lede">Renames a stored sample. One at a time, since a name
+      is unique to a sample — a batch rename would need a rule for generating
+      each new name, and there is no such rule. The name is written to the
       detail record as well as the index, because the index entry is rebuilt
-      from the detail record on the next push — an index-only rename would
+      from the detail record on the next push, and an index-only rename would
       silently revert.</p>
     <div class="adm-row">
       <div class="grow"><label>Sample</label>
@@ -5057,37 +5196,41 @@ async function admRenamePreview() {
 
 // ── test stand ──────────────────────────────────────────────────
 function admPaneStand() {
-  const fams = ['Samples recorded as “Scribner”', 'Samples recorded as “FCTS”',
-                'Samples with no stand', 'Choose individually…'];
   document.getElementById('admBody').innerHTML = `
     <p class="adm-lede">Sets the test stand recorded against stored runs. Which
       numbered stand a legacy run came from is not in the data — this applies
-      what you know, it does not infer anything.</p>
+      what you know, it does not infer anything. A batch recorded as
+      “Scribner” is usually some on stand 1 and some on stand 2, so the
+      samples are ticked individually rather than by family.</p>
     <div class="adm-row">
-      <div class="grow"><label>Select</label>
-        <select id="admStSel" onchange="admStandPreview()">${admOpts(fams, fams[0])}</select></div>
-      <div class="grow"><label>Set to</label>
+      <div class="grow"><label>Set the ticked samples to</label>
         <select id="admStTo" onchange="admStandPreview()">${admOpts(ADM_STANDS, ADM_STANDS[0])}</select></div>
+      <div><label>&nbsp;</label>
+        <button class="btn" onclick="admStandQuick('Scribner')">Tick all “Scribner”</button></div>
+      <div><label>&nbsp;</label>
+        <button class="btn" onclick="admStandQuick('FCTS')">Tick all “FCTS”</button></div>
+      <div><label>&nbsp;</label>
+        <button class="btn" onclick="admStandQuick('')">Tick unset</button></div>
     </div>
-    <div id="admStPick" style="display:none" class="adm-row"><div class="grow">
-      <label>Samples</label>
-      <select id="admStKeys" class="adm-list" multiple size="6"
-              onchange="admStandPreview()">${admSampleOpts()}</select></div></div>
+    <div id="admStList"></div>
     <div id="admStOut"></div>`;
+  admPickInit('admStList', []);
+  admPickRender('admStList', ADM_SAMPLES, admStandPreview);
   admStandPreview();
 }
-function admStandKeys() {
-  const mode = document.getElementById('admStSel').value;
-  document.getElementById('admStPick').style.display =
-    mode.startsWith('Choose') ? 'flex' : 'none';
-  if (mode.startsWith('Choose')) {
-    return [...document.getElementById('admStKeys').selectedOptions].map(o => o.value);
-  }
-  const want = mode.includes('Scribner') ? 'Scribner'
-             : mode.includes('FCTS') ? 'FCTS' : '';
-  return ADM_SAMPLES.filter(x => want ? x.stand === want : !x.stand)
-                    .map(x => x.key);
+// The family buttons are a shortcut into the ticks, not a mode: they add to
+// the selection and leave it editable, so "all Scribner except these two" is
+// two clicks rather than a different control.
+function admStandQuick(family) {
+  const sel = ADM_PICKS['admStList'];
+  ADM_SAMPLES.forEach(x => {
+    const match = family ? (x.stand || '') === family : !x.stand;
+    if (match) sel.add(x.key);
+  });
+  admPickRender('admStList', ADM_SAMPLES, admStandPreview);
+  admStandPreview();
 }
+function admStandKeys() { return admPicked('admStList'); }
 async function admStandPreview() {
   const keys = admStandKeys();
   const to = document.getElementById('admStTo').value;
@@ -5095,7 +5238,7 @@ async function admStandPreview() {
   const apply = document.getElementById('admApply');
   ADM_STATE.stand = null; apply.disabled = true;
   if (!keys.length) {
-    out.innerHTML = '<div class="adm-empty">No samples match that selection.</div>';
+    out.innerHTML = '<div class="adm-empty">Tick the samples to change.</div>';
     return;
   }
   try {
@@ -5149,15 +5292,15 @@ function admPaneAddDelete() {
         sample out of the portal and leaves its data in place, and can be undone
         from a backup. Purging destroys the measurements — JSONBin has no
         undelete.</p>
-      <div class="adm-row"><div class="grow"><label>Samples</label>
-        <select id="admDelKeys" class="adm-list" multiple size="6"
-                onchange="admDeletePreview()">${admSampleOpts()}</select></div></div>
+      <div id="admDelList"></div>
       <div id="admDelOut"></div>
       <div class="adm-check">
         <input type="checkbox" id="admPurge" onchange="admPurgeToggle(this.checked)">
         <label for="admPurge">Also destroy the stored data (purge)</label></div>
       <p class="adm-note bad" id="admPurgeWarn" style="display:none"></p>
     </div>`;
+  admPickInit('admDelList', []);
+  admPickRender('admDelList', ADM_SAMPLES, admDeletePreview);
   admDeletePreview();
 }
 
@@ -5246,15 +5389,16 @@ async function adminRestore() {
   }
 }
 
-function admDelKeys() {
-  return [...document.getElementById('admDelKeys').selectedOptions].map(o => o.value);
-}
+function admDelKeys() { return admPicked('admDelList'); }
 async function admDeletePreview() {
   const keys = admDelKeys();
   const out = document.getElementById('admDelOut');
   const apply = document.getElementById('admApply');
   ADM_STATE.del = null; apply.disabled = true;
-  if (!keys.length) { out.innerHTML = ''; admPurgeToggle(false); return; }
+  if (!keys.length) {
+    out.innerHTML = '<div class="adm-empty">Tick the samples to remove.</div>';
+    admPurgeToggle(false); return;
+  }
   try {
     const d = await adminPost('delete', { keys });
     ADM_STATE.del = { keys };
@@ -5296,8 +5440,7 @@ async function adminApply() {
   let res = null;
   try {
     if (ADM_PANE === 0) {
-      const g = (ADM_STATE.groups || [])[ADM_STATE.group || 0];
-      res = await adminPost('merge', { keys: g.keys,
+      res = await adminPost('merge', { keys: admPicked('admGrpMembers'),
         keep_name: document.getElementById('admKeepName').value, apply: true });
     } else if (ADM_PANE === 1) {
       res = await adminPost('rename', { ...ADM_STATE.rename,
