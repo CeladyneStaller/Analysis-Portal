@@ -4298,6 +4298,118 @@ function cmpInterp(pts, q, qi, vi) {
 // band is an assertion, not a statistic — it is the same width whatever the
 // replicates did — so everywhere it is drawn it is labelled "± N % of mean"
 // rather than "± s.e.", and the computed s.e. stays on show for comparison.
+// How each analysis type is averaged. Averaging along an axis only works for
+// a curve that is a function of it; the other two are parametric and are
+// averaged against their own parameter instead.
+//
+//   polcurve, crossover  along an axis, either direction
+//   eis                  at each frequency — Z′ and −Z″ averaged separately
+//   ecsa                 the last CV cycle, split into its two sweep branches
+//                        so each is single-valued in potential
+const CMP_AVG_MODE = { polcurve: 'axis', crossover: 'axis',
+                       eis: 'param', ecsa: 'branch' };
+
+// Frequency is not on the Nyquist plot, but the Bode panel carries it and its
+// measured points are the same array in the same order. Pairing the two
+// recovers the parameter the arc is drawn against.
+function cmpEisParam(sr) {
+  if (!sr || !sr.axes) return null;
+  const nyq = sr.axes.find(a => /Z/.test(a.ylabel || '') && !/freq/i.test(a.xlabel || ''))
+           || sr.axes[0];
+  const bode = sr.axes.find(a => /freq/i.test(a.xlabel || ''));
+  if (!nyq || !bode) return null;
+  const pick = ax => (ax.lines || []).find(l => /data/i.test(l.label || ''))
+                  || (ax.lines || [])[0];
+  const zl = pick(nyq), fl = pick(bode);
+  if (!zl || !fl) return null;
+  const n = Math.min((zl.x || []).length, (fl.x || []).length);
+  if (n < 3) return null;
+  const pts = [], f = [];
+  for (let i = 0; i < n; i++) {
+    if (!(fl.x[i] > 0)) continue;            // log grid needs positive Hz
+    pts.push([zl.x[i], zl.y[i]]);
+    f.push(Math.log10(fl.x[i]));
+  }
+  return pts.length > 2 ? { pts, param: f } : null;
+}
+
+// The last line of the Full CV panel is the last cycle: ecsa_analysis plots
+// one line per cycle in order. The last is the settled one and the only one
+// worth comparing between cells.
+function cmpEcsaLastCycle(sr) {
+  if (!sr || !sr.axes || !sr.axes.length) return null;
+  const cv = sr.axes.find(a => /full cv/i.test(a.title || '')) || sr.axes[0];
+  const lines = (cv.lines || []).filter(l => (l.x || []).length > 3);
+  if (!lines.length) return null;
+  const last = lines[lines.length - 1];
+  return { pts: (last.x || []).map((v, i) => [v, (last.y || [])[i]])
+                              .filter(q => typeof q[1] === 'number') };
+}
+
+// Split a closed sweep at its turning point. Each branch is monotonic in the
+// axis, so each can be averaged against it; a whole loop cannot.
+function cmpSplitBranches(pts, qi) {
+  let turn = 0, best = -Infinity, worst = Infinity, iMax = 0, iMin = 0;
+  pts.forEach((p, i) => {
+    if (p[qi] > best) { best = p[qi]; iMax = i; }
+    if (p[qi] < worst) { worst = p[qi]; iMin = i; }
+  });
+  turn = Math.max(Math.min(iMax, pts.length - 2), 1);
+  if (iMax === 0 || iMax === pts.length - 1) turn = Math.max(iMin, 1);
+  const a = pts.slice(0, turn + 1), b = pts.slice(turn);
+  return (a.length > 2 && b.length > 2) ? [a, b] : null;
+}
+
+// Average x and y separately against a shared parameter — the correct
+// operation for a locus that is not a function of either axis. Used for EIS
+// against log frequency.
+function cmpAverageParam(series, params, spread, pct) {
+  const lo = Math.max(...params.map(f => Math.min(...f)));
+  const hi = Math.min(...params.map(f => Math.max(...f)));
+  if (!(hi > lo)) return null;
+  const N = 60, out = [];
+  const interpAt = (pts, f, q, vi) => {
+    const asc = f[0] <= f[f.length - 1];
+    const F = asc ? f : f.slice().reverse();
+    const P = asc ? pts : pts.slice().reverse();
+    if (q <= F[0]) return P[0][vi];
+    if (q >= F[F.length - 1]) return P[P.length - 1][vi];
+    for (let i = 1; i < F.length; i++) {
+      if (q <= F[i]) {
+        const t = (q - F[i - 1]) / ((F[i] - F[i - 1]) || 1);
+        return P[i - 1][vi] + (P[i][vi] - P[i - 1][vi]) * t;
+      }
+    }
+    return P[P.length - 1][vi];
+  };
+  const band = (vs, m) => {
+    const sd = Math.sqrt(vs.reduce((a, b) => a + (b - m) ** 2, 0)
+                         / Math.max(1, vs.length - 1));
+    if (spread === 'minmax') return [Math.min(...vs), Math.max(...vs), sd];
+    if (spread === 'sem') {
+      const e = (typeof pct === 'number' && isFinite(pct) && pct > 0)
+        ? Math.abs(m) * pct / 100 : sd / Math.sqrt(vs.length);
+      return [m - e, m + e, sd];
+    }
+    if (spread === 'sd2') return [m - 2 * sd, m + 2 * sd, sd];
+    return [m - sd, m + sd, sd];
+  };
+  for (let k = 0; k <= N; k++) {
+    const q = lo + (hi - lo) * k / N;
+    const xs = series.map((p, i) => interpAt(p, params[i], q, 0));
+    const ys = series.map((p, i) => interpAt(p, params[i], q, 1));
+    const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const [xlo, xhi, sdx] = band(xs, mx);
+    const [ylo, yhi, sdy] = band(ys, my);
+    out.push({ x: mx, y: my, xlo, xhi, ylo, yhi, sd: sdy, param: q });
+  }
+  return { pts: out, axis: 'param', lo, hi, n: series.length,
+           sd: out[Math.floor(out.length / 2)].sd,
+           se: out[Math.floor(out.length / 2)].sd / Math.sqrt(series.length),
+           mid: out[Math.floor(out.length / 2)].y };
+}
+
 // A mean along an axis only exists if each curve is a function of that axis —
 // one value for each position. A cyclic voltammogram is a closed loop with two
 // currents at every potential, and a Nyquist arc has two Z′ for most −Z″. The
@@ -4386,7 +4498,8 @@ function cmpStatData(stat) {
     const run = cmpRunFor(key);
     const sr = CMP_SERIES.get(cmpKey(key, CMP_TYPE + '::' + step));
     if (!run || !sr) return null;
-    const line = cmpPickLine(sr);
+    // ECSA averages the last CV cycle rather than whatever the chart draws.
+    const line = CMP_TYPE === 'ecsa' ? cmpEcsaLastCycle(sr) : cmpPickLine(sr);
     const unit = (run.Data || []).find(d =>
       d.Analysis === CMP_TYPE && String(d.step || '') === step);
     const kv = {};
@@ -4398,8 +4511,47 @@ function cmpStatData(stat) {
              xlabel: line && line.xlabel, ylabel: line && line.ylabel };
   }).filter(Boolean);
   if (rows.length < 2) return null;
-  const avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread,
-                         stat.sePct);
+  const mode = CMP_AVG_MODE[CMP_TYPE] || 'axis';
+  let avg;
+  if (mode === 'param') {
+    // Averaged at each frequency, so the arc is never treated as a function
+    // of either impedance axis.
+    const parts = stat.ids.map(id => {
+      const [key, step] = id.split('::');
+      return cmpEisParam(CMP_SERIES.get(cmpKey(key, CMP_TYPE + '::' + step)));
+    });
+    if (parts.some(x => !x)) {
+      return { rows, error: 'These EIS results do not carry the frequency of '
+        + 'each point, so there is nothing to align them by. A Nyquist arc is '
+        + 'parametric in frequency and cannot be averaged along its axes.' };
+    }
+    avg = cmpAverageParam(parts.map(x => x.pts), parts.map(x => x.param),
+                          stat.spread, stat.sePct);
+  } else if (mode === 'branch') {
+    // Each sweep direction of the last cycle is averaged separately against
+    // potential, then rejoined — a whole loop is not a function of anything.
+    const loops = rows.map(r => cmpSplitBranches(r.pts, 0));
+    if (loops.some(x => !x)) {
+      return { rows, error: 'These voltammograms could not be split into their '
+        + 'two sweep directions, so there is no single-valued branch to '
+        + 'average.' };
+    }
+    const halves = [0, 1].map(h =>
+      cmpAverage(loops.map(l => l[h]), 'y', stat.spread, stat.sePct));
+    if (halves.some(x => !x || x.error)) {
+      return { rows, error: (halves.find(x => x && x.error) || {}).error
+        || 'The sweep branches do not overlap in potential.' };
+    }
+    // The return branch is reversed so the two join into a closed loop.
+    const pts = halves[0].pts.concat(halves[1].pts.slice().reverse());
+    avg = { pts, axis: 'y', branches: halves,
+            lo: Math.min(halves[0].lo, halves[1].lo),
+            hi: Math.max(halves[0].hi, halves[1].hi),
+            n: halves[0].n, sd: halves[0].sd, se: halves[0].se,
+            mid: halves[0].mid };
+  } else {
+    avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread, stat.sePct);
+  }
   if (!avg) return null;
   // Carried rather than swallowed, so the modal and the legend can say why
   // instead of showing an empty curve.
@@ -4491,7 +4643,8 @@ function cmpChart(series, cfg) {
   const xs = series.flatMap(s => s.pts.map(p => p[0]));
   const ys = series.flatMap(s => s.pts.map(p => p[1]));
   (cfg.stats || []).forEach(st => st.data.avg.pts.forEach(p => {
-    if (st.axis === 'x') { xs.push(p.lo, p.hi); ys.push(p.y); }
+    if (st.data.avg.axis === 'param') { xs.push(p.xlo, p.xhi); ys.push(p.ylo, p.yhi); }
+    else if (st.axis === 'x') { xs.push(p.lo, p.hi); ys.push(p.y); }
     else { xs.push(p.x); ys.push(p.lo, p.hi); }
   }));
   if (!xs.length) {
@@ -4561,7 +4714,34 @@ function cmpChart(series, cfg) {
   });
   (cfg.stats || []).forEach(st => {
     const pts = st.data.avg.pts;
-    if (st.style === 'band') {
+    // A frequency-averaged locus scatters in both Z′ and −Z″, so the spread is
+    // two-dimensional: a band along one axis would misstate it. Drawn as
+    // crosses at sampled frequencies instead.
+    if (st.data.avg.axis === 'param') {
+      if (st.style !== 'none') {
+        pts.forEach((p, k) => {
+          if (k % 6) return;
+          g += `<line class="ebar" x1="${sx(p.xlo).toFixed(1)}" y1="${sy(p.y).toFixed(1)}"`
+             + ` x2="${sx(p.xhi).toFixed(1)}" y2="${sy(p.y).toFixed(1)}" stroke="${st.color}"/>`
+             + `<line class="ebar" x1="${sx(p.x).toFixed(1)}" y1="${sy(p.ylo).toFixed(1)}"`
+             + ` x2="${sx(p.x).toFixed(1)}" y2="${sy(p.yhi).toFixed(1)}" stroke="${st.color}"/>`;
+        });
+      }
+      const dm = pts.map((p, k) =>
+        `${k ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
+      g += `<path class="ln mean" d="${dm}" stroke="${st.color}">`
+         + `<title>${escapeHtml(st.name)}</title></path>`;
+      return;
+    }
+    if (st.style === 'band' && st.data.avg.branches) {
+      // A rejoined loop closes on itself, so one band across the whole thing
+      // would span the loop's interior. Each sweep branch gets its own.
+      st.data.avg.branches.forEach(h => {
+        const up = h.pts.map((p, k) => `${k ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.hi).toFixed(1)}`).join(' ');
+        const dn = h.pts.slice().reverse().map(p => `L${sx(p.x).toFixed(1)},${sy(p.lo).toFixed(1)}`).join(' ');
+        g += `<path class="band" d="${up} ${dn} Z" fill="${st.color}"/>`;
+      });
+    } else if (st.style === 'band') {
       // The band lies along whichever axis was averaged: for a potentiostatic
       // mean lo/hi are currents, so the edges move in x, not y.
       const up = pts.map((p, k) => `${k ? 'L' : 'M'}`
@@ -4722,8 +4902,13 @@ function cmpRender() {
             <svg width="24" height="8" style="flex:0 0 auto"><line x1="0" y1="4"
               x2="24" y2="4" stroke="${cmpStatColor(i)}" stroke-width="2.6"/></svg>
             <span class="st">mean</span>
-            <span class="cond">${escapeHtml(cmpSpreadLabel(st))} · ${st.axis === 'x'
-              ? 'x averaged at each y' : 'y averaged at each x'}</span></span>
+            <span class="cond">${escapeHtml(cmpSpreadLabel(st))} · ${
+              (CMP_AVG_MODE[CMP_TYPE] || 'axis') === 'param'
+                ? 'averaged at each frequency'
+              : (CMP_AVG_MODE[CMP_TYPE] || 'axis') === 'branch'
+                ? 'last cycle, each sweep averaged'
+              : st.axis === 'x' ? 'x averaged at each y'
+                                : 'y averaged at each x'}</span></span>
           <span class="cmp-scol2">${Object.entries(kv).slice(0, 3).map(([k, v]) =>
             `<span class="cmp-kv"><span class="k">${escapeHtml(k)}</span>`
             + `<span class="v">${escapeHtml(fmtNum(v.mean))}</span>`
@@ -5354,13 +5539,29 @@ async function cmpRunStats() {
   }
   document.getElementById('cmpStatName').value = '';
   document.getElementById('cmpSePct').value = '';
+  // The direction is only a choice where the curve is a function of an axis.
+  const mode = CMP_AVG_MODE[CMP_TYPE] || 'axis';
+  const wrap = document.getElementById('cmpAxisField');
+  wrap.style.display = mode === 'axis' ? '' : 'none';
+  document.getElementById('cmpAxisFixed').innerHTML = mode === 'axis' ? '' :
+    `<div class="cmp-box info">${mode === 'param'
+      ? 'Averaged at each frequency — Z′ and −Z″ separately. A Nyquist arc is '
+        + 'parametric in frequency, so averaging along either axis would take '
+        + 'one side of the arc and discard the other.'
+      : 'Averaged from the last CV cycle, split into its two sweep directions '
+        + 'so each is single-valued in potential, then rejoined. A whole '
+        + 'voltammogram is a loop and has no mean along an axis.'}</div>`;
   document.getElementById('cmpStatModal').classList.add('show');
   cmpStatPreview();
 }
 function cmpCloseStat() {
   document.getElementById('cmpStatModal').classList.remove('show');
 }
+function cmpAxisChoiceApplies() {
+  return (CMP_AVG_MODE[CMP_TYPE] || 'axis') === 'axis';
+}
 function cmpSetAxis(a) {
+  if (!cmpAxisChoiceApplies()) return;
   CMP_AXIS = a;
   document.getElementById('cmpAxX').classList.toggle('on', a === 'x');
   document.getElementById('cmpAxY').classList.toggle('on', a === 'y');
@@ -5400,8 +5601,25 @@ function cmpStatPreview() {
   const conds = new Set(rows.map(r => r.cond).filter(Boolean));
   const steps = new Set(rows.map(r => r.step));
   const a = data.avg;
-  const unit = CMP_AXIS === 'x' ? cmpUnitOf(data.ylabel) : cmpUnitOf(data.xlabel);
-  const au = CMP_AXIS === 'x' ? cmpUnitOf(data.xlabel) : cmpUnitOf(data.ylabel);
+  // The span means a different thing in each mode, and reporting a frequency
+  // range in Ω·cm² — which the first version did — is worse than saying
+  // nothing.
+  const mode = CMP_AVG_MODE[CMP_TYPE] || 'axis';
+  let spanTxt, au;
+  if (mode === 'param') {
+    // The grid is log10 Hz; report it as frequency.
+    spanTxt = `${Math.pow(10, a.lo).toPrecision(3)}–`
+            + `${Math.pow(10, a.hi).toPrecision(3)} Hz`;
+    au = cmpUnitOf(data.ylabel);
+  } else if (mode === 'branch') {
+    spanTxt = `${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} `
+            + cmpUnitOf(data.xlabel);
+    au = cmpUnitOf(data.ylabel);
+  } else {
+    const unit = CMP_AXIS === 'x' ? cmpUnitOf(data.ylabel) : cmpUnitOf(data.xlabel);
+    spanTxt = `${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} ${unit}`;
+    au = CMP_AXIS === 'x' ? cmpUnitOf(data.xlabel) : cmpUnitOf(data.ylabel);
+  }
   // With a percentage set, both numbers are shown: the band being drawn and
   // the standard error it replaced, so the gap between them is visible rather
   // than implied.
@@ -5419,8 +5637,7 @@ function cmpStatPreview() {
          sePctOfMean ? `, about ${sePctOfMean.toPrecision(2)} % of the mean` : ''}.</div>`
       : '')
     + `<div class="cmp-box info">Mean of <b>${a.n}</b> curves over
-       <b>${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} ${escapeHtml(unit)}</b>,
-       the span every curve covers. Typical spread
+       <b>${escapeHtml(spanTxt)}</b>, the span every curve covers. Typical spread
        <b>± ${a.sd.toPrecision(3)} ${escapeHtml(au)}</b>.${
        a.n < 3 ? ' With two curves a standard deviation is just half their difference.' : ''}</div>`;
   document.getElementById('cmpStatFoot').textContent =
@@ -7983,7 +8200,8 @@ document.addEventListener('keydown', e => {
         <div class="cmp-flabel">Curves selected</div>
         <div class="cmp-chosen" id="cmpChosen"></div>
       </div>
-      <div class="cmp-field">
+      <div id="cmpAxisFixed"></div>
+      <div class="cmp-field" id="cmpAxisField">
         <div class="cmp-flabel">What to average</div>
         <div class="cmp-axis">
           <div class="cmp-axopt on" id="cmpAxX" onclick="cmpSetAxis('x')">
