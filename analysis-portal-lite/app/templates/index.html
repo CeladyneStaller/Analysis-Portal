@@ -927,6 +927,9 @@
   .cmp-statctl select:focus { outline: none; border-color: var(--accent); }
   .cmp-statctl .lbl { font-size: 9.5px; color: var(--text-dim);
     text-transform: uppercase; letter-spacing: .04em; }
+  .cmp-staterr { padding: 2px 10px 6px 30px; font-size: 10.5px;
+    color: var(--amber); line-height: 1.5; }
+
   .cmp-memlist { padding: 2px 10px 6px 30px; font-size: 10.5px;
     color: var(--text-dim); line-height: 1.6; }
   /* Struck through when the components are off the chart, so the state reads
@@ -4295,10 +4298,35 @@ function cmpInterp(pts, q, qi, vi) {
 // band is an assertion, not a statistic — it is the same width whatever the
 // replicates did — so everywhere it is drawn it is labelled "± N % of mean"
 // rather than "± s.e.", and the computed s.e. stays on show for comparison.
+// A mean along an axis only exists if each curve is a function of that axis —
+// one value for each position. A cyclic voltammogram is a closed loop with two
+// currents at every potential, and a Nyquist arc has two Z′ for most −Z″. The
+// interpolator walks the points and returns the first crossing, so without
+// this check it silently averages one branch and discards the other.
+function cmpMonotonicOn(pts, qi) {
+  let up = true, dn = true;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i][qi] < pts[i - 1][qi] - 1e-12) up = false;
+    if (pts[i][qi] > pts[i - 1][qi] + 1e-12) dn = false;
+    if (!up && !dn) return false;
+  }
+  return true;
+}
+
 function cmpAverage(series, axis, spread, pct) {
   const qi = axis === 'x' ? 1 : 0, vi = axis === 'x' ? 0 : 1;
   const usable = series.filter(p => p && p.length > 1);
   if (usable.length < 2) return null;
+  const looped = usable.filter(p => !cmpMonotonicOn(p, qi)).length;
+  if (looped) {
+    return { error: `${looped === usable.length ? 'These curves double'
+      : looped + ' of these curves double'} back on the `
+      + `${axis === 'x' ? 'y' : 'x'} axis, so there is more than one `
+      + `${axis === 'x' ? 'x' : 'y'} value at the same position and no mean `
+      + `along it. A cyclic voltammogram and a Nyquist arc are loops rather `
+      + `than functions; averaging one would take a single branch and discard `
+      + `the rest.` };
+  }
   const lo = Math.max(...usable.map(p => Math.min(...p.map(q => q[qi]))));
   const hi = Math.min(...usable.map(p => Math.max(...p.map(q => q[qi]))));
   if (!(hi > lo)) return null;
@@ -4373,6 +4401,9 @@ function cmpStatData(stat) {
   const avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread,
                          stat.sePct);
   if (!avg) return null;
+  // Carried rather than swallowed, so the modal and the legend can say why
+  // instead of showing an empty curve.
+  if (avg.error) return { rows, error: avg.error };
   return { rows, avg, kv: cmpAverageKV(rows.map(r => r.kv)),
            xlabel: rows[0].xlabel, ylabel: rows[0].ylabel };
 }
@@ -4647,7 +4678,8 @@ function cmpRender() {
   // curve is drawn with, so nothing is repeated under the chart.
   const statHtml = CMP_STATS.map((st, i) => {
     if (st.type !== CMP_TYPE) return '';
-    const data = cmpStatData(st);
+    const raw = cmpStatData(st);
+    const data = raw && !raw.error ? raw : null;
     const kv = data ? data.kv : {};
     // Fall back to the stored ids so the member list and the count still read
     // correctly before the series arrive.
@@ -4677,7 +4709,8 @@ function cmpRender() {
           : `<span class="nm cmp-rename-target" title="Click to rename"
                onclick="cmpStatRename(${i})">${escapeHtml(st.name)}</span>`}
         <span class="cmp-badge">${data ? `mean of ${count}`
-          : (CMP_LOADING ? 'loading…' : `mean of ${count} — no plot data`)}</span>
+          : (raw && raw.error ? 'cannot average'
+             : CMP_LOADING ? 'loading…' : `mean of ${count} — no plot data`)}</span>
         <span class="cmp-act" title="${st.visible
           ? 'Hide the mean and the curves it is made of' : 'Show'}"
           onclick="cmpToggleStat(${i})">${st.visible ? '●' : '○'}</span>
@@ -4697,7 +4730,9 @@ function cmpRender() {
             + `<span class="pm">±${escapeHtml(fmtNum(v.sd))}</span></span>`).join('')}</span>
           <span class="cmp-sacts"></span>
         </div>
-        <div class="cmp-memlist${st.members ? '' : ' off'}"
+        ${raw && raw.error
+        ? `<div class="cmp-staterr">${escapeHtml(raw.error)}</div>` : ''}
+      <div class="cmp-memlist${st.members ? '' : ' off'}"
              title="The curves this mean is made of">${escapeHtml(names.join('  ·  '))}</div>
         <div class="cmp-statctl">
           <span class="lbl">spread</span>
@@ -4798,7 +4833,7 @@ function cmpRender() {
   const stats = CMP_STATS
     .map((st, i) => ({ st, i, data: st.type === CMP_TYPE && st.visible
                                     ? cmpStatData(st) : null }))
-    .filter(x => x.data);
+    .filter(x => x.data && !x.data.error);
   const memberIds = new Set();
   stats.forEach(x => { if (x.st.members) x.data.rows.forEach(r => memberIds.add(r.id)); });
   memberIds.forEach(id => {
@@ -5352,10 +5387,12 @@ function cmpStatPreview() {
   const data = cmpStatData(draft);
   const add = document.getElementById('cmpStatAdd');
   const sum = document.getElementById('cmpStatSummary');
-  if (!data) {
+  if (!data || data.error) {
     add.disabled = true;
-    sum.innerHTML = '<div class="cmp-box amber">Those curves have no overlapping '
-      + 'range to average over, or their plot data is not stored.</div>';
+    sum.innerHTML = `<div class="cmp-box amber">${data && data.error
+      ? escapeHtml(data.error)
+      : 'Those curves have no overlapping range to average over, or their '
+        + 'plot data is not stored.'}</div>`;
     document.getElementById('cmpStatFoot').textContent = '';
     return;
   }
