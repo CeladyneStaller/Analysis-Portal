@@ -4355,10 +4355,23 @@ function cmpStatData(stat) {
 
 // ── series, fetched in one batch ────────────────────────────────
 async function cmpLoadSeries() {
-  const want = cmpSelected()
-    .map(s => ({ key: s.key, analysis: CMP_TYPE, step: s.step }))
-    .filter(s => !CMP_SERIES.has(cmpKey(s.key, CMP_TYPE + '::' + s.step)));
-  if (!want.length) return;
+  // Plotted curves and the members of every statistical curve. A mean's
+  // members need never have been plotted — and after a saved view is opened
+  // they usually have not been — so gathering only from cmpSelected() left
+  // those series unfetched and the restored mean reading "mean of 0".
+  const need = new Map();
+  cmpSelected().forEach(s => need.set(cmpCurveId(s.key, s.step),
+    { key: s.key, analysis: CMP_TYPE, step: s.step }));
+  CMP_STATS.forEach(st => {
+    if (st.type && st.type !== CMP_TYPE) return;
+    (st.ids || []).forEach(id => {
+      const [key, step] = id.split('::');
+      if (key && step) need.set(id, { key, analysis: CMP_TYPE, step });
+    });
+  });
+  const want = [...need.values()].filter(s =>
+    !CMP_SERIES.has(cmpKey(s.key, CMP_TYPE + '::' + s.step)));
+  if (!want.length) { if (CMP_LOADING) { CMP_LOADING = false; cmpRender(); } return; }
   CMP_LOADING = true;
   try {
     const r = await fetch('/api/view/series', {
@@ -4604,13 +4617,23 @@ function cmpRender() {
     if (st.type !== CMP_TYPE) return '';
     const data = cmpStatData(st);
     const kv = data ? data.kv : {};
-    const names = data ? data.rows.map(r =>
-      String(r.name).split('_').slice(1).join('_') + ' · ' + r.step) : [];
+    // Fall back to the stored ids so the member list and the count still read
+    // correctly before the series arrive.
+    const names = data
+      ? data.rows.map(r => String(r.name).split('_').slice(1).join('_') + ' · ' + r.step)
+      : (st.ids || []).map(id => {
+          const [key, step] = id.split('::');
+          const run = cmpRunFor(key);
+          const nm = run ? String(run.sample_name || key) : key;
+          return nm.split('_').slice(1).join('_') + ' · ' + step;
+        });
+    const count = data ? data.avg.n : (st.ids || []).length;
     return `<div class="cmp-grp stat${st.visible ? '' : ' off'}">
       <div class="cmp-grphead">
         <span class="cmp-sw" style="background:${cmpStatColor(st.slot)}"></span>
         <span class="nm" title="${escapeAttr(st.name)}">${escapeHtml(st.name)}</span>
-        <span class="cmp-badge">mean of ${data ? data.avg.n : 0}</span>
+        <span class="cmp-badge">${data ? `mean of ${count}`
+          : (CMP_LOADING ? 'loading…' : `mean of ${count} — no plot data`)}</span>
         <span class="cmp-act" title="${st.visible
           ? 'Hide the mean and the curves it is made of' : 'Show'}"
           onclick="cmpToggleStat(${i})">${st.visible ? '●' : '○'}</span>
