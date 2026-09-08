@@ -896,6 +896,16 @@
   .cmp-grp.off { opacity: .45; }
   .cmp-badge { background: rgba(223,229,237,.13); color: var(--text);
     border-radius: 99px; padding: 1px 7px; font-size: 9.5px; font-family: var(--mono); }
+  .cmp-pctrow { display: inline-flex; align-items: center; gap: 5px; }
+  .cmp-pctrow input { width: 76px !important; text-align: right;
+    font-family: var(--mono); font-size: 12px; }
+  .cmp-pctsign { color: var(--text-dim); font-size: 12px; }
+  .cmp-statctl input.pct { width: 52px; text-align: right;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text-dim);
+    font-family: var(--mono); font-size: 10.5px; padding: 2px 5px; }
+  .cmp-statctl input.pct:focus { outline: none; border-color: var(--accent); }
+
   .cmp-statctl { display: flex; align-items: center; gap: 6px;
     padding: 4px 10px 6px 22px; flex-wrap: wrap; }
   /* The sheet has a global `select { width: 100% }` for form fields, which
@@ -4257,7 +4267,11 @@ function cmpInterp(pts, q, qi, vi) {
 
 // axis 'x': voltage is the setpoint, so current is averaged at each voltage —
 // the usual case for a potentiostatic polarization curve.
-function cmpAverage(series, axis, spread) {
+// pct overrides the computed standard error with a fixed relative band. That
+// band is an assertion, not a statistic — it is the same width whatever the
+// replicates did — so everywhere it is drawn it is labelled "± N % of mean"
+// rather than "± s.e.", and the computed s.e. stays on show for comparison.
+function cmpAverage(series, axis, spread, pct) {
   const qi = axis === 'x' ? 1 : 0, vi = axis === 'x' ? 0 : 1;
   const usable = series.filter(p => p && p.length > 1);
   if (usable.length < 2) return null;
@@ -4273,14 +4287,23 @@ function cmpAverage(series, axis, spread) {
                          / Math.max(1, vs.length - 1));
     let a, b;
     if (spread === 'minmax') { a = Math.min(...vs); b = Math.max(...vs); }
-    else if (spread === 'sem') { const e = sd / Math.sqrt(vs.length); a = m - e; b = m + e; }
+    else if (spread === 'sem') {
+      const e = (typeof pct === 'number' && isFinite(pct) && pct > 0)
+        // Relative to |mean|, so a quantity that dips through zero does not
+        // produce an inverted band.
+        ? Math.abs(m) * pct / 100
+        : sd / Math.sqrt(vs.length);
+      a = m - e; b = m + e;
+    }
     else if (spread === 'sd2') { a = m - 2 * sd; b = m + 2 * sd; }
     else { a = m - sd; b = m + sd; }
     out.push(axis === 'x' ? { x: m, y: q, lo: a, hi: b, sd }
                           : { x: q, y: m, lo: a, hi: b, sd });
   }
-  return { pts: out, axis, lo, hi, n: usable.length,
-           sd: out[Math.floor(out.length / 2)].sd };
+  const mid = out[Math.floor(out.length / 2)];
+  return { pts: out, axis, lo, hi, n: usable.length, sd: mid.sd,
+           se: mid.sd / Math.sqrt(usable.length),
+           mid: axis === 'x' ? mid.x : mid.y };
 }
 
 // Index values are averaged too, and reported with their spread: a mean OCV
@@ -4323,7 +4346,8 @@ function cmpStatData(stat) {
              xlabel: line && line.xlabel, ylabel: line && line.ylabel };
   }).filter(Boolean);
   if (rows.length < 2) return null;
-  const avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread);
+  const avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread,
+                         stat.sePct);
   if (!avg) return null;
   return { rows, avg, kv: cmpAverageKV(rows.map(r => r.kv)),
            xlabel: rows[0].xlabel, ylabel: rows[0].ylabel };
@@ -4598,7 +4622,7 @@ function cmpRender() {
             <svg width="24" height="8" style="flex:0 0 auto"><line x1="0" y1="4"
               x2="24" y2="4" stroke="${cmpStatColor(st.slot)}" stroke-width="2.6"/></svg>
             <span class="st">mean</span>
-            <span class="cond">${st.axis === 'x'
+            <span class="cond">${escapeHtml(cmpSpreadLabel(st))} · ${st.axis === 'x'
               ? 'x averaged at each y' : 'y averaged at each x'}</span></span>
           <span class="cmp-scol2">${Object.entries(kv).slice(0, 3).map(([k, v]) =>
             `<span class="cmp-kv"><span class="k">${escapeHtml(k)}</span>`
@@ -4613,6 +4637,10 @@ function cmpRender() {
           <select onchange="cmpSetStat(${i},'spread',this.value)">
             ${Object.entries(CMP_SPREADS).map(([k, l]) =>
               `<option value="${k}" ${st.spread === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          ${st.spread === 'sem' ? `<input class="pct" type="text"
+             value="${st.sePct == null ? '' : st.sePct}" placeholder="auto %"
+             title="Blank uses the computed standard error"
+             onchange="cmpSetStat(${i},'sePct',cmpReadPct(this.value))">` : ''}
           <span class="lbl">draw</span>
           <select onchange="cmpSetStat(${i},'style',this.value)">
             ${Object.entries(CMP_STYLES).map(([k, l]) =>
@@ -5089,6 +5117,19 @@ function cmpDragEnd() {
     e.classList.remove('dragging', 'drop-above', 'drop-below'));
 }
 
+// The typed percentage, or null for the computed standard error.
+function cmpReadPct(raw) {
+  const v = parseFloat(String(raw == null ? '' : raw).replace('%', '').trim());
+  return isFinite(v) && v > 0 ? v : null;
+}
+// One label, so the legend, the modal and the summary cannot disagree about
+// what the band is. A percentage band is not a standard error and is never
+// called one.
+function cmpSpreadLabel(stat) {
+  if (stat.spread === 'sem' && stat.sePct) return `± ${stat.sePct} % of mean`;
+  return CMP_SPREADS[stat.spread] || stat.spread;
+}
+
 // ── statistical selection mode ──────────────────────────────────
 function cmpStartPick() { CMP_PICKING = true; CMP_PICKED = new Set(); cmpRender(); }
 function cmpCancelPick() { CMP_PICKING = false; CMP_PICKED = new Set(); cmpRender(); }
@@ -5132,6 +5173,7 @@ async function cmpRunStats() {
     } catch (e) { alert('Could not read those curves: ' + e.message); return; }
   }
   document.getElementById('cmpStatName').value = '';
+  document.getElementById('cmpSePct').value = '';
   document.getElementById('cmpStatModal').classList.add('show');
   cmpStatPreview();
 }
@@ -5146,8 +5188,11 @@ function cmpSetAxis(a) {
 }
 
 function cmpStatPreview() {
-  const draft = { ids: [...CMP_PICKED], axis: CMP_AXIS,
-                  spread: document.getElementById('cmpSpread').value };
+  const spread = document.getElementById('cmpSpread').value;
+  const pct = cmpReadPct(document.getElementById('cmpSePct').value);
+  document.getElementById('cmpPctWrap').style.display =
+    spread === 'sem' ? 'block' : 'none';
+  const draft = { ids: [...CMP_PICKED], axis: CMP_AXIS, spread, sePct: pct };
   const rows = draft.ids.map(id => {
     const [key, step] = id.split('::');
     const run = cmpRunFor(key);
@@ -5175,11 +5220,22 @@ function cmpStatPreview() {
   const a = data.avg;
   const unit = CMP_AXIS === 'x' ? cmpUnitOf(data.ylabel) : cmpUnitOf(data.xlabel);
   const au = CMP_AXIS === 'x' ? cmpUnitOf(data.xlabel) : cmpUnitOf(data.ylabel);
+  // With a percentage set, both numbers are shown: the band being drawn and
+  // the standard error it replaced, so the gap between them is visible rather
+  // than implied.
+  const sePctOfMean = a.mid ? Math.abs(a.se / a.mid) * 100 : null;
   sum.innerHTML =
     ((conds.size > 1 || steps.size > 1)
       ? `<div class="cmp-box amber">These curves span ${conds.size} condition(s)
          and ${steps.size} step(s). Averaging across them combines experiments
          rather than replicates.</div>` : '')
+    + (pct && spread === 'sem'
+      ? `<div class="cmp-box amber">A fixed ± ${pct} % band is drawn, not a
+         standard error — it is the same width whatever the curves did. The
+         computed standard error here is
+         <b>± ${a.se.toPrecision(3)} ${escapeHtml(au)}</b>${
+         sePctOfMean ? `, about ${sePctOfMean.toPrecision(2)} % of the mean` : ''}.</div>`
+      : '')
     + `<div class="cmp-box info">Mean of <b>${a.n}</b> curves over
        <b>${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} ${escapeHtml(unit)}</b>,
        the span every curve covers. Typical spread
@@ -5198,6 +5254,7 @@ function cmpCreateStat() {
     name: document.getElementById('cmpStatName').value.trim() || 'Mean',
     ids: [...CMP_PICKED], axis: CMP_AXIS,
     spread: document.getElementById('cmpSpread').value,
+    sePct: cmpReadPct(document.getElementById('cmpSePct').value),
     style: document.getElementById('cmpStyle').value,
     members: document.getElementById('cmpShowMembers').checked,
     // The slot is stored, not the colour: a saved view reopened in the other
@@ -7554,7 +7611,16 @@ document.addEventListener('keydown', e => {
             <option value="sd">± 1 standard deviation</option>
             <option value="sd2">± 2 standard deviations</option>
             <option value="minmax">min / max envelope</option>
-            <option value="sem">± standard error</option></select></div>
+            <option value="sem">± standard error</option></select>
+          <div id="cmpPctWrap" style="display:none;margin-top:7px">
+            <div class="cmp-pctrow">
+              <input type="text" id="cmpSePct" placeholder="auto"
+                     oninput="cmpStatPreview()"><span class="cmp-pctsign">%</span>
+            </div>
+            <div class="cmp-memhint" style="padding-left:0">Blank uses the
+              standard error computed from the curves. A number draws a fixed
+              band that wide instead.</div>
+          </div></div>
         <div class="cmp-field"><div class="cmp-flabel">Draw as</div>
           <select id="cmpStyle" onchange="cmpStatPreview()">
             <option value="band">shaded band</option>
