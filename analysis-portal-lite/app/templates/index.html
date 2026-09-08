@@ -4773,7 +4773,13 @@ function cmpRender() {
     '<div class="cmp-empty" style="padding:26px 16px;font-size:12px">No curves yet.</div>');
 
   // chart
-  let xlab = '', ylab = '';
+  // The axis labels belong to the analysis type, so they are set before any
+  // curve is looked at. Deriving them from the first series that loaded meant
+  // a chart with no series in that loop — one showing only a statistical curve
+  // with its components hidden — fell back to "x" and "y".
+  let xlab = t.x || '', ylab = t.y || '';
+  if (CMP_TYPE === 'polcurve' && CMP_OPT.power) ylab = 'Power density (mW/cm²)';
+  else if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) ylab = 'iR-free voltage (V)';
   const series = [];
   sel.forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
@@ -4781,7 +4787,7 @@ function cmpRender() {
     if (!sr) return;
     const line = cmpPickLine(sr);
     if (!line || !line.pts.length) return;
-    xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;
+    xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
     series.push({ pts: line.pts, color: cmpColorOf(u.key), dash: cmpDashOf(u.step),
                   id: cmpCurveId(u.key, u.step),
                   title: `${sr.sample_name || ''} · ${u.step}` });
@@ -4801,7 +4807,7 @@ function cmpRender() {
     const sr = CMP_SERIES.get(cmpKey(key, CMP_TYPE + '::' + step));
     const line = sr && cmpPickLine(sr);
     if (!line || !line.pts.length) return;
-    xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;
+    xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
     series.push({ pts: line.pts, color: '#8a97a8', dash: '', faint: true,
                   id, title: `${(sr && sr.sample_name) || key} · ${step}` });
   });
