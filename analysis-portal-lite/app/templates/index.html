@@ -2544,7 +2544,7 @@
                   title="Delete the selected saved view">Delete</button>
         </span>
         <button class="view-refresh" id="cmpExport" onclick="exportComparison()"
-                title="Render this comparison server-side and download the figure and workbook">
+                title="Save this chart as a PNG, and run the server-side comparison for its figure and workbook">
           ⭳ Export PNG + xlsx</button>
       </div>
 
@@ -5423,6 +5423,78 @@ function cmpRenderViews(selected) {
 // Export hands the selection to the existing server-side comparison rather
 // than sending this chart's SVG. That path produces the figure and workbook the
 // reports use; two renderings of one comparison would drift.
+// Rasterise the chart exactly as drawn.
+//
+// The SVG gets everything visual from CSS classes and custom properties, and
+// none of that survives being loaded into an <img> — the browser renders the
+// markup in isolation, so an unmodified clone comes out as black lines on
+// nothing. Every painted property is therefore resolved against the live
+// element and written onto the clone as an attribute.
+const CMP_PAINT = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray',
+                   'stroke-linejoin', 'stroke-linecap', 'opacity',
+                   'font-family', 'font-size', 'font-weight', 'text-anchor'];
+
+function cmpSvgToPng(scale) {
+  const live = document.querySelector('#cmpChart svg');
+  if (!live) return null;
+  const w = +live.getAttribute('width'), h = +live.getAttribute('height');
+  const clone = live.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+  const from = live.querySelectorAll('*'), to = clone.querySelectorAll('*');
+  for (let i = 0; i < from.length; i++) {
+    const cs = getComputedStyle(from[i]);
+    CMP_PAINT.forEach(prop => {
+      const v = cs.getPropertyValue(prop);
+      if (v && v !== 'none' || (prop === 'fill' && v === 'none')) {
+        to[i].setAttribute(prop, v.trim());
+      }
+    });
+    to[i].removeAttribute('class');
+  }
+  // The chart is transparent, so without this a dark-theme export lands as
+  // dark lines on white.
+  const bg = getComputedStyle(document.querySelector('.section')
+    || document.body).backgroundColor;
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', 0); rect.setAttribute('y', 0);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('fill', bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff');
+  clone.insertBefore(rect, clone.firstChild);
+
+  return { markup: new XMLSerializer().serializeToString(clone),
+           w, h, scale: scale || 2 };
+}
+
+async function cmpDownloadPng(name) {
+  const job = cmpSvgToPng(2);
+  if (!job) return false;
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = job.w * job.scale; c.height = job.h * job.scale;
+      const ctx = c.getContext('2d');
+      ctx.setTransform(job.scale, 0, 0, job.scale, 0, 0);
+      ctx.drawImage(img, 0, 0);
+      c.toBlob(blob => {
+        if (!blob) { resolve(false); return; }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        resolve(true);
+      }, 'image/png');
+    };
+    img.onerror = () => resolve(false);
+    // encodeURIComponent rather than btoa: the markup carries °, ², ′ and the
+    // like, which btoa refuses.
+    img.src = 'data:image/svg+xml;charset=utf-8,'
+            + encodeURIComponent(job.markup);
+  });
+}
+
 async function exportComparison() {
   const sels = [];
   cmpSelected().forEach(u => {
@@ -5430,9 +5502,30 @@ async function exportComparison() {
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}` });
   });
-  if (sels.length < 2) return;
   const btn = document.getElementById('cmpExport');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   btn.disabled = true;
+  const label = btn.textContent;
+
+  // The on-screen chart first, because it is the thing that cannot be
+  // reproduced elsewhere: the server renders from the stored sidecars and
+  // knows nothing about the zoom window, the statistical curves or their
+  // bands.
+  btn.textContent = 'Saving chart…';
+  const savedPng = await cmpDownloadPng(`comparison-${stamp}.png`);
+
+  // The server-side comparison needs two plotted curves; a chart that is only
+  // statistical curves still exports its PNG.
+  if (sels.length < 2) {
+    btn.disabled = false; btn.textContent = label;
+    document.getElementById('cmpNote').innerHTML = savedPng
+      ? `Chart saved as <b>comparison-${stamp}.png</b>. The workbook needs at
+         least two plotted curves — a statistical curve alone has nothing to
+         tabulate against.`
+      : 'Could not save the chart image.';
+    return;
+  }
+  btn.textContent = 'Running…';
   try {
     const r = await fetch('/api/view/compare', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5447,9 +5540,11 @@ async function exportComparison() {
     renderJob(d.job_id, d);
     polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
   } catch (e) {
-    alert('Export failed: ' + e.message);
+    alert('The comparison job failed: ' + e.message
+          + (savedPng ? '\n\nThe chart image was still saved.' : ''));
   } finally {
     btn.disabled = false;
+    btn.textContent = label;
   }
 }
 
