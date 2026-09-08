@@ -4718,7 +4718,7 @@ function cmpChart(series, cfg) {
     // two-dimensional: a band along one axis would misstate it. Drawn as
     // crosses at sampled frequencies instead.
     if (st.data.avg.axis === 'param') {
-      if (st.style !== 'none') {
+      if (st.style === 'bars') {
         pts.forEach((p, k) => {
           if (k % 6) return;
           g += `<line class="ebar" x1="${sx(p.xlo).toFixed(1)}" y1="${sy(p.y).toFixed(1)}"`
@@ -4726,6 +4726,33 @@ function cmpChart(series, cfg) {
              + `<line class="ebar" x1="${sx(p.x).toFixed(1)}" y1="${sy(p.ylo).toFixed(1)}"`
              + ` x2="${sx(p.x).toFixed(1)}" y2="${sy(p.yhi).toFixed(1)}" stroke="${st.color}"/>`;
         });
+      } else if (st.style === 'band') {
+        // The spread here is two-dimensional, so a band cannot simply be an
+        // offset in x or in y — it is a ribbon around the locus. At each
+        // frequency the uncertainty is an axis-aligned ellipse; its half-width
+        // along the arc's local normal is what thickens the line there.
+        //
+        // Worked in screen space, because the two axes carry different
+        // quantities and a normal computed from data values would not be
+        // perpendicular to the drawn curve.
+        const P = pts.map(p => ({
+          X: sx(p.x), Y: sy(p.y),
+          a: Math.abs(sx(p.xhi) - sx(p.xlo)) / 2,
+          b: Math.abs(sy(p.yhi) - sy(p.ylo)) / 2,
+        }));
+        const edge = [], back = [];
+        for (let i = 0; i < P.length; i++) {
+          const prev = P[Math.max(0, i - 1)], next = P[Math.min(P.length - 1, i + 1)];
+          let tx = next.X - prev.X, ty = next.Y - prev.Y;
+          const len = Math.hypot(tx, ty) || 1;
+          tx /= len; ty /= len;
+          const nx = -ty, ny = tx;
+          const w = Math.hypot(P[i].a * nx, P[i].b * ny);
+          edge.push(`${(P[i].X + w * nx).toFixed(1)},${(P[i].Y + w * ny).toFixed(1)}`);
+          back.push(`${(P[i].X - w * nx).toFixed(1)},${(P[i].Y - w * ny).toFixed(1)}`);
+        }
+        g += `<path class="band" d="M${edge.join(' L')} L${back.reverse().join(' L')} Z"`
+           + ` fill="${st.color}"/>`;
       }
       const dm = pts.map((p, k) =>
         `${k ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
