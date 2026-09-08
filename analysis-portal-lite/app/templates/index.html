@@ -660,6 +660,17 @@
     padding: 5px 9px;
   }
   .adm-picksearch:focus { outline: none; border-color: var(--accent); }
+  .adm-fpre { display: inline-flex; align-items: center; height: 27px;
+    overflow: hidden; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); }
+  .adm-fpre .pre { font-size: 10px; color: var(--text-dim);
+    padding: 0 3px 0 8px; white-space: nowrap; }
+  .adm-fpre select { width: auto; background: none; border: none;
+    color: var(--text); font-family: var(--font); font-size: 12px;
+    padding: 4px 6px 4px 2px; outline: none; }
+  .adm-fpre.set { border-color: var(--accent-strong); background: var(--accent-glow); }
+  .adm-fpre.set .pre, .adm-fpre.set select { color: var(--accent); }
+
   .adm-picklist { max-height: 240px; overflow: auto; }
   /* A row is the label, so the whole line is a hit target rather than a
      12px box. */
@@ -6188,17 +6199,40 @@ function admPickInit(hostId, keys) {
   ADM_PICKS[hostId] = new Set(keys || []);
 }
 
-function admPickRender(hostId, rows, onChange) {
+// Stand matching for the filter: a family takes every numbered stand in it,
+// "(none)" takes the entries with no stand recorded at all — which is the set
+// this pane usually exists to fix.
+function admStandMatch(entryStand, want) {
+  if (!want) return true;
+  const cur = String(entryStand || '');
+  if (want === '(none)') return !cur;
+  if (want.startsWith('All ')) return cur.startsWith(want.slice(4));
+  return cur === want;
+}
+
+function admPickRender(hostId, rows, onChange, opts) {
   const host = document.getElementById(hostId);
   if (!host) return;
+  const o = opts || host._opts || {};
+  host._opts = o;
   const sel = ADM_PICKS[hostId] || (ADM_PICKS[hostId] = new Set());
   const q = (host.dataset.q || '').toLowerCase();
-  const shown = rows.filter(r => !q
-    || String(r.sample_name).toLowerCase().includes(q)
-    || String(r.stand || '').toLowerCase().includes(q));
+  const from = host.dataset.stand || '';
+  const shown = rows.filter(r => (!q
+      || String(r.sample_name).toLowerCase().includes(q)
+      || String(r.stand || '').toLowerCase().includes(q))
+    && admStandMatch(r.stand, from));
   // Select-all acts on what is visible, not on everything: with a search
   // active, "all" meaning the hidden rows too would be a trap.
   const allShown = shown.length > 0 && shown.every(r => sel.has(r.key));
+
+  // Built from the stands actually present, so the list never offers a filter
+  // that would come back empty.
+  const stands = [...new Set(rows.map(r => String(r.stand || '')))];
+  const fams = [...new Set(stands.filter(Boolean).map(v => v.split(' ')[0]))]
+    .sort().map(f => 'All ' + f);
+  const opts2 = ['', ...fams, ...stands.filter(Boolean).sort()]
+    .concat(stands.some(v => !v) ? ['(none)'] : []);
 
   host.innerHTML = `
     <div class="adm-pick">
@@ -6206,13 +6240,19 @@ function admPickRender(hostId, rows, onChange) {
         <input type="text" class="adm-picksearch" placeholder="Filter samples…"
                value="${escapeAttr(host.dataset.q || '')}"
                oninput="admPickSearch('${escapeAttr(hostId)}', this.value)">
+        ${o.standFilter ? `<span class="adm-fpre${from ? ' set' : ''}">
+          <span class="pre">From</span>
+          <select onchange="admPickStand('${escapeAttr(hostId)}', this.value)">
+            ${opts2.map(v => `<option value="${escapeAttr(v)}"
+              ${from === v ? 'selected' : ''}>${v || 'Any stand'}</option>`).join('')}
+          </select></span>` : ''}
         <button class="btn btn-sm" onclick="admPickAll('${escapeAttr(hostId)}', true)"
-                ${allShown ? 'disabled' : ''}>Select all${q ? ' shown' : ''}</button>
+                ${allShown ? 'disabled' : ''}>Select all${(q || from) ? ' shown' : ''}</button>
         <button class="btn btn-sm" onclick="admPickAll('${escapeAttr(hostId)}', false)"
                 ${sel.size ? '' : 'disabled'}>Deselect all</button>
         <span class="adm-spacer"></span>
         <span class="adm-note"><b>${sel.size}</b> of ${rows.length} selected${
-          q ? ` · ${shown.length} shown` : ''}</span>
+          (q || from) ? ` · ${shown.length} shown` : ''}</span>
       </div>
       <div class="adm-picklist">
         ${shown.length ? shown.map(r => `
@@ -6233,6 +6273,13 @@ function admPickRender(hostId, rows, onChange) {
   host._onChange = onChange || host._onChange;
 }
 
+function admPickStand(hostId, v) {
+  const host = document.getElementById(hostId);
+  host.dataset.stand = v;
+  admPickRender(hostId, host._rows, host._onChange);
+  if (host._onChange) host._onChange();
+}
+
 function admPickSearch(hostId, q) {
   const host = document.getElementById(hostId);
   host.dataset.q = q;
@@ -6243,9 +6290,11 @@ function admPickSearch(hostId, q) {
 function admPickAll(hostId, on) {
   const host = document.getElementById(hostId);
   const q = (host.dataset.q || '').toLowerCase();
-  const shown = (host._rows || []).filter(r => !q
-    || String(r.sample_name).toLowerCase().includes(q)
-    || String(r.stand || '').toLowerCase().includes(q));
+  const from = host.dataset.stand || '';
+  const shown = (host._rows || []).filter(r => (!q
+      || String(r.sample_name).toLowerCase().includes(q)
+      || String(r.stand || '').toLowerCase().includes(q))
+    && admStandMatch(r.stand, from));
   const sel = ADM_PICKS[hostId];
   if (on) shown.forEach(r => sel.add(r.key));
   else shown.forEach(r => sel.delete(r.key));
@@ -6415,35 +6464,20 @@ function admPaneStand() {
   document.getElementById('admBody').innerHTML = `
     <p class="adm-lede">Sets the test stand recorded against stored runs. Which
       numbered stand a legacy run came from is not in the data — this applies
-      what you know, it does not infer anything. A batch recorded as
-      “Scribner” is usually some on stand 1 and some on stand 2, so the
-      samples are ticked individually rather than by family.</p>
+      what you know, it does not infer anything. Filter by the stand a sample
+      is recorded as now, then tick the ones to change: a batch recorded as
+      “Scribner” is usually some on stand 1 and some on stand 2, which is why
+      the whole family cannot simply be set at once.</p>
     <div class="adm-row">
       <div class="grow"><label>Set the ticked samples to</label>
         <select id="admStTo" onchange="admStandPreview()">${admOpts(ADM_STANDS, ADM_STANDS[0])}</select></div>
-      <div><label>&nbsp;</label>
-        <button class="btn" onclick="admStandQuick('Scribner')">Tick all “Scribner”</button></div>
-      <div><label>&nbsp;</label>
-        <button class="btn" onclick="admStandQuick('FCTS')">Tick all “FCTS”</button></div>
-      <div><label>&nbsp;</label>
-        <button class="btn" onclick="admStandQuick('')">Tick unset</button></div>
     </div>
     <div id="admStList"></div>
     <div id="admStOut"></div>`;
   admPickInit('admStList', []);
-  admPickRender('admStList', ADM_SAMPLES, admStandPreview);
-  admStandPreview();
-}
-// The family buttons are a shortcut into the ticks, not a mode: they add to
-// the selection and leave it editable, so "all Scribner except these two" is
-// two clicks rather than a different control.
-function admStandQuick(family) {
-  const sel = ADM_PICKS['admStList'];
-  ADM_SAMPLES.forEach(x => {
-    const match = family ? (x.stand || '') === family : !x.stand;
-    if (match) sel.add(x.key);
-  });
-  admPickRender('admStList', ADM_SAMPLES, admStandPreview);
+  // Filtering by the stand a sample is recorded as now — the list narrows to
+  // what is being fixed, and "Select all shown" ticks exactly that.
+  admPickRender('admStList', ADM_SAMPLES, admStandPreview, { standFilter: true });
   admStandPreview();
 }
 function admStandKeys() { return admPicked('admStList'); }
@@ -6516,7 +6550,7 @@ function admPaneAddDelete() {
       <p class="adm-note bad" id="admPurgeWarn" style="display:none"></p>
     </div>`;
   admPickInit('admDelList', []);
-  admPickRender('admDelList', ADM_SAMPLES, admDeletePreview);
+  admPickRender('admDelList', ADM_SAMPLES, admDeletePreview, { standFilter: true });
   admDeletePreview();
 }
 
