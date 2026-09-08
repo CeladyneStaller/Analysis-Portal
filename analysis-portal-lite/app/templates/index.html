@@ -4130,12 +4130,24 @@ const CMP_MAX = 20;
 // they cannot share a plot. Cleaning is absent because its sidecars are not
 // stored — offering a type that always comes back empty would be worse than
 // not offering it.
+// Axis labels are declared per type rather than read from the sidecar. The
+// stored label belongs to whichever panel a script happened to capture first,
+// which is not always the one being drawn: the crossover figure's first axis
+// is the raw anodic/cathodic CV, and a polarization curve's single stored
+// y-label cannot describe the measured voltage, the iR-free voltage and the
+// power twin, all of which this tab can draw from that same axis. Declaring
+// them also settles the spelling — the scripts write both 'mA/cm2' and
+// 'mA/cm²'.
 const CMP_TYPES = {
   polcurve:  { label: 'Polarization curve',
+               x: 'Current density (A/cm²)', y: 'Cell voltage (V)',
                opts: [['irfree', 'iR-free voltage'], ['power', 'Power density']] },
-  eis:       { label: 'EIS — Nyquist', equal: true, opts: [] },
-  crossover: { label: 'H₂ crossover', opts: [] },
-  ecsa:      { label: 'ECSA', opts: [] },
+  eis:       { label: 'EIS — Nyquist',
+               x: 'Z′ (Ω·cm²)', y: '−Z″ (Ω·cm²)', equal: true, opts: [] },
+  crossover: { label: 'H₂ crossover',
+               x: 'Cell voltage (V)', y: 'Current density (mA/cm²)', opts: [] },
+  ecsa:      { label: 'ECSA',
+               x: 'Potential (V)', y: 'Current density (mA/cm²)', opts: [] },
 };
 
 let CMP_TYPE = 'polcurve';
@@ -4412,19 +4424,27 @@ async function cmpLoadSeries() {
 // lines on the chart. The extras are axis options instead.
 function cmpPickLine(sr) {
   if (!sr || !sr.axes || !sr.axes.length) return null;
-  const main = sr.axes[0];
+  const t = CMP_TYPES[CMP_TYPE] || {};
+  // The crossover figure is three panels and the first is the raw CV; the
+  // comparison wants the averaged current. Fall back to the first axis for
+  // anything that does not name a panel.
+  let main = sr.axes[0];
+  if (CMP_TYPE === 'crossover') {
+    main = sr.axes.find(a => /averag/i.test(a.title || '')) || main;
+  }
+  const xlabel = t.x || main.xlabel, ylabel = t.y || main.ylabel;
   if (CMP_TYPE === 'polcurve' && CMP_OPT.power) {
     const tw = sr.axes.find(a => /power/i.test(a.ylabel || a.title || ''));
-    if (tw) return { pts: zip(tw.lines[0]), xlabel: main.xlabel, ylabel: tw.ylabel };
+    if (tw) return { pts: zip(tw.lines[0]), xlabel,
+                     ylabel: 'Power density (mW/cm²)' };
   }
   if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) {
     const ir = main.lines.find(l => /ir[- ]?free/i.test(l.label));
     // Say which voltage is drawn. Left as "Cell voltage" the chart looked
     // identical to the uncorrected one apart from the curves having moved.
-    if (ir) return { pts: zip(ir), xlabel: main.xlabel,
-                     ylabel: 'iR-free voltage (V)' };
+    if (ir) return { pts: zip(ir), xlabel, ylabel: 'iR-free voltage (V)' };
   }
-  return { pts: zip(main.lines[0]), xlabel: main.xlabel, ylabel: main.ylabel };
+  return { pts: zip(main.lines[0]), xlabel, ylabel };
 }
 const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
                               .filter(p => typeof p[1] === 'number');
@@ -5550,6 +5570,36 @@ const CMP_PAINT = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray',
                    'stroke-linejoin', 'stroke-linecap', 'opacity',
                    'font-family', 'font-size', 'font-weight', 'text-anchor'];
 
+// The rows the exported legend carries: what each curve is, and what it
+// measured. Built from the same state the on-screen legend uses.
+function cmpExportRows() {
+  const rows = [];
+  CMP_STATS.forEach((st, i) => {
+    if (st.type !== CMP_TYPE || !st.visible) return;
+    const data = cmpStatData(st);
+    if (!data) return;
+    rows.push({ color: cmpStatColor(i), dash: '', weight: 2.6,
+                name: st.name,
+                note: `mean of ${data.avg.n} · ${cmpSpreadLabel(st)} · `
+                    + (st.axis === 'x' ? 'x at each y' : 'y at each x'),
+                kv: Object.fromEntries(Object.entries(data.kv).map(([k, v]) =>
+                      [k, `${fmtNum(v.mean)} ±${fmtNum(v.sd)}`])) });
+  });
+  cmpSelected().forEach(u => {
+    if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
+    const run = cmpRunFor(u.key);
+    const unit = run && cmpUnitsFor(run, CMP_TYPE).find(x => x.step === u.step);
+    const kv = {};
+    Object.entries((unit && unit.kv) || {}).forEach(([k, v]) => {
+      if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = fmtNum(v);
+    });
+    rows.push({ color: cmpColorOf(u.key), dash: cmpDashOf(u.step), weight: 2,
+                name: (run && run.sample_name) || u.key,
+                note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`, kv });
+  });
+  return rows;
+}
+
 function cmpSvgToPng(scale) {
   const live = document.querySelector('#cmpChart svg');
   if (!live) return null;
@@ -5578,8 +5628,96 @@ function cmpSvgToPng(scale) {
   rect.setAttribute('fill', bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff');
   clone.insertBefore(rect, clone.firstChild);
 
+  // ── title block and legend, appended below the plot ──
+  const rows = cmpExportRows();
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, text) => {
+    const e = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const cs = getComputedStyle(document.documentElement);
+  const ink = cs.getPropertyValue('--text').trim() || '#dfe5ed';
+  const dim = cs.getPropertyValue('--text-dim').trim() || '#6e7a8a';
+  const rule = cs.getPropertyValue('--border').trim() || '#262e3a';
+  const mono = "'IBM Plex Mono',monospace", sans = "'Outfit',sans-serif";
+
+  // Metric columns come from whatever the rows actually carry, in the
+  // canonical order, capped so the table cannot outgrow the image.
+  const order = (typeof COLUMN_ORDER !== 'undefined' && COLUMN_ORDER) || [];
+  const present = [];
+  rows.forEach(r => Object.keys(r.kv || {}).forEach(k => {
+    if (!present.includes(k)) present.push(k);
+  }));
+  present.sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  const cols = present.slice(0, 3);
+
+  const TOP = 34, ROW = 26, HEAD = rows.length ? 20 : 0;
+  const legH = rows.length ? HEAD + rows.length * ROW + 18 : 0;
+  const total = TOP + h + legH;
+  clone.setAttribute('height', total);
+  clone.setAttribute('viewBox', `0 0 ${w} ${total}`);
+  const shift = mk('g', { transform: `translate(0,${TOP})` });
+  while (clone.firstChild) shift.appendChild(clone.firstChild);
+  clone.appendChild(shift);
+  // Repaint the background over the taller canvas. The rect is a direct child
+  // of the root, so it is in untransformed coordinates — giving it y = -TOP
+  // to match the shifted group left the bottom TOP pixels unpainted, which
+  // came out as a white band across the last legend row.
+  const bgRect = shift.querySelector('rect');
+  if (bgRect) {
+    clone.insertBefore(mk('rect', { x: 0, y: 0, width: w, height: total,
+      fill: bgRect.getAttribute('fill') }), shift);
+  }
+
+  const t = CMP_TYPES[CMP_TYPE] || {};
+  const bits = [`${rows.length} curve${rows.length === 1 ? '' : 's'}`];
+  if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) bits.push('iR-free');
+  if (CMP_TYPE === 'polcurve' && CMP_OPT.power) bits.push('power density');
+  if (cmpHasView()) bits.push('zoomed');
+  bits.push(new Date().toLocaleDateString(undefined,
+    { day: 'numeric', month: 'short', year: 'numeric' }));
+  clone.appendChild(mk('text', { x: 14, y: 20, fill: ink,
+    'font-family': sans, 'font-size': 13, 'font-weight': 500 },
+    `${t.label || CMP_TYPE} — comparison`));
+  clone.appendChild(mk('text', { x: 14, y: 33, fill: dim,
+    'font-family': sans, 'font-size': 10.5 }, bits.join(' · ')));
+
+  if (rows.length) {
+    let y = TOP + h + 4;
+    clone.appendChild(mk('line', { x1: 14, y1: y, x2: w - 14, y2: y,
+      stroke: rule, 'stroke-width': 1 }));
+    y += 15;
+    const colX = cols.map((_, i) => Math.round(w * 0.52 + i * (w * 0.46 / 3)));
+    clone.appendChild(mk('text', { x: 46, y, fill: dim, 'font-family': sans,
+      'font-size': 9.5 }, 'Curve'));
+    cols.forEach((c, i) => clone.appendChild(mk('text', { x: colX[i], y,
+      fill: dim, 'font-family': sans, 'font-size': 9.5 }, c)));
+    y += 6;
+    rows.forEach(r => {
+      y += ROW;
+      const ln = mk('line', { x1: 16, y1: y - 4, x2: 38, y2: y - 4,
+        stroke: r.color, 'stroke-width': r.weight });
+      if (r.dash) ln.setAttribute('stroke-dasharray', r.dash);
+      clone.appendChild(ln);
+      const nm = mk('text', { x: 46, y, fill: ink, 'font-family': sans,
+        'font-size': 11 }, r.name);
+      // The note rides in the same text element so it follows the name
+      // without the width having to be measured.
+      const sp = mk('tspan', { fill: dim, 'font-size': 9.5 }, '   ' + r.note);
+      nm.appendChild(sp);
+      clone.appendChild(nm);
+      cols.forEach((c, i) => clone.appendChild(mk('text', { x: colX[i], y,
+        fill: ink, 'font-family': mono, 'font-size': 10 }, r.kv[c] || '—')));
+    });
+  }
+
   return { markup: new XMLSerializer().serializeToString(clone),
-           w, h, scale: scale || 2 };
+           w, h: total, scale: scale || 2 };
 }
 
 async function cmpDownloadPng(name) {
