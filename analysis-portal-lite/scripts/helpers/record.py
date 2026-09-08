@@ -357,6 +357,30 @@ def parse_run_date(sample_name: Optional[str]) -> Optional[str]:
 # an .fcd anywhere means Scribner, otherwise delimited text means FCTS. It
 # reflects the file format, so a run whose stand parameter was overridden by
 # hand could disagree — in practice the format and the stand go together.
+# Characters Windows forbids in a file or directory name. Sample names become
+# folder and file names downstream, so a name carrying one produces files that
+# cannot be written or opened on Windows. Defined here rather than beside the
+# upload endpoint because rename has to apply the same rule, and two copies of
+# what a sample may be called would drift apart.
+FORBIDDEN_NAME_CHARS = '<>:"/\\|?*'
+
+
+def name_error(name: Any) -> Optional[str]:
+    """Why this sample name is unusable, or None."""
+    if name is None:
+        return None
+    text = str(name)
+    if not text.strip():
+        return None                      # empty is allowed; it gets derived
+    bad = sorted({c for c in text if c in FORBIDDEN_NAME_CHARS})
+    if bad:
+        return (f'Sample name cannot contain {" ".join(bad)} — '
+                f'these characters are not allowed in Windows file names.')
+    if any(ord(c) < 32 for c in text):
+        return 'Sample name cannot contain control characters.'
+    return None
+
+
 _SCRIBNER_EXT = {'.fcd'}
 _FCTS_EXT = {'.csv', '.txt', '.tsv'}
 

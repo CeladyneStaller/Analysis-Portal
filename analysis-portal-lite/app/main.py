@@ -13,6 +13,7 @@ Routes:
   GET  /api/download/{id}/{filename}  → Download a result file
 """
 
+import hmac
 import os
 import uuid
 import shutil
@@ -581,6 +582,127 @@ async def view_series(payload: dict):
         return viewstore.plot_series_batch(sels)
     except Exception as e:
         raise HTTPException(502, f"could not read series: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Admin
+# ─────────────────────────────────────────────────────────────────────
+#
+# The access code is read from the environment and compared here, not shipped
+# to the browser. A code held in the frontend is readable by anyone who opens
+# devtools and does nothing to a request that skips the modal — it guards
+# against a mis-click, not against anything else, and these operations destroy
+# data.
+ADMIN_CODE = os.environ.get("ADMIN_CODE", "").strip()
+
+
+def _require_admin(payload: dict):
+    """Reject the request unless it carries the access code."""
+    if not ADMIN_CODE:
+        raise HTTPException(
+            503, "Admin functions are disabled: ADMIN_CODE is not set on the "
+                 "server. Set it in the environment to enable them.")
+    got = str((payload or {}).get("code") or "").strip()
+    if not hmac.compare_digest(got, ADMIN_CODE):
+        raise HTTPException(403, "That code was not accepted.")
+
+
+def _admin_call(fn, *a, **kw):
+    """Run an admin operation, turning its refusals into 400s.
+
+    The operations raise ValueError for the things an operator can fix — a
+    name already in use, a family change not acknowledged — and those should
+    reach the modal as a sentence, not as a 500.
+    """
+    from scripts.helpers import admin  # noqa: F401
+    try:
+        return fn(*a, **kw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"{type(e).__name__}: {e}")
+
+
+@app.post("/api/admin/unlock")
+async def admin_unlock(payload: dict):
+    """Check the access code and report what the store holds."""
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return {"ok": True, **_admin_call(admin.list_samples)}
+
+
+@app.post("/api/admin/duplicates")
+async def admin_duplicates(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.find_duplicates)
+
+
+@app.post("/api/admin/merge")
+async def admin_merge(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.merge_duplicate_group,
+                       payload.get("keys") or [],
+                       str(payload.get("keep_name") or ""),
+                       apply=bool(payload.get("apply")))
+
+
+@app.post("/api/admin/rename")
+async def admin_rename(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.rename_sample,
+                       str(payload.get("key") or ""),
+                       str(payload.get("new_name") or ""),
+                       apply=bool(payload.get("apply")))
+
+
+@app.post("/api/admin/stand")
+async def admin_stand(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.set_stand,
+                       payload.get("keys") or [],
+                       str(payload.get("stand") or ""),
+                       apply=bool(payload.get("apply")),
+                       allow_family_change=bool(payload.get("allow_family_change")))
+
+
+@app.post("/api/admin/backup")
+async def admin_backup(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.build_backup, payload.get("keys"))
+
+
+@app.post("/api/admin/delete")
+async def admin_delete(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.delete_samples,
+                       payload.get("keys") or [],
+                       purge=bool(payload.get("purge")),
+                       apply=bool(payload.get("apply")))
+
+
+@app.post("/api/admin/inspect-backup")
+async def admin_inspect_backup(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.inspect_backup, payload.get("backup") or {})
+
+
+@app.post("/api/admin/restore")
+async def admin_restore(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.restore_backup,
+                       payload.get("backup") or {},
+                       payload.get("names") or [],
+                       apply=bool(payload.get("apply")))
 
 
 @app.get("/api/view/cache")

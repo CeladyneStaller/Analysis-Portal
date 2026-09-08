@@ -528,6 +528,128 @@
   }
   .cmp-views select:focus { outline: none; border-color: var(--accent); }
 
+  /* ── Admin ───────────────────────────────────────────────── */
+  /* The modal's buttons reuse .btn but need a go/danger state; the existing
+     sheet has neither. */
+  .btn-go { color: var(--green); border-color: var(--green); }
+  .btn-go:hover:not(:disabled) { color: var(--green); border-color: var(--green); }
+  .btn-danger { color: var(--red); border-color: var(--red); }
+  .btn-danger:hover:not(:disabled) { color: var(--red); border-color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn-sm { padding: 3px 9px; font-size: 11px; }
+
+  .adm-veil {
+    position: fixed; inset: 0; background: rgba(5, 8, 12, .72);
+    display: none; align-items: center; justify-content: center;
+    z-index: 200; padding: 24px;
+  }
+  .adm-veil.show { display: flex; }
+  .adm-modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; width: 100%; max-height: 88vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .adm-modal.sm { max-width: 420px; }
+  .adm-modal.lg { max-width: 960px; }
+  .adm-head, .adm-foot {
+    display: flex; align-items: center; gap: 10px; padding: 13px 18px;
+  }
+  .adm-head { border-bottom: 1px solid var(--border); }
+  .adm-foot { border-top: 1px solid var(--border); }
+  .adm-title {
+    font-size: 12px; font-weight: 500; letter-spacing: .03em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .adm-spacer { margin-left: auto; }
+  .adm-x {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 18px; cursor: pointer; line-height: 1; padding: 0 2px;
+  }
+  .adm-x:hover { color: var(--accent); }
+  .adm-body { padding: 18px; overflow: auto; }
+  .adm-lede {
+    color: var(--text-dim); font-size: 12.5px; line-height: 1.55;
+    margin: 0 0 14px; max-width: 78ch;
+  }
+  .adm-note { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .adm-note.warn { color: var(--amber); }
+  .adm-note.bad { color: var(--red); }
+  .adm-err { color: var(--red); font-size: 12px; margin-top: 9px; display: none; }
+  .adm-err.show { display: block; }
+  .adm-code {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    font-family: var(--mono); font-size: 15px; letter-spacing: .2em;
+    text-align: center; padding: 11px;
+  }
+  .adm-code:focus { outline: none; border-color: var(--accent); }
+  .adm-pill {
+    border-radius: 99px; padding: 1px 9px; font-size: 10.5px;
+    font-family: var(--mono); background: var(--surface-raised);
+    color: var(--text-dim);
+  }
+  .adm-pill.keep { background: var(--green-bg); color: var(--green); }
+  .adm-pill.drop { background: var(--red-bg); color: var(--red); }
+  .adm-pill.warn { background: var(--amber-bg); color: var(--amber); }
+
+  .adm-tabs { display: flex; gap: 4px; padding: 0 18px;
+    border-bottom: 1px solid var(--border); }
+  .adm-tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-dim); padding: 10px 12px; font-size: 13px;
+    cursor: pointer; font-family: var(--font);
+  }
+  .adm-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .adm-tab.danger.on { color: var(--red); border-bottom-color: var(--red); }
+
+  .adm-row { display: flex; gap: 10px; align-items: flex-end;
+    flex-wrap: wrap; margin-bottom: 14px; }
+  .adm-row .grow { flex: 1; min-width: 190px; }
+  .adm-row .grow input, .adm-row .grow select { width: 100%; }
+  .adm-row label { display: block; font-size: 11px; color: var(--text-dim);
+    margin-bottom: 4px; }
+  .adm-body input[type=text], .adm-body select {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    font-family: var(--font); font-size: 13px; padding: 7px 10px;
+  }
+  .adm-body input:focus, .adm-body select:focus {
+    outline: none; border-color: var(--accent);
+  }
+
+  /* Nothing applies without a preview, so the preview is the main surface. */
+  .adm-prev { border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; margin-bottom: 12px; }
+  .adm-prevhead {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    font-size: 11px; letter-spacing: .03em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .adm-prevbody { max-height: 260px; overflow: auto; }
+  .adm-prevbody table { width: 100%; border-collapse: collapse; }
+  .adm-prevbody th { text-align: left; font-size: 10.5px; font-weight: 500;
+    color: var(--text-dim); padding: 7px 12px;
+    border-bottom: 1px solid var(--border); }
+  .adm-prevbody td { padding: 7px 12px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; }
+  .adm-prevbody tr:last-child td { border-bottom: none; }
+  .adm-mono { font-family: var(--mono); font-size: 11.5px; }
+  .adm-dim { color: var(--text-dim); }
+  .adm-was { color: var(--text-dim); text-decoration: line-through; opacity: .6; }
+  .adm-arrow { color: var(--accent); }
+  .adm-check { display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; margin: 10px 0; }
+  .adm-empty { padding: 26px; text-align: center; color: var(--text-dim);
+    font-size: 12.5px; }
+  .adm-sect { border-top: 1px solid var(--border); padding-top: 14px;
+    margin-top: 16px; }
+  .adm-sect:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .adm-secthead { font-size: 11px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 9px; }
+  .adm-secthead.danger { color: var(--red); opacity: .85; }
+  .adm-list { width: 100%; min-height: 120px; }
+
   .cmp-types { display: flex; gap: 6px; padding: 11px 18px;
     border-bottom: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
   .cmp-type { background: var(--bg); border: 1px solid var(--border);
@@ -2107,6 +2229,11 @@
             title="Switch color theme (Auto / Light / Dark)">
       <span class="tt-icon" id="themeIcon">🖥️</span>
       <span id="themeLabel">Auto</span>
+    </button>
+    <button class="theme-toggle" id="adminBtn" onclick="adminOpenGate()"
+            title="Administrative functions — requires an access code">
+      <span class="tt-icon">⚙</span>
+      <span>Admin</span>
     </button>
   </header>
 
@@ -4719,6 +4846,534 @@ async function exportComparison() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+//  Admin functions
+// ══════════════════════════════════════════════════════════════
+//
+// The access code is held in memory for the session only, never in
+// localStorage: a code written to disk is a code left unlocked on a shared
+// machine. Every request carries it, and the server is what decides — this
+// side is convenience, not the gate.
+let ADM_CODE = null;
+let ADM_PANE = 0;
+let ADM_SAMPLES = [];
+let ADM_STANDS = [];
+let ADM_STATE = {};      // per-pane working state and last preview
+
+async function adminPost(path, body) {
+  const r = await fetch('/api/admin/' + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    // The unlock call carries the code being tried, which is not yet stored;
+    // overwriting it with ADM_CODE sent null and rejected every correct code.
+    body: JSON.stringify({ code: ADM_CODE, ...(body || {}) }),
+  });
+  const d = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+  return d;
+}
+
+function adminOpenGate() {
+  if (ADM_CODE) { adminShowModal(); return; }
+  document.getElementById('admGate').classList.add('show');
+  setTimeout(() => document.getElementById('admCode').focus(), 40);
+}
+function adminClose() {
+  document.querySelectorAll('.adm-veil').forEach(v => v.classList.remove('show'));
+}
+async function adminUnlock() {
+  const code = document.getElementById('admCode').value.trim();
+  const err = document.getElementById('admGateErr');
+  const btn = document.getElementById('admUnlockBtn');
+  btn.disabled = true;
+  try {
+    const d = await adminPost('unlock', { code });
+    ADM_CODE = code;
+    ADM_SAMPLES = d.samples || [];
+    ADM_STANDS = d.stands || [];
+    document.getElementById('admGate').classList.remove('show');
+    document.getElementById('admCode').value = '';
+    adminShowModal();
+  } catch (e) {
+    err.textContent = e.message;
+    err.classList.add('show');
+  } finally {
+    btn.disabled = false;
+  }
+}
+function adminShowModal() {
+  document.getElementById('admModal').classList.add('show');
+  document.getElementById('admCount').textContent =
+    `${ADM_SAMPLES.length} samples`;
+  admPane(ADM_PANE);
+}
+
+function admPane(i, btn) {
+  ADM_PANE = i;
+  document.querySelectorAll('.adm-tab').forEach((b, n) =>
+    b.classList.toggle('on', n === i));
+  ADM_STATE = { pane: i };
+  const apply = document.getElementById('admApply');
+  apply.className = 'btn ' + (i === 3 ? 'btn-danger' : 'btn-go');
+  apply.textContent = ['Merge group', 'Rename', 'Set stand', 'Unlist'][i];
+  apply.disabled = true;
+  document.getElementById('admFoot').textContent = [
+    'Merging is one group at a time.',
+    'Writes the index and the detail record together.',
+    'Writes the index and the detail record together.',
+    'Restore and remove are applied separately.'][i];
+  [admPaneDuplicates, admPaneRename, admPaneStand, admPaneAddDelete][i]();
+}
+
+const admOpts = (list, sel) => list.map(v =>
+  `<option value="${escapeAttr(v)}" ${v === sel ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+const admSampleOpts = sel => ADM_SAMPLES.map(x =>
+  `<option value="${escapeAttr(x.key)}" ${x.key === sel ? 'selected' : ''}>`
+  + `${escapeHtml(x.sample_name)}</option>`).join('');
+
+// ── duplicates ──────────────────────────────────────────────────
+function admPaneDuplicates() {
+  document.getElementById('admBody').innerHTML = `
+    <p class="adm-lede">Finds entries that are the same sample stored twice —
+      identical measurements under different names, or one name spelled two
+      ways. Merging keeps the newer value per (analysis, step) and leaves the
+      superseded bin in place.</p>
+    <div class="adm-row">
+      <button class="btn" onclick="admScan()">Scan for duplicates</button>
+      <span class="adm-note" id="admScanNote">Reads every detail bin; takes a
+        few seconds.</span>
+    </div>
+    <div id="admDupOut"></div>`;
+}
+async function admScan() {
+  const note = document.getElementById('admScanNote');
+  note.textContent = 'Scanning…';
+  try {
+    const d = await adminPost('duplicates', {});
+    note.textContent = `Scanned ${d.scanned} entries.`;
+    ADM_STATE.groups = d.groups || [];
+    admRenderGroups();
+  } catch (e) { note.textContent = e.message; }
+}
+function admRenderGroups() {
+  const gs = ADM_STATE.groups || [];
+  const host = document.getElementById('admDupOut');
+  if (!gs.length) {
+    host.innerHTML = '<div class="adm-empty">No duplicates found.</div>';
+    return;
+  }
+  host.innerHTML = `
+    <div class="adm-prev">
+      <div class="adm-prevhead">${gs.length} group(s) found
+        <span class="adm-spacer"></span>
+        <span class="adm-dim" style="text-transform:none;letter-spacing:0">
+          one group per apply</span></div>
+      <div class="adm-prevbody"><table><tbody>
+      ${gs.map((g, i) => `
+        <tr><td><input type="radio" name="admGrp" ${i === 0 ? 'checked' : ''}
+                 onchange="admPickGroup(${i})"></td>
+          <td>${g.names.map(n => escapeHtml(n)).join('<br>')}</td>
+          <td class="adm-mono adm-dim">${g.evidence === 'name'
+            ? 'name differs only in punctuation' : 'identical measurements'}</td>
+          <td>${g.fields_agreed != null
+            ? `<span class="adm-pill ${g.fields_differed.length ? 'warn' : 'keep'}">`
+              + `${g.fields_agreed} field(s) agree${g.fields_differed.length
+                  ? `, ${g.fields_differed.length}+ differ` : ''}</span>`
+            : '<span class="adm-pill keep">exact</span>'}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>
+    <div class="adm-row"><div class="grow">
+      <label>Keep which name</label>
+      <select id="admKeepName"></select></div></div>
+    <p class="adm-note">The name is not chosen for you — recency is not evidence
+      of correctness, and merging under a typo would discard the right name
+      along with the record that held it.</p>`;
+  admPickGroup(0);
+}
+function admPickGroup(i) {
+  ADM_STATE.group = i;
+  const g = (ADM_STATE.groups || [])[i];
+  if (!g) return;
+  document.getElementById('admKeepName').innerHTML = admOpts(g.names, g.names[0]);
+  document.getElementById('admApply').disabled = false;
+}
+
+// ── rename ──────────────────────────────────────────────────────
+function admPaneRename() {
+  document.getElementById('admBody').innerHTML = `
+    <p class="adm-lede">Renames a stored sample. The name is written to the
+      detail record as well as the index, because the index entry is rebuilt
+      from the detail record on the next push — an index-only rename would
+      silently revert.</p>
+    <div class="adm-row">
+      <div class="grow"><label>Sample</label>
+        <select id="admRnKey" onchange="admRenamePreview()">${admSampleOpts()}</select></div>
+      <div class="grow"><label>New name</label>
+        <input type="text" id="admRnName" oninput="admRenameDebounce()"></div>
+    </div>
+    <div id="admRnOut"></div>`;
+  const k = document.getElementById('admRnKey').value;
+  const cur = ADM_SAMPLES.find(x => x.key === k);
+  document.getElementById('admRnName').value = cur ? cur.sample_name : '';
+  admRenamePreview();
+}
+let _admRnTimer = null;
+function admRenameDebounce() {
+  clearTimeout(_admRnTimer);
+  _admRnTimer = setTimeout(admRenamePreview, 260);
+}
+async function admRenamePreview() {
+  const key = document.getElementById('admRnKey').value;
+  const name = document.getElementById('admRnName').value;
+  const out = document.getElementById('admRnOut');
+  const apply = document.getElementById('admApply');
+  ADM_STATE.rename = null; apply.disabled = true;
+  if (!name.trim()) { out.innerHTML = ''; return; }
+  try {
+    const d = await adminPost('rename', { key, new_name: name });
+    ADM_STATE.rename = { key, name };
+    apply.disabled = false;
+    out.innerHTML = `
+      <div class="adm-prev"><div class="adm-prevhead">What would change</div>
+      <div class="adm-prevbody"><table><tbody>
+        <tr><td class="adm-dim">Index entry</td><td>
+          <span class="adm-was">${escapeHtml(d.from)}</span>
+          <span class="adm-arrow">→</span>
+          <span class="adm-mono">${escapeHtml(d.to)}</span></td></tr>
+        <tr><td class="adm-dim">Detail record</td><td>
+          <span class="adm-was">${escapeHtml(d.from)}</span>
+          <span class="adm-arrow">→</span>
+          <span class="adm-mono">${escapeHtml(d.to)}</span></td></tr>
+        <tr><td class="adm-dim">Run date</td><td class="adm-mono">
+          ${d.run_date_to ? escapeHtml(d.run_date_to)
+            : '<span class="adm-dim">not recoverable from this name</span>'}</td></tr>
+      </tbody></table></div></div>
+      ${d.run_date_lost ? `<p class="adm-note warn">The YYMMDD prefix is gone,
+        so the run date can no longer be read from the name — Trends would fall
+        back to the analysis date.</p>` : ''}`;
+  } catch (e) {
+    out.innerHTML = `<p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// ── test stand ──────────────────────────────────────────────────
+function admPaneStand() {
+  const fams = ['Samples recorded as “Scribner”', 'Samples recorded as “FCTS”',
+                'Samples with no stand', 'Choose individually…'];
+  document.getElementById('admBody').innerHTML = `
+    <p class="adm-lede">Sets the test stand recorded against stored runs. Which
+      numbered stand a legacy run came from is not in the data — this applies
+      what you know, it does not infer anything.</p>
+    <div class="adm-row">
+      <div class="grow"><label>Select</label>
+        <select id="admStSel" onchange="admStandPreview()">${admOpts(fams, fams[0])}</select></div>
+      <div class="grow"><label>Set to</label>
+        <select id="admStTo" onchange="admStandPreview()">${admOpts(ADM_STANDS, ADM_STANDS[0])}</select></div>
+    </div>
+    <div id="admStPick" style="display:none" class="adm-row"><div class="grow">
+      <label>Samples</label>
+      <select id="admStKeys" class="adm-list" multiple size="6"
+              onchange="admStandPreview()">${admSampleOpts()}</select></div></div>
+    <div id="admStOut"></div>`;
+  admStandPreview();
+}
+function admStandKeys() {
+  const mode = document.getElementById('admStSel').value;
+  document.getElementById('admStPick').style.display =
+    mode.startsWith('Choose') ? 'flex' : 'none';
+  if (mode.startsWith('Choose')) {
+    return [...document.getElementById('admStKeys').selectedOptions].map(o => o.value);
+  }
+  const want = mode.includes('Scribner') ? 'Scribner'
+             : mode.includes('FCTS') ? 'FCTS' : '';
+  return ADM_SAMPLES.filter(x => want ? x.stand === want : !x.stand)
+                    .map(x => x.key);
+}
+async function admStandPreview() {
+  const keys = admStandKeys();
+  const to = document.getElementById('admStTo').value;
+  const out = document.getElementById('admStOut');
+  const apply = document.getElementById('admApply');
+  ADM_STATE.stand = null; apply.disabled = true;
+  if (!keys.length) {
+    out.innerHTML = '<div class="adm-empty">No samples match that selection.</div>';
+    return;
+  }
+  try {
+    const d = await adminPost('stand', { keys, stand: to });
+    ADM_STATE.stand = { keys, to, crossing: d.crossing_total };
+    apply.disabled = d.total === 0;
+    out.innerHTML = d.total === 0
+      ? '<div class="adm-empty">Those samples already record that stand.</div>'
+      : `<div class="adm-prev">
+          <div class="adm-prevhead">${d.total} entr(ies) would change</div>
+          <div class="adm-prevbody"><table>
+            <thead><tr><th>Sample</th><th>From</th><th></th><th>To</th></tr></thead>
+            <tbody>${d.changes.map(c => `<tr>
+              <td>${escapeHtml(c.sample_name)}</td>
+              <td class="adm-mono adm-dim">${escapeHtml(c.from || 'none')}</td>
+              <td class="adm-arrow">→</td>
+              <td class="adm-mono">${escapeHtml(c.to)}</td></tr>`).join('')}
+            </tbody></table></div></div>
+        ${d.crossing_total ? `
+          <p class="adm-note warn">${d.crossing_total} of these would change
+            family (Scribner ↔ FCTS). The family comes from the data format, so
+            this usually means the wrong entries are selected.</p>
+          <div class="adm-check"><input type="checkbox" id="admFam"
+            onchange="document.getElementById('admApply').disabled=!this.checked">
+            <label for="admFam">I mean to change the family on these</label></div>`
+          : ''}`;
+    if (d.crossing_total) apply.disabled = true;
+  } catch (e) {
+    out.innerHTML = `<p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// ── add / delete ────────────────────────────────────────────────
+function admPaneAddDelete() {
+  document.getElementById('admBody').innerHTML = `
+    <div class="adm-sect">
+      <div class="adm-secthead">Restore from a backup</div>
+      <p class="adm-lede">Puts samples back from a backup this portal wrote. A
+        purged sample is rebuilt into a new bin and its entry repointed at it;
+        an unlisted one only needs its entry back.</p>
+      <div class="adm-row">
+        <input type="file" id="admFile" accept="application/json,.json"
+               onchange="admLoadBackup(this)"
+               style="font-size:12px;color:var(--text-dim)">
+      </div>
+      <div id="admUpOut"></div>
+    </div>
+    <div class="adm-sect">
+      <div class="adm-secthead danger">Remove samples</div>
+      <p class="adm-lede">Removing happens in two steps. Unlisting takes a
+        sample out of the portal and leaves its data in place, and can be undone
+        from a backup. Purging destroys the measurements — JSONBin has no
+        undelete.</p>
+      <div class="adm-row"><div class="grow"><label>Samples</label>
+        <select id="admDelKeys" class="adm-list" multiple size="6"
+                onchange="admDeletePreview()">${admSampleOpts()}</select></div></div>
+      <div id="admDelOut"></div>
+      <div class="adm-check">
+        <input type="checkbox" id="admPurge" onchange="admPurgeToggle(this.checked)">
+        <label for="admPurge">Also destroy the stored data (purge)</label></div>
+      <p class="adm-note bad" id="admPurgeWarn" style="display:none"></p>
+    </div>`;
+  admDeletePreview();
+}
+
+function admLoadBackup(input) {
+  const f = input.files && input.files[0];
+  const out = document.getElementById('admUpOut');
+  if (!f) { out.innerHTML = ''; return; }
+  const rd = new FileReader();
+  rd.onload = async () => {
+    let parsed;
+    try { parsed = JSON.parse(rd.result); }
+    catch (e) {
+      out.innerHTML = '<p class="adm-note bad">That file is not JSON.</p>';
+      return;
+    }
+    try {
+      const d = await adminPost('inspect-backup', { backup: parsed });
+      ADM_STATE.backup = parsed;
+      admRenderBackup(d, f.name);
+    } catch (e) {
+      out.innerHTML = `<p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+    }
+  };
+  rd.readAsText(f);
+}
+
+function admRenderBackup(d, filename) {
+  const pill = { present: 'keep', unlisted: 'warn', purged: 'drop', lost: 'drop' };
+  document.getElementById('admUpOut').innerHTML = `
+    <div class="adm-prev">
+      <div class="adm-prevhead">${escapeHtml(filename)}
+        <span class="adm-spacer"></span>
+        <span class="adm-dim" style="text-transform:none;letter-spacing:0">
+          written ${escapeHtml(String(d.written || 'unknown'))} ·
+          ${d.index_snapshot_entries} entries in its snapshot</span></div>
+      <div class="adm-prevbody"><table>
+        <thead><tr><th></th><th>Sample</th><th>State now</th>
+          <th>What restoring does</th></tr></thead>
+        <tbody>${(d.items || []).map((it, i) => `
+          <tr><td><input type="checkbox" data-adm-restore="${escapeAttr(it.sample_name)}"
+                  ${it.state === 'present' || it.blocked ? 'disabled' : 'checked'}
+                  onchange="admRestoreCount()"></td>
+            <td>${escapeHtml(it.sample_name)}<br>
+              <span class="adm-mono adm-dim">${escapeHtml(it.run_date)} ·
+                ${escapeHtml(it.stand || 'no stand')}</span></td>
+            <td><span class="adm-pill ${pill[it.state] || ''}">${it.state}</span></td>
+            <td class="adm-mono adm-dim">${escapeHtml(
+              it.blocked ? it.blocked_reason : it.action)}</td></tr>`).join('')}
+        </tbody></table></div>
+    </div>
+    <p class="adm-note">Only the samples ticked here are written. The file also
+      holds a snapshot of the whole index as it stood — restoring that wholesale
+      would undo every analysis pushed since, so it is never applied as a
+      whole.</p>
+    <div class="adm-row">
+      <button class="btn btn-go" id="admRestoreBtn" onclick="adminRestore()"
+              disabled>Restore</button></div>`;
+  admRestoreCount();
+}
+function admRestoreNames() {
+  return [...document.querySelectorAll('[data-adm-restore]:checked')]
+    .map(i => i.getAttribute('data-adm-restore'));
+}
+function admRestoreCount() {
+  const n = admRestoreNames().length;
+  const b = document.getElementById('admRestoreBtn');
+  if (b) { b.disabled = n === 0; b.textContent = n ? `Restore ${n}` : 'Restore'; }
+}
+async function adminRestore() {
+  const names = admRestoreNames();
+  if (!names.length) return;
+  const b = document.getElementById('admRestoreBtn');
+  b.disabled = true;
+  try {
+    const d = await adminPost('restore', {
+      backup: ADM_STATE.backup, names, apply: true });
+    const saved = adminSaveBackup(d.backup, 'restore');
+    await adminRefresh();
+    admPane(3);
+    document.getElementById('admFoot').textContent =
+      `Restored ${(d.restoring || []).length} sample(s)`
+      + (saved ? ` — backup saved as ${saved}` : '');
+  } catch (e) {
+    alert('Restore failed: ' + e.message);
+    b.disabled = false;
+  }
+}
+
+function admDelKeys() {
+  return [...document.getElementById('admDelKeys').selectedOptions].map(o => o.value);
+}
+async function admDeletePreview() {
+  const keys = admDelKeys();
+  const out = document.getElementById('admDelOut');
+  const apply = document.getElementById('admApply');
+  ADM_STATE.del = null; apply.disabled = true;
+  if (!keys.length) { out.innerHTML = ''; admPurgeToggle(false); return; }
+  try {
+    const d = await adminPost('delete', { keys });
+    ADM_STATE.del = { keys };
+    apply.disabled = false;
+    out.innerHTML = `<div class="adm-prev">
+      <div class="adm-prevhead">${d.samples.length} sample(s) ·
+        ${d.bins.length} detail bin(s)</div>
+      <div class="adm-prevbody"><table><tbody>
+        ${d.samples.map(x => `<tr><td>${escapeHtml(x.sample_name)}</td>
+          <td class="adm-mono adm-dim">${escapeHtml(x.run_date)} ·
+            ${escapeHtml(x.stand || 'no stand')}</td>
+          <td class="adm-mono adm-dim">bin ${escapeHtml(x.bin_id || '—')}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+    admPurgeToggle(document.getElementById('admPurge').checked);
+  } catch (e) {
+    out.innerHTML = `<p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+  }
+}
+function admPurgeToggle(on) {
+  const n = admDelKeys().length;
+  const warn = document.getElementById('admPurgeWarn');
+  const apply = document.getElementById('admApply');
+  if (!warn || !apply) return;
+  warn.style.display = on && n ? 'block' : 'none';
+  warn.textContent = `The measurements for ${n} sample(s) would be gone for `
+    + `good. Download the backup first — it is the only remaining copy, and the `
+    + `only way back is Restore above.`;
+  apply.textContent = on ? 'Purge — permanent' : 'Unlist';
+  apply.className = 'btn ' + (on ? 'btn-danger' : 'btn-go');
+  apply.disabled = !n;
+}
+
+// ── apply and backup ────────────────────────────────────────────
+async function adminApply() {
+  const btn = document.getElementById('admApply');
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Working…';
+  const tag = ['merge', 'rename', 'stand', 'delete'][ADM_PANE];
+  let res = null;
+  try {
+    if (ADM_PANE === 0) {
+      const g = (ADM_STATE.groups || [])[ADM_STATE.group || 0];
+      res = await adminPost('merge', { keys: g.keys,
+        keep_name: document.getElementById('admKeepName').value, apply: true });
+    } else if (ADM_PANE === 1) {
+      res = await adminPost('rename', { ...ADM_STATE.rename,
+        new_name: ADM_STATE.rename.name, apply: true });
+    } else if (ADM_PANE === 2) {
+      res = await adminPost('stand', { keys: ADM_STATE.stand.keys,
+        stand: ADM_STATE.stand.to, apply: true,
+        allow_family_change: !!(document.getElementById('admFam') || {}).checked });
+    } else {
+      const purge = document.getElementById('admPurge').checked;
+      // A purge is irreversible, so the confirm names what is about to go and
+      // how many, rather than asking "are you sure".
+      if (purge && !confirm(
+            `Destroy the stored data for ${ADM_STATE.del.keys.length} sample(s)? `
+            + `This cannot be undone except from a backup file.`)) {
+        btn.disabled = false; btn.textContent = label; return;
+      }
+      res = await adminPost('delete', { keys: ADM_STATE.del.keys, purge,
+                                        apply: true });
+    }
+    const saved = adminSaveBackup(res && res.backup, tag);
+    await adminRefresh();
+    admPane(ADM_PANE);
+    document.getElementById('admFoot').textContent = saved
+      ? `Done — backup saved as ${saved}`
+      : 'Done. The backup could not be saved to this browser; '
+        + 'use ⭳ Backup before the next change.';
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+async function adminRefresh() {
+  const d = await adminPost('unlock', {});
+  ADM_SAMPLES = d.samples || [];
+  ADM_STANDS = d.stands || [];
+  document.getElementById('admCount').textContent = `${ADM_SAMPLES.length} samples`;
+  // The View tab reads the same index, so it is stale the moment admin writes.
+  _viewLoaded = false;
+  if (document.getElementById('tab-view').classList.contains('active')) {
+    loadViewRuns(true);
+  }
+}
+
+// Every apply returns the backup the server took before writing. Saving it is
+// automatic rather than offered: the file only helps if it exists when it is
+// needed, and by then whoever needed it has already lost the chance to click
+// a button.
+function adminSaveBackup(payload, label) {
+  if (!payload) return null;
+  try {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+    const name = `portal-backup-${label || 'admin'}-${stamp}.json`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)],
+                          { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    return name;
+  } catch (e) {
+    console.error('backup save failed:', e);
+    return null;
+  }
+}
+
+async function adminDownloadBackup() {
+  try {
+    const keys = ADM_PANE === 3 && admDelKeys().length ? admDelKeys() : null;
+    const d = await adminPost('backup', { keys });
+    adminSaveBackup(d, 'manual');
+  } catch (e) { alert('Backup failed: ' + e.message); }
+}
+
 // ── Session job tracking ────────────────────────
 function saveJobId(id) {
   const ids = JSON.parse(sessionStorage.getItem('myJobIds') || '[]');
@@ -6157,5 +6812,50 @@ document.addEventListener('keydown', e => {
   }
 })();
 </script>
+
+<div class="adm-veil" id="admGate">
+  <div class="adm-modal sm">
+    <div class="adm-head"><span class="adm-title">Admin access</span>
+      <span class="adm-spacer"></span>
+      <button class="adm-x" onclick="adminClose()">×</button></div>
+    <div class="adm-body">
+      <p class="adm-lede">These functions change stored records for everyone.
+        Enter the access code to continue.</p>
+      <input class="adm-code" id="admCode" type="password" autocomplete="off"
+             placeholder="access code"
+             oninput="document.getElementById('admGateErr').classList.remove('show')"
+             onkeydown="if(event.key==='Enter')adminUnlock()">
+      <div class="adm-err" id="admGateErr"></div>
+    </div>
+    <div class="adm-foot"><span class="adm-spacer"></span>
+      <button class="btn" onclick="adminClose()">Cancel</button>
+      <button class="btn btn-go" id="admUnlockBtn" onclick="adminUnlock()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<div class="adm-veil" id="admModal">
+  <div class="adm-modal lg">
+    <div class="adm-head"><span class="adm-title">Admin functions</span>
+      <span class="adm-pill" id="admCount"></span>
+      <span class="adm-spacer"></span>
+      <button class="adm-x" onclick="adminClose()">×</button></div>
+    <div class="adm-tabs">
+      <button class="adm-tab on" onclick="admPane(0,this)">Duplicates</button>
+      <button class="adm-tab" onclick="admPane(1,this)">Rename</button>
+      <button class="adm-tab" onclick="admPane(2,this)">Test stand</button>
+      <button class="adm-tab danger" onclick="admPane(3,this)">Add / Delete</button>
+    </div>
+    <div class="adm-body" id="admBody"></div>
+    <div class="adm-foot">
+      <button class="btn btn-sm" onclick="adminDownloadBackup()">⭳ Backup</button>
+      <span class="adm-note" id="admFoot">Nothing is written until you apply,
+        and a backup downloads automatically when you do.</span>
+      <span class="adm-spacer"></span>
+      <button class="btn" onclick="adminClose()">Close</button>
+      <button class="btn btn-go" id="admApply" onclick="adminApply()" disabled>Apply</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
