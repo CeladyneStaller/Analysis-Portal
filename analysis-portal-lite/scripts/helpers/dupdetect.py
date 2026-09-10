@@ -265,6 +265,46 @@ def normalised_name(name: Any) -> str:
     return ''.join(c for c in str(name).lower() if c.isalnum())
 
 
+def name_extension_prefilter(index: Dict[str, Any],
+                             require_same_date: bool = True
+                             ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Entry pairs where one normalised name extends the other.
+
+    `260807_Volvo-B2-(VB2-3)` against `260807_Volvo-B2-(VB2-3)_Half-CCM` is the
+    shape: the same cell recorded twice, once with a qualifier appended. The
+    equality prefilter cannot see it — the names genuinely differ, they are not
+    two spellings of one string — and the measurement prefilter only sees it if
+    the two runs agree on a stored value exactly, which a re-analysis need not.
+
+    Weaker evidence than either, deliberately: a real `-Half-CCM` build is a
+    different cell from its full-CCM sibling and shares the prefix legitimately.
+    So this proposes candidates and never decides; the confirm step and the
+    operator do that.
+    """
+    runs = index.get('runs') or []
+    named = [(normalised_name(e.get('sample_name')), e) for e in runs]
+    named = [(n, e) for n, e in named if n and len(n) >= 8]
+
+    pairs = []
+    for i in range(len(named)):
+        ni, ei = named[i]
+        for j in range(i + 1, len(named)):
+            nj, ej = named[j]
+            if ni == nj:
+                continue                      # the equality prefilter's case
+            if require_same_date and ei.get('run_date') != ej.get('run_date'):
+                continue
+            short, long_ = (ni, nj) if len(ni) < len(nj) else (nj, ni)
+            if not long_.startswith(short):
+                continue
+            # A one- or two-character tail is a typo, which the equality
+            # prefilter already normalises away; a real qualifier is longer.
+            if len(long_) - len(short) < 3:
+                continue
+            pairs.append((ei, ej))
+    return pairs
+
+
 def name_prefilter(index: Dict[str, Any], require_same_date: bool = True
                    ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Entry pairs whose sample names differ only in punctuation or case.

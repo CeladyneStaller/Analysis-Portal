@@ -109,15 +109,52 @@ def find_duplicates() -> Dict[str, Any]:
         return cache[k]
 
     pairs, seen = [], set()
-    for a, b in dupdetect.index_prefilter(index):
+    rejected, unreadable = [], []
+    ext_pairs = set()
+
+    def _consider(a, b, why):
+        """Compare one candidate pair, keeping the outcome either way.
+
+        A rejection used to be dropped on the floor, so a pair that was looked
+        at and turned down was indistinguishable from one never considered —
+        which is exactly the report someone gets when they can see two obvious
+        duplicates and the tool says none. The reason is kept and shown.
+        """
+        pk = (_key(a), _key(b))
+        if pk in seen:
+            return None
         try:
             res = dupdetect.compare_records(detail(a), detail(b))
-        except Exception:
-            continue
-        if not res.is_duplicate:
-            continue
-        pairs.append((_key(a), _key(b)))
-        seen.add((_key(a), _key(b)))
+        except Exception as exc:
+            # A bin that cannot be read is not evidence of anything, and
+            # swallowing it silently hid real failures behind "no duplicates".
+            unreadable.append({'pair': pk,
+                               'names': [a.get('sample_name', ''), b.get('sample_name', '')],
+                               'error': f'{type(exc).__name__}: {exc}'})
+            return None
+        if res.is_duplicate:
+            seen.add(pk)
+            pairs.append(pk)
+            return res
+        rejected.append({
+            'pair': pk, 'via': why,
+            'names': [a.get('sample_name', ''), b.get('sample_name', '')],
+            'matched': res.matched_fields, 'reason': res.reason,
+            'differing': ({'analysis': res.contradiction[0], 'step': res.contradiction[1],
+                           'field': res.contradiction[2], 'a': res.contradiction[3],
+                           'b': res.contradiction[4]} if res.contradiction else None),
+        })
+        return None
+
+    for a, b in dupdetect.index_prefilter(index):
+        _consider(a, b, 'measurements')
+
+    # One name extending the other — the same cell recorded twice with a
+    # qualifier appended. Neither of the other two prefilters can see it.
+    for a, b in dupdetect.name_extension_prefilter(index):
+        res = _consider(a, b, 'name extension')
+        if res:
+            ext_pairs.add((_key(a), _key(b)))
 
     name_pairs = []
     for a, b in dupdetect.name_prefilter(index):
@@ -142,6 +179,9 @@ def find_duplicates() -> Dict[str, Any]:
     for n, g in enumerate(groups, start=1):
         names = sorted({by_key[k].get('sample_name', '') for k in g if k in by_key})
         evidence, agreed, differed = 'measurements', None, []
+        if any(pk in ext_pairs for pk in
+               [(x, y) for x in g for y in g if x != y]):
+            evidence = 'name extension'
         for pk, info in name_by_pair.items():
             if pk[0] in g and pk[1] in g:
                 evidence = 'name'
@@ -159,7 +199,10 @@ def find_duplicates() -> Dict[str, Any]:
                          'stand': by_key[k].get('stand') or ''}
                         for k in g if k in by_key],
         })
-    return {'groups': out, 'scanned': len(_entries(index))}
+    return {'groups': out, 'scanned': len(_entries(index)),
+            'considered': len(pairs) + len(rejected),
+            'rejected': rejected[:MAX_PREVIEW_ROWS],
+            'unreadable': unreadable[:MAX_PREVIEW_ROWS]}
 
 
 def merge_duplicate_group(keys: List[str], keep_name: str,

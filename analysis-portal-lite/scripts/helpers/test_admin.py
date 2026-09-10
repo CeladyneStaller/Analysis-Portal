@@ -349,6 +349,49 @@ raises('and neither is a foreign document',
 raises('restoring a name the backup does not hold',
        lambda: admin.restore_backup(bak, ['nope']), 'none of those samples')
 
+print("name-extension duplicates")
+# The pair that motivated this: one name extends the other with a qualifier,
+# which neither the equality prefilter nor the measurement prefilter can see
+# unless the two runs agree on a stored value exactly.
+from scripts.helpers.dupdetect import name_extension_prefilter
+def _e(n, d='2026-08-07'):
+    return {'sample_name': n, 'run_date': d, 'bin_id': n[:6], 'Data': []}
+IDXN = {'runs': [_e('260807_Volvo-B2-(VB2-3)_Half-CCM'), _e('260807_Volvo-B2-(VB2-3)'),
+                 _e('260807_Volvo-B2-(VB2-4)'), _e('260801_Volvo-B2-(VB2-3)', '2026-08-01')]}
+got = name_extension_prefilter(IDXN)
+check('the extension pair is proposed', len(got), 1)
+check_true('and it is the right one',
+           {got[0][0]['sample_name'], got[0][1]['sample_name']} ==
+           {'260807_Volvo-B2-(VB2-3)_Half-CCM', '260807_Volvo-B2-(VB2-3)'})
+# A sibling build shares the prefix legitimately and is not an extension.
+check_true('a sibling name is not proposed',
+           all('VB2-4' not in a['sample_name'] and 'VB2-4' not in b['sample_name']
+               for a, b in got))
+check('a different date is not proposed', len(name_extension_prefilter(IDXN)), 1)
+
+reset()
+# Found when the measurements agree.
+res = admin.find_duplicates()
+check_true('the spelling pair is still found', len(res['groups']) >= 1)
+check_true('the report says how many pairs it compared', res['considered'] >= 1)
+
+# A rejection is reported rather than dropped: a pair that was looked at and
+# turned down must not look the same as one never considered.
+reset()
+BINS['B02']['summary'][0]['OCV'] = 0.90121          # differs below display precision
+res = admin.find_duplicates()
+# These two are also a spelling pair, so the name route still finds them —
+# what matters is that the measurement route's refusal is now on the record
+# instead of vanishing.
+check_true('a pair rejected on measurements is reported',
+           any(r['reason'] == 'field values differ' for r in res['rejected']))
+diff = next(r for r in res['rejected'] if r['reason'] == 'field values differ')
+check('naming the field that differed', diff['differing']['field'], 'OCV')
+check_true('and both values, so the size of the gap is visible',
+           diff['differing']['a'] != diff['differing']['b'])
+check_true('the group that survives is on name evidence',
+           res['groups'][0]['evidence'] in ('name', 'name extension'))
+
 print("automatic backup")
 # An offered backup is only as good as the habit of taking it. Every apply
 # takes one first, so the guarantee is that a written change is a recoverable

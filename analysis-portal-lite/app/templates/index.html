@@ -6387,16 +6387,54 @@ async function admScan() {
   note.textContent = 'Scanning…';
   try {
     const d = await adminPost('duplicates', {});
-    note.textContent = `Scanned ${d.scanned} entries.`;
     ADM_STATE.groups = d.groups || [];
+    ADM_STATE.rejected = d.rejected || [];
+    ADM_STATE.unreadable = d.unreadable || [];
+    note.textContent = `Scanned ${d.scanned} entries, compared ${d.considered || 0} pair(s).`;
     admRenderGroups();
   } catch (e) { note.textContent = e.message; }
 }
+// Pairs that were compared and turned down, with the reason. Without this a
+// rejection looks identical to never having been considered, which is the
+// report someone gets when they can see two obvious duplicates on screen and
+// the tool says none.
+function admNearMisses() {
+  const rej = ADM_STATE.rejected || [];
+  const bad = ADM_STATE.unreadable || [];
+  if (!rej.length && !bad.length) return '';
+  return `
+    <div class="adm-prev" style="margin-top:12px">
+      <div class="adm-prevhead">Considered and not matched
+        <span class="adm-spacer"></span>
+        <span class="adm-dim" style="text-transform:none;letter-spacing:0">
+          ${rej.length + bad.length} pair(s)</span></div>
+      <div class="adm-prevbody"><table><tbody>
+        ${rej.map(r => `<tr>
+          <td>${escapeHtml(r.names[0])}<br>${escapeHtml(r.names[1])}</td>
+          <td class="adm-mono adm-dim">via ${escapeHtml(r.via)}</td>
+          <td class="adm-mono adm-dim">${escapeHtml(r.reason)}</td>
+          <td class="adm-mono">${r.differing
+            ? `${escapeHtml(r.differing.field)}<br>`
+              + `${escapeHtml(String(r.differing.a))} vs ${escapeHtml(String(r.differing.b))}`
+            : `${r.matched} field(s) agreed`}</td></tr>`).join('')}
+        ${bad.map(r => `<tr>
+          <td>${escapeHtml(r.names[0])}<br>${escapeHtml(r.names[1])}</td>
+          <td class="adm-mono adm-dim">could not read</td>
+          <td class="adm-mono adm-dim" colspan="2">${escapeHtml(r.error)}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>
+    <p class="adm-note">A pair is only called a duplicate when every field they
+      share agrees exactly. Two runs of the same cell that were re-analysed can
+      differ below the precision the table displays, which is what the column
+      on the right shows.</p>`;
+}
+
 function admRenderGroups() {
   const gs = ADM_STATE.groups || [];
   const host = document.getElementById('admDupOut');
   if (!gs.length) {
-    host.innerHTML = '<div class="adm-empty">No duplicates found.</div>';
+    host.innerHTML = '<div class="adm-empty">No duplicates found.</div>'
+      + admNearMisses();
     return;
   }
   host.innerHTML = `
@@ -6425,7 +6463,7 @@ function admRenderGroups() {
       <select id="admKeepName"></select></div></div>
     <p class="adm-note">The name is not chosen for you — recency is not evidence
       of correctness, and merging under a typo would discard the right name
-      along with the record that held it.</p>`;
+      along with the record that held it.</p>` + admNearMisses();
   admPickGroup(0);
 }
 function admPickGroup(i) {
