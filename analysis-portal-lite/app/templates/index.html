@@ -984,6 +984,14 @@
     white-space: nowrap; text-align: right;
     border-bottom: 1px solid var(--border);
   }
+  .pg-src {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    padding: 4px 10px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; min-width: 0;
+  }
+  .pg-src.span { white-space: normal; word-break: break-all; }
+  .pg-src.miss { opacity: .45; }
+
   .pg-unit { opacity: .6; }
   .pg-val {
     font-family: var(--mono); font-size: 12px; padding: 5px 0;
@@ -3229,6 +3237,39 @@ async function openRunDetail(jobId) {
   }
 }
 
+// The raw file names are already in the detail record — a folder upload keeps
+// its relative path, so "BOL/b4_S_PolCurve.fcd" carries the folder too. They
+// are stored and never shown; this puts them under the plots they produced.
+//
+// A step's file is matched by the step code the analysis parsed out of the
+// name in the first place, so the mapping runs backwards along the route it
+// came from. Anything unmatched is listed as leftovers rather than dropped.
+function sourceFiles(detail) {
+  const raw = (detail && detail.input_files) || [];
+  if (!raw.length) return null;
+  const parts = raw.map(f => {
+    const t = String(f).replace(/\\/g, '/');
+    const cut = t.lastIndexOf('/');
+    return { full: t, dir: cut < 0 ? '' : t.slice(0, cut).trim(),
+             base: (cut < 0 ? t : t.slice(cut + 1)).trim() };
+  });
+  const dirs = [...new Set(parts.map(p => p.dir).filter(Boolean))];
+  return { files: parts, folder: dirs.length === 1 ? dirs[0] : (dirs.length ? dirs.join(', ') : '') };
+}
+
+// Longest leading run of letters and digits — "b17b_S_Pol.fcd" gives "b17b".
+function fileStep(base) {
+  const m = String(base).match(/^([A-Za-z]+\d+[A-Za-z]*)/);
+  return m ? m[1].toLowerCase() : '';
+}
+function fileForStep(src, step) {
+  if (!src || !step) return null;
+  const want = String(step).toLowerCase();
+  const exact = src.files.find(f => fileStep(f.base) === want);
+  if (exact) return exact;
+  return src.files.find(f => f.base.toLowerCase().includes(want)) || null;
+}
+
 function renderRunDetail(detail, key) {
   // With an analysis filter active, show only that analysis — the row was
   // listed because it holds it, so the detail should not reintroduce the rest.
@@ -3239,6 +3280,21 @@ function renderRunDetail(detail, key) {
 
   const jobId = key || detail.job_id;
   const allRenderable = plots.filter(p => p.renderable).map(p => p.plot);
+
+  // Which raw files nothing in this run accounts for. Worked out across every
+  // plot, so a file is only "other" when no analysis used it — a cleaning
+  // sweep, whose sidecars are not stored, is the usual case. Shown once per
+  // analysis section but naming the same short list.
+  const _src = sourceFiles(detail);
+  const orphanFiles = (() => {
+    if (!_src) return [];
+    const used = new Set();
+    (detail.plots || []).forEach(p => {
+      const f = fileForStep(_src, String((p.conditions || {}).step || ''));
+      if (f) used.add(f.full);
+    });
+    return _src.files.filter(f => !used.has(f.full));
+  })();
 
   let html = '<div class="run-detail">';
 
@@ -3265,7 +3321,8 @@ function renderRunDetail(detail, key) {
     // Summary rows belonging to this analysis, rendered inside its section
     // rather than in a block below every section — a Full Analysis produces a
     // dozen rows, and detached from their analysis they are hard to read.
-    const bodyHtml = rdAnalysisGrid(detail, bucket, bucketPlots, jobId);
+    const bodyHtml = rdAnalysisGrid(detail, bucket, bucketPlots, jobId,
+                                    orphanFiles);
 
     // Everything starts collapsed: a Full Analysis expands to a couple of
     // dozen plots, and opening a sample should show its shape first rather
@@ -3394,7 +3451,7 @@ function conditionSummary(cond) {
   return bits.join(' · ');
 }
 
-function rdAnalysisGrid(detail, bucket, plots, jobId) {
+function rdAnalysisGrid(detail, bucket, plots, jobId, orphans) {
   const cols = plots.map(p => ({
     plot: p,
     step: String((p.conditions || {}).step || ''),
@@ -3452,6 +3509,34 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
     cells += '<div class="pg-label">Conditions</div>'
       + cols.map(c => `<div class="pg-cond">${escapeHtml(c.cond || '—')}</div>`).join('');
   }
+  const src = sourceFiles(detail);
+  if (src) {
+    if (src.folder) {
+      // One folder for the whole sample, so it spans rather than repeating
+      // under every plot.
+      cells += '<div class="pg-label">Folder</div>'
+        + `<div class="pg-src span" style="grid-column: 2 / -1"
+             title="${escapeAttr(src.folder)}">${escapeHtml(src.folder)}</div>`;
+    }
+    const matched = cols.map(c => fileForStep(src, c.step));
+    cells += '<div class="pg-label">Source file</div>'
+      + cols.map((c, i) => matched[i]
+          ? `<div class="pg-src" title="${escapeAttr(matched[i].full)}">${escapeHtml(matched[i].base)}</div>`
+          : '<div class="pg-src miss">—</div>').join('');
+    // Files that produced no plot anywhere in the run — a cleaning sweep,
+    // whose sidecars are not stored, or a step the matcher did not recognise.
+    // Scoped to the whole record rather than this analysis: a crossover file
+    // is not "other" just because this section is the polarization curve, and
+    // the first version listed every one of them under every section.
+    const rest = orphans || [];
+    if (rest.length) {
+      cells += '<div class="pg-label">Other files</div>'
+        + `<div class="pg-src span" style="grid-column: 2 / -1"
+             title="${escapeAttr(rest.map(f => f.full).join(', '))}">${
+             escapeHtml(rest.map(f => f.base).join(' · '))}</div>`;
+    }
+  }
+
   names.forEach(name => {
     const unit = cols.map(c => c.vals[name] && c.vals[name].unit).find(Boolean) || '';
     cells += `<div class="pg-label">${escapeHtml(name)}`
