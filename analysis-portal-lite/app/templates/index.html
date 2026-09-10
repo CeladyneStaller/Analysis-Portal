@@ -3281,20 +3281,6 @@ function renderRunDetail(detail, key) {
   const jobId = key || detail.job_id;
   const allRenderable = plots.filter(p => p.renderable).map(p => p.plot);
 
-  // Which raw files nothing in this run accounts for. Worked out across every
-  // plot, so a file is only "other" when no analysis used it — a cleaning
-  // sweep, whose sidecars are not stored, is the usual case. Shown once per
-  // analysis section but naming the same short list.
-  const _src = sourceFiles(detail);
-  const orphanFiles = (() => {
-    if (!_src) return [];
-    const used = new Set();
-    (detail.plots || []).forEach(p => {
-      const f = fileForStep(_src, String((p.conditions || {}).step || ''));
-      if (f) used.add(f.full);
-    });
-    return _src.files.filter(f => !used.has(f.full));
-  })();
 
   let html = '<div class="run-detail">';
 
@@ -3321,8 +3307,7 @@ function renderRunDetail(detail, key) {
     // Summary rows belonging to this analysis, rendered inside its section
     // rather than in a block below every section — a Full Analysis produces a
     // dozen rows, and detached from their analysis they are hard to read.
-    const bodyHtml = rdAnalysisGrid(detail, bucket, bucketPlots, jobId,
-                                    orphanFiles);
+    const bodyHtml = rdAnalysisGrid(detail, bucket, bucketPlots, jobId);
 
     // Everything starts collapsed: a Full Analysis expands to a couple of
     // dozen plots, and opening a sample should show its shape first rather
@@ -3451,7 +3436,7 @@ function conditionSummary(cond) {
   return bits.join(' · ');
 }
 
-function rdAnalysisGrid(detail, bucket, plots, jobId, orphans) {
+function rdAnalysisGrid(detail, bucket, plots, jobId) {
   const cols = plots.map(p => ({
     plot: p,
     step: String((p.conditions || {}).step || ''),
@@ -3523,18 +3508,6 @@ function rdAnalysisGrid(detail, bucket, plots, jobId, orphans) {
       + cols.map((c, i) => matched[i]
           ? `<div class="pg-src" title="${escapeAttr(matched[i].full)}">${escapeHtml(matched[i].base)}</div>`
           : '<div class="pg-src miss">—</div>').join('');
-    // Files that produced no plot anywhere in the run — a cleaning sweep,
-    // whose sidecars are not stored, or a step the matcher did not recognise.
-    // Scoped to the whole record rather than this analysis: a crossover file
-    // is not "other" just because this section is the polarization curve, and
-    // the first version listed every one of them under every section.
-    const rest = orphans || [];
-    if (rest.length) {
-      cells += '<div class="pg-label">Other files</div>'
-        + `<div class="pg-src span" style="grid-column: 2 / -1"
-             title="${escapeAttr(rest.map(f => f.full).join(', '))}">${
-             escapeHtml(rest.map(f => f.base).join(' · '))}</div>`;
-    }
   }
 
   names.forEach(name => {
