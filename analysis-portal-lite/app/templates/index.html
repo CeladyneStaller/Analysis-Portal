@@ -6570,8 +6570,14 @@ function admPaneStand() {
     </div>
     <div id="admStList"></div>
     <div id="admStOut"></div>
+    <div class="adm-row" style="margin-top:14px">
+      <button class="btn btn-sm" onclick="admCheckStandDrift()"
+              title="Compares each index entry against its detail record">
+        Check for lost stand numbers</button>
+      <span class="adm-note" id="admStDriftNote">Reads one detail record per
+        sample, so it is not run automatically.</span>
+    </div>
     <div id="admStRepair"></div>`;
-  admCheckStandDrift();
   admPickInit('admStList', []);
   // Filtering by the stand a sample is recorded as now — the list narrows to
   // what is being fixed, and "Select all shown" ticks exactly that.
@@ -6581,12 +6587,21 @@ function admPaneStand() {
 // Entries whose index lost the stand number a push had declared. The detail
 // record still holds it, so this is a repair rather than a guess — surfaced
 // here because this is the pane someone is on when they notice.
+// Run on request, never on open. It reads a detail record per sample — on a
+// fifty-sample store that is fifty serial JSONBin fetches every time the pane
+// is shown, and anything else the operator does while they are in flight is
+// competing with them for the same rate limit.
 async function admCheckStandDrift() {
   const host = document.getElementById('admStRepair');
+  const note = document.getElementById('admStDriftNote');
   if (!host) return;
+  if (note) note.textContent = 'Checking…';
   try {
     const d = await adminPost('repair-stands', {});
     const n = (d.repairs || []).length;
+    if (note) note.textContent = n
+      ? `${d.scanned} entries checked.`
+      : `${d.scanned} entries checked — every stand matches its record.`;
     if (!n) { host.innerHTML = ''; return; }
     host.innerHTML = `
       <div class="adm-prev" style="margin-top:14px">
@@ -6608,7 +6623,10 @@ async function admCheckStandDrift() {
       <div class="adm-row">
         <button class="btn btn-go" onclick="admRepairStands()">Restore ${n} stand number${n === 1 ? '' : 's'}</button>
       </div>`;
-  } catch (e) { host.innerHTML = ''; }
+  } catch (e) {
+    host.innerHTML = '';
+    if (note) note.textContent = e.message;
+  }
 }
 
 async function admRepairStands() {
@@ -6630,7 +6648,15 @@ async function admStandPreview() {
   const apply = document.getElementById('admApply');
   ADM_STATE.stand = null; apply.disabled = true;
   if (!keys.length) {
-    out.innerHTML = '<div class="adm-empty">Tick the samples to change.</div>';
+    // Reports what it counted rather than asserting nothing is ticked: a
+    // message that flatly contradicts the checkboxes on screen is the hardest
+    // kind of bug to report, because it gives nothing to go on.
+    const boxes = document.querySelectorAll('#admStList .adm-pickrow input:checked').length;
+    out.innerHTML = boxes
+      ? `<div class="adm-empty" style="color:var(--amber)">${boxes} row(s) are
+         ticked but the selection did not register. Reopen the tab; if it
+         persists this is a bug worth reporting.</div>`
+      : '<div class="adm-empty">Tick the samples to change.</div>';
     return;
   }
   try {
