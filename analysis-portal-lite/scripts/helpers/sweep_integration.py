@@ -71,6 +71,27 @@ def polcurve_fcd(path, hfr_base=45.0, ci=False):
     _write(path, cols, rows)
 
 
+def cleaning_fcd(path):
+    cols = ['Time (Sec)', 'I (A)', 'Pt2', 'Pt3', 'E_Stack (V)',
+            'HFR (mOhm)', 'x', 'Ctrl_Mode']
+    Vs, Js = [], []
+    for cyc in range(15):
+        Va = np.linspace(0.05, 1.0, 100)
+        Vc = np.linspace(1.0, 0.05, 100)[1:]
+        ha = 25 * np.exp(-cyc * .15) + 6
+        dl = 4 * np.exp(-cyc * .12) + 1
+        Vs += [Va, Vc]
+        Js += [ha * np.exp(-((Va - .2) / .08) ** 2) + dl
+               + np.random.normal(0, .15, 100),
+               (-23 * np.exp(-cyc * .15) - 5)
+               * np.exp(-((Vc - .2) / .08) ** 2) - dl
+               + np.random.normal(0, .15, 99)]
+    V = np.concatenate(Vs); J = np.concatenate(Js) * 0.001 * 5.0
+    rows = [[f'{i * 0.001:.4f}', f'{jj:.5f}', '0', '0', f'{vv:.5f}',
+             '0', '0', '2'] for i, (vv, jj) in enumerate(zip(V, J))]
+    _write(path, cols, rows)
+
+
 def activation_fcd(path):
     cols = ['Time (Sec)', 'I (A)', 'E_Stack (V)', 'Ctrl_Mode']
     n = 3600
@@ -118,6 +139,17 @@ CASES = [
     ('FC Polarization Curve', 'polcurve_analysis', 'PolCurve',
      lambda d: polcurve_fcd(f'{d}/260126_FCS6_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa.fcd'),
      'polcurve', ['OCV', 'V @ 1 A/cm²']),
+    ('FC Polarization Curve (Downswing)', 'polcurve_analysis_down', 'PolCurveDown',
+     lambda d: polcurve_fcd(f'{d}/260126_FCS6_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa.fcd'),
+     'polcurve', ['OCV', 'V @ 1 A/cm²']),
+    ('FC Polarization Curve (HFR Compare)', 'polcurve_analysis_hfr_compare',
+     'PolCurveHFRcmp',
+     lambda d: polcurve_fcd(f'{d}/260126_FCS6_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa.fcd',
+                            ci=True),
+     'polcurve', ['OCV', 'V @ 1 A/cm²']),
+    ('FC Electrode Cleaning', 'electrode_cleaning_analysis', 'Cleaning',
+     lambda d: cleaning_fcd(f'{d}/260126_FCS6_a2_CV-500mVs.fcd'),
+     'cleaning', []),
     ('FC Activation', 'activation_analysis', 'Activation',
      lambda d: activation_fcd(f'{d}/260126_FCS6_b2_activation.fcd'),
      'activation', []),
@@ -167,8 +199,7 @@ for script_name, module, short, make_input, bucket, want_kv in CASES:
 
     check(f'{script_name} schema 2', detail.get('schema') == 2)
     # Sidecars are stored unless the bucket is excluded by configuration.
-    # No bucket in this repo is excluded by default, so this branch is the
-    # inactive one — kept so the harness stays correct if that ever changes.
+    # Cleaning is excluded by default — its CV plots dominate the wire budget.
     excluded = bucket in jsonbin.SIDECAR_EXCLUDE_BUCKETS
     if excluded:
         check(f'{script_name} sidecars deliberately excluded',
@@ -214,5 +245,25 @@ for script_name, module, short, make_input, bucket, want_kv in CASES:
 
 shutil.rmtree(ROOT, ignore_errors=True)
 print('-' * 96)
+# ── the declared stand has to survive the hand-off to the push ──
+#
+# The push reads it out of jobs[job_id]["params"]. No endpoint put it there,
+# so every run was stored with the bare family derived from a file extension:
+# "Scribner 1" became "Scribner", and the same for FCTS. Asserted against
+# main.py's source because the bug was a missing key in a dict literal, which
+# no unit test of record.py can reach.
+import re as _re, pathlib as _pl
+_main = _pl.Path(__file__).resolve().parents[2] / 'app' / 'main.py'
+if _main.exists():
+    _src = _main.read_text()
+    _blocks = _re.findall(r'jobs\[job_id\] = \{(.*?)\n\s*\}', _src, _re.S)
+    check('main.py creates job dicts', len(_blocks) >= 2)
+    for _b in _blocks:
+        if 'is_comparison' in _b or 'Plot Comparison' in _b:
+            continue                      # comparison output is never pushed
+        check('a pushing endpoint stores its params', '"params"' in _b)
+    check('and the push still reads them from there',
+          'jobs[job_id].get("params")' in _src)
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

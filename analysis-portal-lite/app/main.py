@@ -847,6 +847,10 @@ async def upload_and_run(
             "message": f"Running {script}...",
             "script": script,
             "input_files": filenames,
+            # Read back when the run is pushed, to record the stand that was
+            # declared on the form. Omitting it left the push deriving the
+            # bare family from a file extension instead.
+            "params": dict(user_params or {}),
             "submitted_at": datetime.now().isoformat(),
         }
 
@@ -1260,6 +1264,9 @@ async def upload_multi(
                 "message": f"Running {script} on {sample_name}...",
                 "script": script,
                 "input_files": filenames,
+                # Same reason as the single-sample path: the push reads the
+                # declared stand back out of here.
+                "params": dict(params or {}),
                 "submitted_at": datetime.now().isoformat(),
             }
 
