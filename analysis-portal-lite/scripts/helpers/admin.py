@@ -24,6 +24,7 @@ from scripts.helpers import dupdetect, jsonbin
 from scripts.helpers.record import (
     FORBIDDEN_NAME_CHARS, STAND_OPTIONS, build_index_entry,
     merge_detail_record, merge_index_entry, parse_run_date, stand_family,
+    stand_number,
 )
 
 MAX_PREVIEW_ROWS = 400
@@ -389,6 +390,55 @@ def set_stand(keys: List[str], stand: str, apply: bool = False,
         rec['stand'] = stand
         jsonbin.update_detail_bin(bin_id, rec)
         e['stand'] = stand
+    jsonbin._write_index(index)
+    preview['applied'] = True
+    return preview
+
+
+def find_stand_drift() -> Dict[str, Any]:
+    """Index entries whose stand is vaguer than the detail record's.
+
+    The detail record keeps what was declared; before `better_stand` the index
+    could be overwritten with the bare family derived from a file extension.
+    Anything this reports was demoted rather than chosen, and the number is
+    still there to put back.
+    """
+    index = jsonbin.fetch_index()
+    out = []
+    for e in _entries(index):
+        idx_stand = str(e.get('stand') or '')
+        try:
+            rec = jsonbin.fetch_detail_bin(e.get('bin_id'))
+        except Exception:
+            continue
+        rec_stand = str(rec.get('stand') or '')
+        if not rec_stand or rec_stand == idx_stand:
+            continue
+        # Only the demotion case: same family, the record names a number and
+        # the index does not. A genuine disagreement is not this tool's call.
+        if (stand_family(rec_stand) == stand_family(idx_stand)
+                and stand_number(rec_stand) is not None
+                and stand_number(idx_stand) is None):
+            out.append({'key': _key(e), 'sample_name': e.get('sample_name', ''),
+                        'index': idx_stand or None, 'record': rec_stand})
+    return {'drifted': out, 'scanned': len(_entries(index))}
+
+
+def repair_stands(apply: bool = False) -> Dict[str, Any]:
+    """Put the numbered stand back on entries that were demoted."""
+    found = find_stand_drift()
+    preview = {'repairs': found['drifted'], 'scanned': found['scanned'],
+               'applied': False}
+    if not apply or not found['drifted']:
+        return preview
+
+    preview['backup'] = _snapshot([r['key'] for r in found['drifted']])
+    index = jsonbin.fetch_index()
+    by_key = {_key(e): e for e in _entries(index)}
+    for r in found['drifted']:
+        e = by_key.get(r['key'])
+        if e is not None:
+            e['stand'] = r['record']
     jsonbin._write_index(index)
     preview['applied'] = True
     return preview

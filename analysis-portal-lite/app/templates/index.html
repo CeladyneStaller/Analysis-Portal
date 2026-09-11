@@ -6569,13 +6569,59 @@ function admPaneStand() {
         <select id="admStTo" onchange="admStandPreview()">${admOpts(ADM_STANDS, ADM_STANDS[0])}</select></div>
     </div>
     <div id="admStList"></div>
-    <div id="admStOut"></div>`;
+    <div id="admStOut"></div>
+    <div id="admStRepair"></div>`;
+  admCheckStandDrift();
   admPickInit('admStList', []);
   // Filtering by the stand a sample is recorded as now — the list narrows to
   // what is being fixed, and "Select all shown" ticks exactly that.
   admPickRender('admStList', ADM_SAMPLES, admStandPreview, { standFilter: true });
   admStandPreview();
 }
+// Entries whose index lost the stand number a push had declared. The detail
+// record still holds it, so this is a repair rather than a guess — surfaced
+// here because this is the pane someone is on when they notice.
+async function admCheckStandDrift() {
+  const host = document.getElementById('admStRepair');
+  if (!host) return;
+  try {
+    const d = await adminPost('repair-stands', {});
+    const n = (d.repairs || []).length;
+    if (!n) { host.innerHTML = ''; return; }
+    host.innerHTML = `
+      <div class="adm-prev" style="margin-top:14px">
+        <div class="adm-prevhead" style="color:var(--amber)">
+          ${n} entr${n === 1 ? 'y has' : 'ies have'} lost a stand number</div>
+        <div class="adm-prevbody"><table>
+          <thead><tr><th>Sample</th><th>Index says</th><th></th><th>Record says</th></tr></thead>
+          <tbody>${d.repairs.map(r => `<tr>
+            <td>${escapeHtml(r.sample_name)}</td>
+            <td class="adm-mono adm-dim">${escapeHtml(r.index || 'none')}</td>
+            <td class="adm-arrow">→</td>
+            <td class="adm-mono">${escapeHtml(r.record)}</td></tr>`).join('')}
+          </tbody></table></div>
+      </div>
+      <p class="adm-note warn">A push left on Auto-detect can only recover the
+        family from a file extension, and it used to overwrite the number the
+        index held. The detail records kept it, so these can be put back
+        exactly.</p>
+      <div class="adm-row">
+        <button class="btn btn-go" onclick="admRepairStands()">Restore ${n} stand number${n === 1 ? '' : 's'}</button>
+      </div>`;
+  } catch (e) { host.innerHTML = ''; }
+}
+
+async function admRepairStands() {
+  try {
+    const d = await adminPost('repair-stands', { apply: true });
+    adminSaveBackup(d.backup, 'stand-repair');
+    await adminRefresh();
+    admPane(2);
+    document.getElementById('admFoot').textContent =
+      `Restored ${(d.repairs || []).length} stand number(s).`;
+  } catch (e) { alert(e.message); }
+}
+
 function admStandKeys() { return admPicked('admStList'); }
 async function admStandPreview() {
   const keys = admStandKeys();

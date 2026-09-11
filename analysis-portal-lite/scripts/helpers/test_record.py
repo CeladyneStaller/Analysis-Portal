@@ -17,7 +17,9 @@ from scripts.helpers.record import (  # noqa: E402
     build_detail_record, build_index_entry, detail_bin_name,
     parse_conditions, parse_metric_kv, plot_bucket, build_key_values,
     is_comparison_script, load_sidecars, decode_sidecars, strip_sidecars,
-    parse_run_date, parse_stand, json_safe, merge_detail_record, merge_index_entry, touched_units,
+    parse_run_date, parse_stand, json_safe,
+    STAND_OPTIONS, STAND_FAMILY_FILTERS, is_family_filter,
+    stand_family, stand_index, stand_matches, merge_detail_record, merge_index_entry, touched_units,
     KEY_VALUE_UNITS,
     select_sidecars, sidecar_bucket_sizes, sidecar_sizes, attach_sidecars,
     SCHEMA_VERSION, SIDECAR_ENCODING,
@@ -182,6 +184,39 @@ for name in ("NoDatePrefix-Cell7", "269999_Bad", "123456_X", "260230_BadDay",
              "2604211_TooLong", "", None):
     check(f'run_date rejects {name!r}', parse_run_date(name), None)
 
+print("stand precedence on merge")
+from scripts.helpers import record  # noqa: E402
+# A push left on Auto-detect derives only the bare family from a file
+# extension. Letting that overwrite a declared number demoted runs that had
+# been recorded on a numbered stand, and nothing said so.
+check('a derived family does not demote a number',
+      record.better_stand('Scribner 1', 'Scribner'), 'Scribner 1')
+check('whichever side it arrives on',
+      record.better_stand('Scribner', 'Scribner 1'), 'Scribner 1')
+check('a different number is a real correction and is taken',
+      record.better_stand('Scribner 1', 'Scribner 2'), 'Scribner 2')
+check('so is a family change',
+      record.better_stand('Scribner 1', 'FCTS 2'), 'FCTS 2')
+check('even a derived one, or a wrong stand could not be fixed by re-push',
+      record.better_stand('Scribner 1', 'FCTS'), 'FCTS')
+check('an empty incoming keeps what is stored',
+      record.better_stand('FCTS 3', ''), 'FCTS 3')
+check('and an empty stored takes the incoming',
+      record.better_stand('', 'FCTS 3'), 'FCTS 3')
+check('nothing either side stays nothing', record.better_stand('', ''), None)
+
+# stand_number is not stand_index: the latter is the 0/1 parser code and is
+# the same for every stand in a family.
+check('stand_number reads the number', record.stand_number('FCTS 3'), 3)
+check('and is None for a bare family', record.stand_number('FCTS'), None)
+check_true('while stand_index stays the parser code',
+           record.stand_index('Scribner 1') == record.stand_index('Scribner'))
+
+e1 = {'sample_name': 'S', 'stand': 'Scribner 1', 'Data': []}
+e2 = {'sample_name': 'S', 'stand': 'Scribner', 'Data': []}
+check('merge_index_entry keeps the numbered stand',
+      record.merge_index_entry(e1, e2).get('stand'), 'Scribner 1')
+
 print("test stand")
 # Derived from the data format, mirroring the portal's own auto-detection.
 for files, want in ((['a.fcd', 'b.fcd'], 'Scribner'),
@@ -223,6 +258,65 @@ check('NaN not promoted', build_key_values('polcurve', {}, {'OCV': float('nan')}
 check('inf not promoted', build_key_values('polcurve', {}, {'OCV': float('inf')}), {})
 check('finite still promoted',
       build_key_values('polcurve', {}, {'OCV': 0.9}), {'OCV': 0.9})
+
+print("numbered test stands")
+check('six stands offered', len(STAND_OPTIONS), 6)
+# The number identifies the stand; it must not change how files are parsed.
+for v, fam, idx in (('Scribner 1', 'Scribner', 0), ('Scribner 2', 'Scribner', 0),
+                    ('FCTS 1', 'FCTS', 1), ('FCTS 4', 'FCTS', 1),
+                    ('Scribner', 'Scribner', 0), ('FCTS', 'FCTS', 1),
+                    ('0', 'Scribner', 0), ('1', 'FCTS', 1),
+                    (0, 'Scribner', 0), (1, 'FCTS', 1)):
+    check(f'family of {v!r}', stand_family(v), fam)
+    check(f'parse index of {v!r}', stand_index(v), idx)
+for v in (None, '', 'nonsense'):
+    check(f'no family for {v!r}', stand_family(v), None)
+    check(f'index falls back for {v!r}', stand_index(v), 0)
+
+# Matching is exact. A bare family is its own value, not a wildcard over the
+# numbered stands in it — a numbered filter answers "these ran on that stand",
+# not "these plus some that might have". Bare families stay selectable because
+# index_facets offers any still recorded as their own option.
+for sel in ('Scribner 1', 'Scribner 2'):
+    check_true(f'bare Scribner does not match {sel}',
+               not stand_matches('Scribner', sel))
+for sel in ('FCTS 1', 'FCTS 2', 'FCTS 3', 'FCTS 4'):
+    check_true(f'bare FCTS does not match {sel}',
+               not stand_matches('FCTS', sel))
+check_true('a bare family matches itself', stand_matches('Scribner', 'Scribner'))
+check_true('legacy Scribner does not match an FCTS stand',
+           not stand_matches('Scribner', 'FCTS 1'))
+# A numbered stand is specific.
+check_true('Scribner 1 matches itself', stand_matches('Scribner 1', 'Scribner 1'))
+check_true('Scribner 1 does not match Scribner 2',
+           not stand_matches('Scribner 1', 'Scribner 2'))
+check_true('no selection matches everything', stand_matches('anything', None))
+
+# 'All Scribner' / 'All FCTS' are the inverse of the behaviour removed earlier:
+# the filter is the wildcard and names itself as one, rather than a bare-family
+# entry quietly answering a numbered filter.
+check('two family filters', len(STAND_FAMILY_FILTERS), 2)
+check('recognised', is_family_filter('All Scribner'), 'Scribner')
+check('recognised', is_family_filter('All FCTS'), 'FCTS')
+for v in ('Scribner', 'Scribner 1', 'All', 'all scribner', None, ''):
+    check(f'{v!r} is not a family filter', is_family_filter(v), None)
+
+for entry in ('Scribner', 'Scribner 1', 'Scribner 2'):
+    check_true(f'All Scribner selects {entry}',
+               stand_matches(entry, 'All Scribner'))
+for entry in ('FCTS', 'FCTS 1', 'FCTS 2', 'FCTS 3', 'FCTS 4'):
+    check_true(f'All FCTS selects {entry}', stand_matches(entry, 'All FCTS'))
+check_true('All Scribner excludes FCTS',
+           not stand_matches('FCTS 3', 'All Scribner'))
+check_true('All FCTS excludes Scribner',
+           not stand_matches('Scribner 1', 'All FCTS'))
+check_true('an entry with no stand is not selected by a family filter',
+           not stand_matches(None, 'All Scribner'))
+# The narrow filters are unaffected.
+check_true('a numbered filter stays exact',
+           not stand_matches('Scribner', 'Scribner 1'))
+check_true('an entry with no stand matches nothing specific',
+           not stand_matches(None, 'FCTS 1'))
 
 print("plot_bucket")
 for pt, want in (('polcurve_down', 'polcurve'), ('ir_correction', 'polcurve'),
@@ -571,6 +665,32 @@ try:
         input_files=[], output_dir=out)
     check_true('stand omitted when unknown',
                'stand' not in build_index_entry(rec3, 'b'))
+finally:
+    shutil.rmtree(tmp)
+
+print("declared stand on the index entry")
+tmp = tempfile.mkdtemp()
+try:
+    out = write_fixtures(tmp, ['polcurve_b14_IV_80C_100RH_0o3V_0o2H2_0o2Air_0kPa'])
+    # Declared wins: it carries the number, which derivation cannot recover.
+    rec = build_detail_record(
+        job_id='j', sample_name='260101_S', script='X', timestamp='t',
+        input_files=['run.csv'], output_dir=out, stand='Scribner 2')
+    check('declared stand recorded',
+          build_index_entry(rec, 'b').get('stand'), 'Scribner 2')
+    check_true('and stored on the detail record too', rec.get('stand') == 'Scribner 2')
+    # Blank falls back to deriving the family from the file extensions.
+    rec2 = build_detail_record(
+        job_id='j', sample_name='260101_S', script='X', timestamp='t',
+        input_files=['run.csv'], output_dir=out, stand=None)
+    check('blank derives the family',
+          build_index_entry(rec2, 'b').get('stand'), 'FCTS')
+    # A meaningless value must not be recorded as if it were a stand.
+    rec3 = build_detail_record(
+        job_id='j', sample_name='260101_S', script='X', timestamp='t',
+        input_files=['run.fcd'], output_dir=out, stand='nonsense')
+    check('unrecognised value falls back to derivation',
+          build_index_entry(rec3, 'b').get('stand'), 'Scribner')
 finally:
     shutil.rmtree(tmp)
 

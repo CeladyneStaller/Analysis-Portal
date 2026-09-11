@@ -1183,6 +1183,51 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
     return merged
 
 
+def stand_number(value: Any) -> Optional[int]:
+    """The number after the family, or None for a bare family.
+
+    Distinct from `stand_index`, which is the 0/1 code the analysis scripts
+    parse with and is the same for every stand in a family. Confusing the two
+    is easy: `stand_index('Scribner 1')` is 0 because Scribner files are read
+    one way, not because the stand has no number.
+    """
+    family = stand_family(value)
+    if family is None:
+        return None
+    tail = str(value).strip()[len(family):].strip()
+    return int(tail) if tail.isdigit() else None
+
+
+def better_stand(existing: Any, incoming: Any) -> Optional[str]:
+    """The stand to keep when two entries for one sample disagree.
+
+    A declared stand carries a number; a derived one only ever recovers the
+    family from a file extension, so it is always the bare "Scribner" or
+    "FCTS". Taking the incoming value unconditionally therefore let a push
+    left on Auto-detect quietly demote a run that had been recorded on
+    Scribner 1 — the number was gone and nothing said so. The detail record
+    kept it, but the index is what every view and filter reads.
+
+    So within one family the more specific value wins regardless of which side
+    it came from. Across families the incoming value wins: that is a genuine
+    correction, and refusing it would make a wrong stand unfixable by re-push.
+    """
+    a = str(existing or '').strip()
+    b = str(incoming or '').strip()
+    if not b:
+        return a or None
+    if not a:
+        return b
+    if stand_family(a) and stand_family(a) == stand_family(b):
+        # Same family: keep whichever names a numbered stand.
+        na, nb = stand_number(a), stand_number(b)
+        if nb is not None and na is None:
+            return b
+        if na is not None and nb is None:
+            return a
+    return b
+
+
 def merge_index_entry(existing: Optional[Dict[str, Any]],
                       incoming: Dict[str, Any]) -> Dict[str, Any]:
     """Merge a new run's index entry into a sample's accumulated entry.
@@ -1219,7 +1264,7 @@ def merge_index_entry(existing: Optional[Dict[str, Any]],
         merged['run_date'] = run_date
     else:
         merged.pop('run_date', None)
-    stand = incoming.get('stand') or merged.get('stand')
+    stand = better_stand(merged.get('stand'), incoming.get('stand'))
     if stand:
         merged['stand'] = stand
     else:

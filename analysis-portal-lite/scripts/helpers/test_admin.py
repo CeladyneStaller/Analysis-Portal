@@ -392,6 +392,34 @@ check_true('and both values, so the size of the gap is visible',
 check_true('the group that survives is on name evidence',
            res['groups'][0]['evidence'] in ('name', 'name extension'))
 
+print("stand repair")
+# The index could be demoted to the bare family while the detail record kept
+# the number. This puts it back, and only where that exact demotion happened.
+reset()
+INDEX['runs'][0]['stand'] = 'Scribner'          # B01's record says 'Scribner'
+BINS['B01']['stand'] = 'Scribner 1'
+INDEX['runs'][2]['stand'] = 'FCTS 2'            # already correct
+BINS['B03']['stand'] = 'FCTS 2'
+prev = admin.repair_stands()
+check('finds only the demoted entry', len(prev['repairs']), 1)
+check('naming what the index lost', prev['repairs'][0]['index'], 'Scribner')
+check('and what the record still holds', prev['repairs'][0]['record'], 'Scribner 1')
+check('preview writes nothing', prev['applied'], False)
+check('index untouched by a preview', INDEX['runs'][0]['stand'], 'Scribner')
+
+res = admin.repair_stands(apply=True)
+check('applied', res['applied'], True)
+check('the number is back', INDEX['runs'][0]['stand'], 'Scribner 1')
+check('a correct entry is left alone', INDEX['runs'][2]['stand'], 'FCTS 2')
+check_true('and a backup was taken first', bool(res.get('backup')))
+
+# A genuine disagreement is not this tool's business.
+reset()
+INDEX['runs'][0]['stand'] = 'FCTS 1'
+BINS['B01']['stand'] = 'Scribner 2'
+check('a cross-family disagreement is not "repaired"',
+      len(admin.repair_stands()['repairs']), 0)
+
 print("automatic backup")
 # An offered backup is only as good as the habit of taking it. Every apply
 # takes one first, so the guarantee is that a written change is a recoverable

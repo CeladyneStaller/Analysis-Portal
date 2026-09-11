@@ -671,6 +671,14 @@ async def admin_stand(payload: dict):
                        allow_family_change=bool(payload.get("allow_family_change")))
 
 
+@app.post("/api/admin/repair-stands")
+async def admin_repair_stands(payload: dict):
+    """Restore numbered stands the index lost to a derived family."""
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.repair_stands, apply=bool(payload.get("apply")))
+
+
 @app.post("/api/admin/backup")
 async def admin_backup(payload: dict):
     _require_admin(payload)
