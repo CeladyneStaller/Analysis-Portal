@@ -984,6 +984,62 @@
     white-space: nowrap; text-align: right;
     border-bottom: 1px solid var(--border);
   }
+  /* The analysis filter is a checklist rather than a select: each choice adds
+     a column group, which a single-value control cannot express. */
+  .vf-multi { cursor: pointer; }
+  .vf-multi-val { font-size: 12.5px; color: var(--text); padding: 0 4px 0 2px;
+    white-space: nowrap; }
+  .vf-caret { color: var(--text-dim); font-size: 9px; padding-right: 8px; }
+  .vf-pre.set .vf-multi-val, .vf-pre.set .vf-caret { color: var(--accent); }
+  .vf-colbtn {
+    display: inline-flex; align-items: center; gap: 6px; height: 31px;
+    padding: 0 12px; background: var(--surface-raised);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-dim); font-size: 12.5px; font-family: var(--font);
+    cursor: pointer; white-space: nowrap;
+  }
+  .vf-colbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .vf-colbtn.set { border-color: var(--accent-strong);
+    background: var(--accent-glow); color: var(--accent); }
+
+  .vf-pop {
+    position: absolute; top: 46px; left: 0; z-index: 40;
+    background: var(--surface); border: 1px solid var(--border-hover);
+    border-radius: var(--radius); box-shadow: 0 14px 34px rgba(0,0,0,.45);
+    display: none; min-width: 250px;
+  }
+  .vf-pop.vf-pop-right { left: auto; right: 0; min-width: 300px; }
+  .vf-pop.show { display: block; }
+  .vf-pophead, .vf-popfoot { display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; font-size: 10px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--text-dim); }
+  .vf-pophead { border-bottom: 1px solid var(--border); }
+  .vf-popfoot { border-top: 1px solid var(--border); text-transform: none;
+    letter-spacing: 0; }
+  .vf-popbody { max-height: 330px; overflow: auto; padding: 4px 0; }
+  .vf-opt { display: flex; align-items: center; gap: 9px; padding: 6px 12px;
+    font-size: 12.5px; cursor: pointer; }
+  .vf-opt:hover { background: var(--accent-glow); }
+  .vf-opt.on { color: var(--accent); }
+  .vf-grp { padding: 8px 12px 3px; font-size: 9.5px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--accent); opacity: .75;
+    display: flex; align-items: center; gap: 8px; }
+  .vf-grp .all { margin-left: auto; font-size: 10px; color: var(--text-dim);
+    cursor: pointer; text-transform: none; letter-spacing: 0; }
+  .vf-grp .all:hover { color: var(--accent); }
+  .vf-unit { color: var(--text-dim); font-size: 10px; font-family: var(--mono);
+    margin-left: auto; }
+  .vf-hint { color: var(--text-dim); font-size: 11px; text-transform: none;
+    letter-spacing: 0; }
+
+  /* The band above the metric names says which analysis each group belongs
+     to, and the divider keeps two groups from reading as one run of numbers. */
+  .vr-gband th { font-size: 9px; color: var(--accent); opacity: .85;
+    padding: 7px 12px 4px; background: var(--bg);
+    border-bottom: 1px solid var(--border); text-align: center;
+    letter-spacing: .05em; text-transform: uppercase; }
+  .vr-sep { border-left: 1px solid var(--border) !important; }
+
   .pg-src {
     font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
     padding: 4px 10px; white-space: nowrap; overflow: hidden;
@@ -2508,12 +2564,21 @@
               <option value="">All</option>
             </select>
           </span>
-          <span class="vf-pre" id="vf-analysis-wrap">
+          <span class="vf-pre vf-multi" id="vf-analysis-wrap"
+                onclick="vfTogglePop('vfAnaPop')">
             <span class="vf-pre-label">Analysis</span>
-            <select id="vf-analysis" onchange="applyViewFilters()">
-              <option value="">All</option>
-            </select>
+            <span class="vf-multi-val" id="vf-analysis-val">All</span>
+            <span class="vf-caret">▾</span>
           </span>
+          <div class="vf-pop" id="vfAnaPop">
+            <div class="vf-pophead">Analyses<span class="spacer"></span>
+              <span class="vf-hint" id="vfAnaCount"></span></div>
+            <div class="vf-popbody" id="vfAnaList"></div>
+            <div class="vf-popfoot">
+              <button class="btn btn-sm" onclick="vfSetAllAnalyses(false)">Clear</button>
+              <span class="spacer"></span>
+              <span class="vf-hint">Each adds a column group</span></div>
+          </div>
           <span class="vf-pre" id="vf-stand-wrap">
             <span class="vf-pre-label">Stand</span>
             <select id="vf-stand" onchange="applyViewFilters()">
@@ -2527,6 +2592,19 @@
             <input type="date" id="vf-until" onchange="applyViewFilters()"
                    title="To">
           </span>
+          <span class="spacer"></span>
+          <button class="vf-colbtn" id="vfColBtn" onclick="vfTogglePop('vfColPop')"
+                  title="Choose which metric columns the table shows">
+            ⊞ <span id="vfColBtnLabel">Select data columns</span></button>
+          <div class="vf-pop vf-pop-right" id="vfColPop">
+            <div class="vf-pophead">Data columns<span class="spacer"></span>
+              <span class="vf-hint" id="vfColCount"></span></div>
+            <div class="vf-popbody" id="vfColList"></div>
+            <div class="vf-popfoot">
+              <button class="btn btn-sm" onclick="vfResetCols()">Reset to filter</button>
+              <span class="spacer"></span>
+              <span class="vf-hint" id="vfColState"></span></div>
+          </div>
         </div>
         <div class="vf-chips" id="vfChips"></div>
         <div class="view-meta" id="viewMeta"></div>
@@ -2794,9 +2872,8 @@ async function loadViewRuns(force) {
 
 function populateViewFacets() {
   const scriptSel = document.getElementById('vf-script');
-  const analysisSel = document.getElementById('vf-analysis');
   const standSel = document.getElementById('vf-stand');
-  const keepS = scriptSel.value, keepA = analysisSel.value;
+  const keepS = scriptSel.value;
   const keepT = standSel.value;
   standSel.innerHTML = '<option value="">All stands</option>'
     + (_viewFacets.stands || []).map(t =>
@@ -2805,11 +2882,7 @@ function populateViewFacets() {
   scriptSel.innerHTML = '<option value="">All scripts</option>'
     + _viewFacets.scripts.map(s =>
         `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
-  analysisSel.innerHTML = '<option value="">All types</option>'
-    + _viewFacets.analyses.map(a =>
-        `<option value="${escapeAttr(a)}">${escapeHtml(a)}</option>`).join('');
   scriptSel.value = keepS;
-  analysisSel.value = keepA;
 }
 
 // ── Active-filter chips ─────────────────────────────────────────
@@ -2819,7 +2892,6 @@ function populateViewFacets() {
 const FILTER_FIELDS = [
   ['sample',   'vf-sample',   'name contains', null],
   ['script',   'vf-script',   'script',        'vf-script-wrap'],
-  ['analysis', 'vf-analysis', 'analysis',      'vf-analysis-wrap'],
   ['stand',    'vf-stand',    'stand',         'vf-stand-wrap'],
   ['since',    'vf-since',    'since',         'vf-dates-wrap'],
   ['until',    'vf-until',    'until',         'vf-dates-wrap'],
@@ -2837,6 +2909,8 @@ function clearAllFilters() {
     if (el) el.value = '';
   });
   applyViewFilters();
+  VF_ANALYSES = new Set();
+  VF_COLS = null;
 }
 
 function renderFilterChips(active) {
@@ -2861,17 +2935,175 @@ function renderFilterChips(active) {
       + `${escapeHtml(String(active[key]))}`
       + `<span class="x" title="Remove this filter"`
       + ` onclick="clearFilter('${escapeAttr(id)}')">×</span></span>`);
+  // The analysis filter holds several values and the column override is a
+  // filter on what is shown, so both get chips of their own rather than
+  // living only inside their popovers.
+  [...VF_ANALYSES].forEach(a => chips.push(
+    `<span class="vf-chip"><span class="k">analysis</span>${escapeHtml(a)}`
+    + `<span class="x" title="Remove this filter"`
+    + ` onclick="vfToggleAnalysis('${escapeAttr(a)}')">×</span></span>`));
+  if (VF_COLS) chips.push(
+    `<span class="vf-chip"><span class="k">columns</span>${VF_COLS.size} chosen`
+    + `<span class="x" title="Follow the filter again"`
+    + ` onclick="vfResetCols()">×</span></span>`);
   host.innerHTML = chips.length
     ? chips.join('') + '<button class="vf-clear" onclick="clearAllFilters()">Clear all</button>'
     : '';
   host.classList.toggle('show', chips.length > 0);
 }
 
+// ── metric columns that follow the analysis filter ──────────────
+//
+// The table used to pick its columns from every metric the visible samples
+// hold, so filtering to EIS still showed OCV and j_xover beside the
+// resistances and most cells were blank. Now the filter decides: nothing
+// selected gives the headline metric from each analysis, and each analysis
+// selected contributes its own group.
+const VF_BY_ANALYSIS = {
+  polcurve:  ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'Peak P', 'j @ Peak', 'Tafel'],
+  eis:       ['HFR', 'R_ohm', 'R_ct'],
+  crossover: ['|j_xover|', 'H₂ Flux', 'R_short'],
+  ecsa:      ['Average ECSA', 'Average RF'],
+};
+// Shown flat: with no analysis chosen there is no grouping to express, and a
+// band of one-column groups is a second header row saying nothing.
+const VF_HEADLINE = ['OCV', 'HFR', '|j_xover|', 'Average ECSA', 'Peak P'];
+
+let VF_ANALYSES = new Set();   // the filtered analyses
+let VF_COLS = null;            // an explicit override, or null to follow
+
+const vfAnalysisOf = m =>
+  Object.keys(VF_BY_ANALYSIS).find(a => VF_BY_ANALYSIS[a].includes(m)) || '';
+
+// What the filter implies. This is both what is drawn without an override and
+// the seed the picker opens with, so the two cannot disagree about what
+// "follow the filter" means.
+function vfFilterColumns(rows) {
+  const has = m => rows.some(r => m in sampleMetrics(r));
+  if (!VF_ANALYSES.size) return VF_HEADLINE.filter(has);
+  return [...VF_ANALYSES].flatMap(a => VF_BY_ANALYSIS[a] || []);
+}
+const vfActiveColumns = rows => VF_COLS ? [...VF_COLS] : vfFilterColumns(rows);
+
+// Whatever the columns are, they sit under their own analysis. An override
+// does not change that: choosing HFR and OCV gives two groups, not a flat run
+// of unrelated numbers.
+function vfGrouped(cols) {
+  const out = [];
+  Object.keys(VF_BY_ANALYSIS).forEach(a => {
+    const ms = cols.filter(c => vfAnalysisOf(c) === a);
+    if (ms.length) out.push({ analysis: a, metrics: ms });
+  });
+  const loose = cols.filter(c => !vfAnalysisOf(c));
+  if (loose.length) out.push({ analysis: 'other', metrics: loose });
+  return out;
+}
+
+function vfTogglePop(id) {
+  const el = document.getElementById(id);
+  document.querySelectorAll('.vf-pop').forEach(p => {
+    if (p !== el) p.classList.remove('show');
+  });
+  el.classList.toggle('show');
+}
+document.addEventListener('click', ev => {
+  if (ev.target.closest('.vf-pop') || ev.target.closest('#vf-analysis-wrap')
+      || ev.target.closest('#vfColBtn')) return;
+  document.querySelectorAll('.vf-pop').forEach(p => p.classList.remove('show'));
+});
+function vfToggleAnalysis(a) {
+  VF_ANALYSES.has(a) ? VF_ANALYSES.delete(a) : VF_ANALYSES.add(a);
+  applyViewFilters();
+}
+function vfSetAllAnalyses(on) {
+  VF_ANALYSES = on ? new Set(Object.keys(VF_BY_ANALYSIS)) : new Set();
+  applyViewFilters();
+}
+function vfToggleCol(m) {
+  const cur = new Set(VF_COLS || vfFilterColumns(_vfRows || []));
+  cur.has(m) ? cur.delete(m) : cur.add(m);
+  VF_COLS = cur;
+  applyViewFilters();
+}
+function vfGroupAll(a) {
+  const cur = new Set(VF_COLS || vfFilterColumns(_vfRows || []));
+  const ms = VF_BY_ANALYSIS[a] || [];
+  const all = ms.every(m => cur.has(m));
+  ms.forEach(m => all ? cur.delete(m) : cur.add(m));
+  VF_COLS = cur;
+  applyViewFilters();
+}
+function vfResetCols() { VF_COLS = null; applyViewFilters(); }
+
+// Populated by applyViewFilters so the popovers can seed from the same rows
+// the table is drawing.
+let _vfRows = [];
+
+// Units come from the stored values rather than a table in the page, so a
+// metric gains its unit the moment an analysis starts reporting one.
+function vfUnitOf(rows, metric) {
+  for (const r of rows) {
+    const u = (sampleMetrics(r)[metric] || {}).unit;
+    if (u) return u;
+  }
+  return '';
+}
+
+function vfRenderControls(rows) {
+  const cols = vfActiveColumns(rows);
+  const wrap = document.getElementById('vf-analysis-wrap');
+  if (wrap) wrap.classList.toggle('set', VF_ANALYSES.size > 0);
+  const val = document.getElementById('vf-analysis-val');
+  if (val) val.textContent = !VF_ANALYSES.size ? 'All'
+    : VF_ANALYSES.size === 1 ? [...VF_ANALYSES][0] : `${VF_ANALYSES.size} types`;
+
+  const avail = new Set();
+  rows.forEach(r => allRunAnalyses(r).forEach(a => avail.add(a)));
+  const list = document.getElementById('vfAnaList');
+  if (list) {
+    const names = Object.keys(VF_BY_ANALYSIS)
+      .filter(a => avail.has(a) || VF_ANALYSES.has(a));
+    list.innerHTML = names.length ? names.map(a => `
+      <label class="vf-opt${VF_ANALYSES.has(a) ? ' on' : ''}">
+        <input type="checkbox" ${VF_ANALYSES.has(a) ? 'checked' : ''}
+               onchange="vfToggleAnalysis('${escapeAttr(a)}')">
+        ${escapeHtml(a)}
+        <span class="vf-unit">${(VF_BY_ANALYSIS[a] || []).length}</span></label>`).join('')
+      : '<div class="vf-hint" style="padding:10px 12px">No analyses in view</div>';
+  }
+  const ac = document.getElementById('vfAnaCount');
+  if (ac) ac.textContent = `${VF_ANALYSES.size} selected`;
+
+  const btn = document.getElementById('vfColBtn');
+  if (btn) btn.classList.toggle('set', !!VF_COLS);
+  const lbl = document.getElementById('vfColBtnLabel');
+  if (lbl) lbl.textContent = VF_COLS ? `${cols.length} data columns`
+                                     : 'Select data columns';
+  const cc = document.getElementById('vfColCount');
+  if (cc) cc.textContent = `${cols.length} selected`;
+  const cs = document.getElementById('vfColState');
+  if (cs) cs.textContent = VF_COLS ? 'Overriding the filter'
+                                   : 'Following the filter';
+  const clist = document.getElementById('vfColList');
+  if (clist) {
+    clist.innerHTML = Object.keys(VF_BY_ANALYSIS).map(a => {
+      const ms = VF_BY_ANALYSIS[a];
+      const all = ms.every(m => cols.includes(m));
+      return `<div class="vf-grp">${escapeHtml(a)}
+          <span class="all" onclick="vfGroupAll('${escapeAttr(a)}')">${all ? 'none' : 'all'}</span></div>`
+        + ms.map(m => `<label class="vf-opt${cols.includes(m) ? ' on' : ''}">
+            <input type="checkbox" ${cols.includes(m) ? 'checked' : ''}
+                   onchange="vfToggleCol('${escapeAttr(m)}')">
+            ${escapeHtml(m)}<span class="vf-unit">${escapeHtml(vfUnitOf(rows, m))}</span></label>`).join('');
+    }).join('');
+  }
+}
+
 function applyViewFilters() {
   // Client-side filtering over the already-fetched index — no round trip.
   const sample = document.getElementById('vf-sample').value.trim().toLowerCase();
   const script = document.getElementById('vf-script').value;
-  const analysis = document.getElementById('vf-analysis').value;
+  // Several analyses may be selected; a row qualifies if it holds any of them.
   const stand = document.getElementById('vf-stand').value;
   const since = document.getElementById('vf-since').value;   // yyyy-mm-dd or ''
   const until = document.getElementById('vf-until').value;
@@ -2882,7 +3114,8 @@ function applyViewFilters() {
     if (stand && !standMatches(r.stand, stand)) return false;
     // Unfiltered analysis list — a row qualifies on what it actually holds,
     // not on the narrowed view shown in the table.
-    if (analysis && !allRunAnalyses(r).includes(analysis)) return false;
+    if (VF_ANALYSES.size
+        && !allRunAnalyses(r).some(a => VF_ANALYSES.has(a))) return false;
     // timestamps are ISO Z, so a plain string prefix compare works by date
     if (since && String(r.timestamp || '') < since) return false;
     if (until && String(r.timestamp || '') > until + 'T99') return false;
@@ -2898,7 +3131,9 @@ function applyViewFilters() {
     rows.length === _viewRuns.length
       ? `${_viewRuns.length} run${_viewRuns.length === 1 ? '' : 's'}`
       : `${rows.length} of ${_viewRuns.length} runs`;
-  renderFilterChips({ sample, script, analysis, stand, since, until });
+  _vfRows = rows;
+  vfRenderControls(rows);
+  renderFilterChips({ sample, script, stand, since, until });
   // The Comparisons picker is built from the same index, so it follows a load.
   if (document.getElementById('cmpPick')) cmpRenderPick();
   renderViewRuns(rows);
@@ -2948,10 +3183,15 @@ function allRunAnalyses(run) {
   return Array.from(set).sort();
 }
 
-// The analysis currently being filtered on, or '' for all.
+// The analyses being filtered on. Several may be selected, so callers that
+// narrow a row's display ask whether an analysis is in the set rather than
+// comparing against a single value.
+function activeAnalyses() { return VF_ANALYSES; }
+// Kept for the single-analysis display rule: with exactly one selected a row
+// shows only that analysis, which is what made the narrowed view readable.
+// With several, nothing is narrowed — the groups already say which is which.
 function activeAnalysis() {
-  const el = document.getElementById('vf-analysis');
-  return el ? el.value : '';
+  return VF_ANALYSES.size === 1 ? [...VF_ANALYSES][0] : '';
 }
 
 // What a row should display. With an analysis filter active, every sample
@@ -3133,7 +3373,20 @@ function renderViewRuns(rows) {
     host.innerHTML = '<div class="empty">No runs match these filters</div>';
     return;
   }
-  const cols = metricColumns(rows);
+  // Grouped once there is something to group by. Unfiltered and unoverridden
+  // the headline set is flat, because four one-column groups would be a
+  // second header row saying nothing.
+  const grouped = VF_ANALYSES.size > 0 || !!VF_COLS;
+  const _picked = vfActiveColumns(rows);
+  const groups = grouped ? vfGrouped(_picked)
+                         : [{ analysis: '', metrics: _picked }];
+  // The groups decide the order and the flattened list follows, rather than
+  // both being derived separately: the selection is in the order analyses
+  // were ticked while the groups are in canonical order, so building the
+  // header from one and the cells from the other put every value under the
+  // wrong heading.
+  const cols = groups.flatMap(g => g.metrics);
+  const starts = new Set(groups.slice(1).map(g => g.metrics[0]));
   const ext = {};
   cols.forEach(c => { ext[c] = columnExtremes(rows, c); });
   const sorted = sortRuns(rows);
@@ -3141,8 +3394,9 @@ function renderViewRuns(rows) {
   const body = sorted.map(r => {
     const m = sampleMetrics(r);
     const cells = cols.map(c => {
+      const sep = starts.has(c) ? ' vr-sep' : '';
       const e = m[c];
-      if (!e) return '<td class="num miss">—</td>';
+      if (!e) return `<td class="num miss${sep}">—</td>`;
       const x = ext[c];
       const tone = e.value === x.best ? ' best'
                  : e.value === x.worst ? ' worst' : '';
@@ -3154,7 +3408,7 @@ function renderViewRuns(rows) {
       const title = e.count > 1
         ? `best of ${e.count} steps — from ${e.step || 'unnamed step'}`
         : (e.step ? `step ${e.step}` : '');
-      return `<td class="num${tone}" title="${escapeAttr(title)}">`
+      return `<td class="num${tone}${sep}" title="${escapeAttr(title)}">`
            + `${escapeHtml(fmtNum(e.value))}${many}</td>`;
     }).join('');
     return `<tr class="run-row" data-job="${escapeAttr(runKey(r))}"
@@ -3173,12 +3427,19 @@ function renderViewRuns(rows) {
          onclick="setSort('${escapeAttr(k)}')">${escapeHtml(label)}`
     + `<span class="car">${caret(k)}</span></th>`;
 
+  const band = grouped ? `<tr class="vr-gband">
+      <th colspan="4"></th>
+      ${groups.map((g, gi) => `<th colspan="${g.metrics.length}"`
+        + `${gi ? ' class="vr-sep"' : ''}>${escapeHtml(g.analysis)}</th>`).join('')}
+    </tr>` : '';
+
   host.innerHTML = `<table class="runs-table">
-    <thead><tr>
+    <thead>${band}<tr>
       ${sortable('sample', 'Sample')}
       ${sortable('date', 'Run date')}
       <th>Stand</th><th>Analyses</th>
-      ${cols.map(c => sortable(c, c, 'num')).join('')}
+      ${groups.map(g => g.metrics.map(c =>
+          sortable(c, c, 'num' + (starts.has(c) ? ' vr-sep' : ''))).join('')).join('')}
     </tr></thead>
     <tbody>${body}</tbody>
   </table>`;
@@ -6648,6 +6909,9 @@ async function admStandPreview() {
   const apply = document.getElementById('admApply');
   ADM_STATE.stand = null; apply.disabled = true;
   if (!keys.length) {
+    // Reports what it counted rather than asserting nothing is ticked: a
+    // message that flatly contradicts the checkboxes on screen is the hardest
+    // kind of bug to report, because it gives nothing to go on.
     // Reports what it counted rather than asserting nothing is ticked: a
     // message that flatly contradicts the checkboxes on screen is the hardest
     // kind of bug to report, because it gives nothing to go on.
