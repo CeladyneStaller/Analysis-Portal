@@ -1002,8 +1002,18 @@
   .vf-colbtn.set { border-color: var(--accent-strong);
     background: var(--accent-glow); color: var(--accent); }
 
+  /* Each menu is anchored to its own trigger. Absolutely positioned with no
+     positioned ancestor, they resolved against the page, so where they landed
+     depended on how far the page happened to be scrolled. */
+  /* .section clips its children so the rounded corners hold, which also cut
+     off any menu opened inside it. Lifted only on the card that has menus,
+     rather than globally where every other card relies on it. */
+  .section.section-menus { overflow: visible; }
+  .section.section-menus .section-body { overflow: visible; }
+
+  .vf-anchor { position: relative; display: inline-flex; }
   .vf-pop {
-    position: absolute; top: 46px; left: 0; z-index: 40;
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
     background: var(--surface); border: 1px solid var(--border-hover);
     border-radius: var(--radius); box-shadow: 0 14px 34px rgba(0,0,0,.45);
     display: none; min-width: 250px;
@@ -2544,7 +2554,7 @@
 
   <!-- ─── View tab ───────────────────────────── -->
   <div class="tabview" id="view-view">
-    <div class="section">
+    <div class="section section-menus">
       <div class="section-head">
         Analysis History
         <span class="count" id="viewCount">0</span>
@@ -2564,12 +2574,13 @@
               <option value="">All</option>
             </select>
           </span>
-          <span class="vf-pre vf-multi" id="vf-analysis-wrap"
-                onclick="vfTogglePop('vfAnaPop')">
-            <span class="vf-pre-label">Analysis</span>
-            <span class="vf-multi-val" id="vf-analysis-val">All</span>
-            <span class="vf-caret">▾</span>
-          </span>
+          <span class="vf-anchor">
+            <span class="vf-pre vf-multi" id="vf-analysis-wrap"
+                  onclick="vfTogglePop('vfAnaPop')">
+              <span class="vf-pre-label">Analysis</span>
+              <span class="vf-multi-val" id="vf-analysis-val">All</span>
+              <span class="vf-caret">▾</span>
+            </span>
           <div class="vf-pop" id="vfAnaPop">
             <div class="vf-pophead">Analyses<span class="spacer"></span>
               <span class="vf-hint" id="vfAnaCount"></span></div>
@@ -2579,6 +2590,7 @@
               <span class="spacer"></span>
               <span class="vf-hint">Each adds a column group</span></div>
           </div>
+          </span>
           <span class="vf-pre" id="vf-stand-wrap">
             <span class="vf-pre-label">Stand</span>
             <select id="vf-stand" onchange="applyViewFilters()">
@@ -2593,6 +2605,7 @@
                    title="To">
           </span>
           <span class="spacer"></span>
+          <span class="vf-anchor">
           <button class="vf-colbtn" id="vfColBtn" onclick="vfTogglePop('vfColPop')"
                   title="Choose which metric columns the table shows">
             ⊞ <span id="vfColBtnLabel">Select data columns</span></button>
@@ -2605,6 +2618,7 @@
               <span class="spacer"></span>
               <span class="vf-hint" id="vfColState"></span></div>
           </div>
+          </span>
         </div>
         <div class="vf-chips" id="vfChips"></div>
         <div class="view-meta" id="viewMeta"></div>
@@ -2959,44 +2973,87 @@ function renderFilterChips(active) {
 // resistances and most cells were blank. Now the filter decides: nothing
 // selected gives the headline metric from each analysis, and each analysis
 // selected contributes its own group.
-const VF_BY_ANALYSIS = {
-  polcurve:  ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'Peak P', 'j @ Peak', 'Tafel'],
-  eis:       ['HFR', 'R_ohm', 'R_ct'],
-  crossover: ['|j_xover|', 'H₂ Flux', 'R_short'],
-  ecsa:      ['Average ECSA', 'Average RF'],
+// Which analysis reports which metric, read from the index rather than
+// declared here. A hardcoded map goes stale the moment a script starts
+// reporting something new, and offers columns that no stored run can fill.
+// Within an analysis the canonical order wins and anything unrecognised
+// follows alphabetically, so a new metric appears rather than being invisible.
+const VF_ANALYSIS_ORDER = ['polcurve', 'eis', 'crossover', 'ecsa'];
+
+function vfCatalog(rows) {
+  const out = {};
+  rows.forEach(r => (r.Data || []).forEach(d => {
+    const a = String(d.Analysis || '');
+    if (!a) return;
+    Object.entries(d.key_values || {}).forEach(([raw, v]) => {
+      if (typeof v !== 'number' || !isFinite(v)) return;
+      (out[a] || (out[a] = new Set())).add(canonMetric(raw));
+    });
+  }));
+  const rank = n => {
+    const i = COLUMN_ORDER.indexOf(n);
+    return i < 0 ? COLUMN_ORDER.length : i;
+  };
+  const cat = {};
+  Object.keys(out)
+    .sort((a, b) => {
+      const ia = VF_ANALYSIS_ORDER.indexOf(a), ib = VF_ANALYSIS_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    })
+    .forEach(a => {
+      cat[a] = [...out[a]].sort((x, y) => rank(x) - rank(y) || x.localeCompare(y));
+    });
+  return cat;
+}
+
+// A column is an analysis and a metric together, since the name alone does not
+// identify one.
+const vfColId = (a, m) => a + '\u241f' + m;
+const vfColParts = id => {
+  const i = String(id).indexOf('\u241f');
+  // A plain string is a bare metric or a non-metric key like 'sample'.
+  return i < 0 ? { analysis: '', metric: String(id) }
+               : { analysis: id.slice(0, i), metric: id.slice(i + 1) };
 };
-// Shown flat: with no analysis chosen there is no grouping to express, and a
-// band of one-column groups is a second header row saying nothing.
-const VF_HEADLINE = ['OCV', 'HFR', '|j_xover|', 'Average ECSA', 'Peak P'];
 
 let VF_ANALYSES = new Set();   // the filtered analyses
 let VF_COLS = null;            // an explicit override, or null to follow
 
-const vfAnalysisOf = m =>
-  Object.keys(VF_BY_ANALYSIS).find(a => VF_BY_ANALYSIS[a].includes(m)) || '';
-
-// What the filter implies. This is both what is drawn without an override and
-// the seed the picker opens with, so the two cannot disagree about what
-// "follow the filter" means.
+// What the filter implies, as column ids. This is both what is drawn without
+// an override and the seed the picker opens with, so the two cannot disagree
+// about what "follow the filter" means.
 function vfFilterColumns(rows) {
-  const has = m => rows.some(r => m in sampleMetrics(r));
-  if (!VF_ANALYSES.size) return VF_HEADLINE.filter(has);
-  return [...VF_ANALYSES].flatMap(a => VF_BY_ANALYSIS[a] || []);
+  const cat = vfCatalog(rows);
+  if (!VF_ANALYSES.size) {
+    // One headline per analysis: the first metric of each in canonical order,
+    // which is the number you would want first from that analysis. Derived,
+    // so an analysis the index has never seen contributes nothing and a new
+    // one appears on its own.
+    return Object.keys(cat).map(a => vfColId(a, cat[a][0])).filter(Boolean);
+  }
+  return [...VF_ANALYSES]
+    .filter(a => cat[a])
+    .flatMap(a => cat[a].map(m => vfColId(a, m)));
 }
 const vfActiveColumns = rows => VF_COLS ? [...VF_COLS] : vfFilterColumns(rows);
 
-// Whatever the columns are, they sit under their own analysis. An override
-// does not change that: choosing HFR and OCV gives two groups, not a flat run
-// of unrelated numbers.
+// Columns sit under the analysis they came from. An override does not change
+// that: choosing EIS's HFR and the polarization curve's OCV gives two groups,
+// not a flat run of unrelated numbers.
 function vfGrouped(cols) {
-  const out = [];
-  Object.keys(VF_BY_ANALYSIS).forEach(a => {
-    const ms = cols.filter(c => vfAnalysisOf(c) === a);
-    if (ms.length) out.push({ analysis: a, metrics: ms });
+  const seen = [];
+  cols.forEach(id => {
+    const { analysis } = vfColParts(id);
+    if (!seen.includes(analysis)) seen.push(analysis);
   });
-  const loose = cols.filter(c => !vfAnalysisOf(c));
-  if (loose.length) out.push({ analysis: 'other', metrics: loose });
-  return out;
+  seen.sort((a, b) => {
+    const ia = VF_ANALYSIS_ORDER.indexOf(a), ib = VF_ANALYSIS_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+  return seen.map(a => ({
+    analysis: a,
+    metrics: cols.filter(id => vfColParts(id).analysis === a),
+  }));
 }
 
 function vfTogglePop(id) {
@@ -3016,20 +3073,20 @@ function vfToggleAnalysis(a) {
   applyViewFilters();
 }
 function vfSetAllAnalyses(on) {
-  VF_ANALYSES = on ? new Set(Object.keys(VF_BY_ANALYSIS)) : new Set();
+  VF_ANALYSES = on ? new Set(Object.keys(vfCatalog(_vfRows || []))) : new Set();
   applyViewFilters();
 }
-function vfToggleCol(m) {
+function vfToggleCol(id) {
   const cur = new Set(VF_COLS || vfFilterColumns(_vfRows || []));
-  cur.has(m) ? cur.delete(m) : cur.add(m);
+  cur.has(id) ? cur.delete(id) : cur.add(id);
   VF_COLS = cur;
   applyViewFilters();
 }
 function vfGroupAll(a) {
   const cur = new Set(VF_COLS || vfFilterColumns(_vfRows || []));
-  const ms = VF_BY_ANALYSIS[a] || [];
-  const all = ms.every(m => cur.has(m));
-  ms.forEach(m => all ? cur.delete(m) : cur.add(m));
+  const ids = (vfCatalog(_vfRows || [])[a] || []).map(m => vfColId(a, m));
+  const all = ids.every(id => cur.has(id));
+  ids.forEach(id => all ? cur.delete(id) : cur.add(id));
   VF_COLS = cur;
   applyViewFilters();
 }
@@ -3041,9 +3098,9 @@ let _vfRows = [];
 
 // Units come from the stored values rather than a table in the page, so a
 // metric gains its unit the moment an analysis starts reporting one.
-function vfUnitOf(rows, metric) {
+function vfUnitOf(rows, analysis, metric) {
   for (const r of rows) {
-    const u = (sampleMetrics(r)[metric] || {}).unit;
+    const u = (sampleMetrics(r, analysis)[metric] || {}).unit;
     if (u) return u;
   }
   return '';
@@ -3057,18 +3114,18 @@ function vfRenderControls(rows) {
   if (val) val.textContent = !VF_ANALYSES.size ? 'All'
     : VF_ANALYSES.size === 1 ? [...VF_ANALYSES][0] : `${VF_ANALYSES.size} types`;
 
-  const avail = new Set();
-  rows.forEach(r => allRunAnalyses(r).forEach(a => avail.add(a)));
+  // Both menus are built from what the index holds, so neither offers a
+  // choice that would come back empty.
+  const cat = vfCatalog(rows);
   const list = document.getElementById('vfAnaList');
   if (list) {
-    const names = Object.keys(VF_BY_ANALYSIS)
-      .filter(a => avail.has(a) || VF_ANALYSES.has(a));
+    const names = [...new Set([...Object.keys(cat), ...VF_ANALYSES])];
     list.innerHTML = names.length ? names.map(a => `
       <label class="vf-opt${VF_ANALYSES.has(a) ? ' on' : ''}">
         <input type="checkbox" ${VF_ANALYSES.has(a) ? 'checked' : ''}
                onchange="vfToggleAnalysis('${escapeAttr(a)}')">
         ${escapeHtml(a)}
-        <span class="vf-unit">${(VF_BY_ANALYSIS[a] || []).length}</span></label>`).join('')
+        <span class="vf-unit">${(cat[a] || []).length}</span></label>`).join('')
       : '<div class="vf-hint" style="padding:10px 12px">No analyses in view</div>';
   }
   const ac = document.getElementById('vfAnaCount');
@@ -3086,16 +3143,21 @@ function vfRenderControls(rows) {
                                    : 'Following the filter';
   const clist = document.getElementById('vfColList');
   if (clist) {
-    clist.innerHTML = Object.keys(VF_BY_ANALYSIS).map(a => {
-      const ms = VF_BY_ANALYSIS[a];
-      const all = ms.every(m => cols.includes(m));
+    const names = Object.keys(cat);
+    clist.innerHTML = names.length ? names.map(a => {
+      const ids = cat[a].map(m => vfColId(a, m));
+      const all = ids.every(id => cols.includes(id));
       return `<div class="vf-grp">${escapeHtml(a)}
           <span class="all" onclick="vfGroupAll('${escapeAttr(a)}')">${all ? 'none' : 'all'}</span></div>`
-        + ms.map(m => `<label class="vf-opt${cols.includes(m) ? ' on' : ''}">
-            <input type="checkbox" ${cols.includes(m) ? 'checked' : ''}
-                   onchange="vfToggleCol('${escapeAttr(m)}')">
-            ${escapeHtml(m)}<span class="vf-unit">${escapeHtml(vfUnitOf(rows, m))}</span></label>`).join('');
-    }).join('');
+        + cat[a].map(m => {
+            const id = vfColId(a, m);
+            return `<label class="vf-opt${cols.includes(id) ? ' on' : ''}">
+              <input type="checkbox" ${cols.includes(id) ? 'checked' : ''}
+                     onchange="vfToggleCol('${escapeAttr(id)}')">
+              ${escapeHtml(m)}<span class="vf-unit">${escapeHtml(vfUnitOf(rows, a, m))}</span></label>`;
+          }).join('');
+    }).join('')
+    : '<div class="vf-hint" style="padding:10px 12px">No metrics in view</div>';
   }
 }
 
@@ -3273,9 +3335,13 @@ const MAX_METRIC_COLUMNS = 5;
 let _sortKey = null, _sortDir = -1;
 
 // {metric: {value, step, count}} — best per metric across the sample's units.
-function sampleMetrics(run) {
+function sampleMetrics(run, analysis) {
   const out = {};
-  (run.Data || []).forEach(d => {
+  // Scoped when an analysis is named, because a metric name is not unique:
+  // HFR is reported by both the polarization curve and EIS, and under the EIS
+  // heading it has to be the EIS one rather than whichever the sample-wide
+  // reduction happened to pick.
+  (run.Data || []).filter(d => !analysis || d.Analysis === analysis).forEach(d => {
     Object.entries(d.key_values || {}).forEach(([raw, v]) => {
       if (typeof v !== 'number' || !isFinite(v)) return;
       const name = canonMetric(raw);
@@ -3304,8 +3370,8 @@ function metricColumns(rows) {
 
 // Tint only the extremes of a column, so colour marks an outlier rather than
 // decorating every cell.
-function columnExtremes(rows, metric) {
-  const vals = rows.map(r => (sampleMetrics(r)[metric] || {}).value)
+function columnExtremes(rows, metric, analysis) {
+  const vals = rows.map(r => (sampleMetrics(r, analysis)[metric] || {}).value)
                    .filter(v => typeof v === 'number');
   if (vals.length < 2) return {};
   const dir = METRIC_DIR[metric] || 1;
@@ -3343,8 +3409,13 @@ function sortRuns(rows) {
       return String(a.run_date || a.timestamp || '')
         .localeCompare(String(b.run_date || b.timestamp || '')) * _sortDir;
     }
-    const av = (sampleMetrics(a)[_sortKey] || {}).value;
-    const bv = (sampleMetrics(b)[_sortKey] || {}).value;
+    // The sort key is a column id, so it names the analysis too — sorting by
+    // the EIS HFR column must not fall back to the polarization curve's.
+    const k = vfColParts(_sortKey);
+    const scope = k.analysis || undefined;
+    const name = k.analysis ? k.metric : _sortKey;
+    const av = (sampleMetrics(a, scope)[name] || {}).value;
+    const bv = (sampleMetrics(b, scope)[name] || {}).value;
     // A sample missing the metric sorts last either way — it is absent, not
     // worst, and burying it under the worst values would misread as a result.
     if (av == null && bv == null) return 0;
@@ -3387,15 +3458,24 @@ function renderViewRuns(rows) {
   // wrong heading.
   const cols = groups.flatMap(g => g.metrics);
   const starts = new Set(groups.slice(1).map(g => g.metrics[0]));
+  // A column id carries its analysis, so the cell reads that analysis's value
+  // rather than the sample-wide best. Under the EIS heading HFR is the EIS
+  // HFR, even though the polarization curve reports one too.
+  const colInfo = {};
+  cols.forEach(id => { colInfo[id] = vfColParts(id); });
   const ext = {};
-  cols.forEach(c => { ext[c] = columnExtremes(rows, c); });
+  cols.forEach(c => { ext[c] = columnExtremes(rows, colInfo[c].metric,
+                                               colInfo[c].analysis); });
   const sorted = sortRuns(rows);
 
   const body = sorted.map(r => {
-    const m = sampleMetrics(r);
+    const scoped = {};
     const cells = cols.map(c => {
       const sep = starts.has(c) ? ' vr-sep' : '';
-      const e = m[c];
+      const { analysis, metric } = colInfo[c];
+      const m = scoped[analysis]
+        || (scoped[analysis] = sampleMetrics(r, analysis || undefined));
+      const e = m[metric];
       if (!e) return `<td class="num miss${sep}">—</td>`;
       const x = ext[c];
       const tone = e.value === x.best ? ' best'
@@ -3439,7 +3519,8 @@ function renderViewRuns(rows) {
       ${sortable('date', 'Run date')}
       <th>Stand</th><th>Analyses</th>
       ${groups.map(g => g.metrics.map(c =>
-          sortable(c, c, 'num' + (starts.has(c) ? ' vr-sep' : ''))).join('')).join('')}
+          sortable(c, colInfo[c].metric,
+                   'num' + (starts.has(c) ? ' vr-sep' : ''))).join('')).join('')}
     </tr></thead>
     <tbody>${body}</tbody>
   </table>`;
