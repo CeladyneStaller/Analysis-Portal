@@ -1011,6 +1011,14 @@
   .section.section-menus { overflow: visible; }
   .section.section-menus .section-body { overflow: visible; }
 
+  .vr-gtitle { cursor: pointer; border-bottom: 1px dashed transparent;
+    padding-bottom: 1px; }
+  .vr-gtitle:hover { border-bottom-color: var(--accent); }
+  .vr-gsteps { font-size: 8.5px; opacity: .65; font-family: var(--mono);
+    letter-spacing: 0; }
+  .vr-gtitle.set { color: var(--accent); }
+  .vr-gtitle.set .vr-gsteps { opacity: 1; }
+
   .vf-anchor { position: relative; display: inline-flex; }
   .vf-pop {
     position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
@@ -2620,6 +2628,7 @@
           </div>
           </span>
         </div>
+        <div class="vf-pop" id="vfStepPop"></div>
         <div class="vf-chips" id="vfChips"></div>
         <div class="view-meta" id="viewMeta"></div>
         <div id="viewRunsHost">
@@ -2925,6 +2934,7 @@ function clearAllFilters() {
   applyViewFilters();
   VF_ANALYSES = new Set();
   VF_COLS = null;
+  VF_STEPS = {};
 }
 
 function renderFilterChips(active) {
@@ -2956,6 +2966,13 @@ function renderFilterChips(active) {
     `<span class="vf-chip"><span class="k">analysis</span>${escapeHtml(a)}`
     + `<span class="x" title="Remove this filter"`
     + ` onclick="vfToggleAnalysis('${escapeAttr(a)}')">×</span></span>`));
+  Object.keys(VF_STEPS).forEach(a => {
+    const n = VF_STEPS[a].size;
+    chips.push(`<span class="vf-chip"><span class="k">${escapeHtml(a)} steps</span>`
+      + `${n} of ${vfStepsFor(_vfRows || [], a).length}`
+      + `<span class="x" title="Use every step again"`
+      + ` onclick="vfClearSteps('${escapeAttr(a)}')">×</span></span>`);
+  });
   if (VF_COLS) chips.push(
     `<span class="vf-chip"><span class="k">columns</span>${VF_COLS.size} chosen`
     + `<span class="x" title="Follow the filter again"`
@@ -3005,6 +3022,37 @@ function vfCatalog(rows) {
     });
   return cat;
 }
+
+// Which steps feed each analysis group. Absent or empty means every step,
+// which is the default and what the table did before.
+let VF_STEPS = {};
+
+// The steps an analysis actually has in the visible rows, so the menu never
+// offers one that would empty the column.
+function vfStepsFor(rows, analysis) {
+  const out = new Set();
+  rows.forEach(r => (r.Data || []).forEach(d => {
+    if (String(d.Analysis || '') !== analysis) return;
+    out.add(String(d.step || ''));
+  }));
+  return [...out].sort();
+}
+const vfStepScope = a => {
+  const s = VF_STEPS[a];
+  return (s && s.size) ? s : null;
+};
+function vfToggleStep(a, step) {
+  const all = vfStepsFor(_vfRows || [], a);
+  const cur = new Set(VF_STEPS[a] && VF_STEPS[a].size ? VF_STEPS[a] : all);
+  cur.has(step) ? cur.delete(step) : cur.add(step);
+  // Back to "every step" rather than an empty column when the last one goes,
+  // and when everything is ticked, so the chip does not claim a filter that
+  // changes nothing.
+  if (!cur.size || cur.size === all.length) delete VF_STEPS[a];
+  else VF_STEPS[a] = cur;
+  applyViewFilters();
+}
+function vfClearSteps(a) { delete VF_STEPS[a]; applyViewFilters(); }
 
 // A column is an analysis and a metric together, since the name alone does not
 // identify one.
@@ -3056,6 +3104,54 @@ function vfGrouped(cols) {
   }));
 }
 
+// One popover reused by every group title, placed under whichever was
+// clicked. Rendering one per heading would put a hidden menu inside every
+// table header and rebuild them all on each redraw.
+let VF_STEP_POP_FOR = null;
+
+function vfToggleStepPop(ev, analysis) {
+  ev.stopPropagation();
+  const pop = document.getElementById('vfStepPop');
+  if (!pop) return;
+  if (VF_STEP_POP_FOR === analysis && pop.classList.contains('show')) {
+    pop.classList.remove('show'); VF_STEP_POP_FOR = null; return;
+  }
+  document.querySelectorAll('.vf-pop').forEach(p => p.classList.remove('show'));
+  VF_STEP_POP_FOR = analysis;
+  vfRenderStepPop();
+  pop.classList.add('show');
+
+  // Positioned against the filter bar, which is the popover's offset parent,
+  // so the menu lands under the heading wherever the table has scrolled it.
+  const th = ev.currentTarget.getBoundingClientRect();
+  const host = pop.offsetParent.getBoundingClientRect();
+  pop.style.left = Math.max(0, Math.min(th.left - host.left,
+    host.width - pop.offsetWidth - 4)) + 'px';
+  pop.style.top = (th.bottom - host.top + 6) + 'px';
+}
+
+function vfRenderStepPop() {
+  const a = VF_STEP_POP_FOR;
+  const pop = document.getElementById('vfStepPop');
+  if (!pop || !a) return;
+  const all = vfStepsFor(_vfRows || [], a);
+  const sel = VF_STEPS[a];
+  const on = st => !sel || !sel.size || sel.has(st);
+  pop.innerHTML = `
+    <div class="vf-pophead">${escapeHtml(a)} steps<span class="spacer"></span>
+      <span class="vf-hint">${sel && sel.size ? sel.size : all.length} of ${all.length}</span></div>
+    <div class="vf-popbody">
+      ${all.map(st => `<label class="vf-opt${on(st) ? ' on' : ''}">
+        <input type="checkbox" ${on(st) ? 'checked' : ''}
+               onchange="vfToggleStep('${escapeAttr(a)}','${escapeAttr(st)}')">
+        ${escapeHtml(st || '(no step)')}</label>`).join('')}
+    </div>
+    <div class="vf-popfoot">
+      <button class="btn btn-sm" onclick="vfClearSteps('${escapeAttr(a)}')">All steps</button>
+      <span class="spacer"></span>
+      <span class="vf-hint">Each cell is the best of these</span></div>`;
+}
+
 function vfTogglePop(id) {
   const el = document.getElementById(id);
   document.querySelectorAll('.vf-pop').forEach(p => {
@@ -3065,8 +3161,9 @@ function vfTogglePop(id) {
 }
 document.addEventListener('click', ev => {
   if (ev.target.closest('.vf-pop') || ev.target.closest('#vf-analysis-wrap')
-      || ev.target.closest('#vfColBtn')) return;
+      || ev.target.closest('#vfColBtn') || ev.target.closest('.vr-gtitle')) return;
   document.querySelectorAll('.vf-pop').forEach(p => p.classList.remove('show'));
+  VF_STEP_POP_FOR = null;
 });
 function vfToggleAnalysis(a) {
   VF_ANALYSES.has(a) ? VF_ANALYSES.delete(a) : VF_ANALYSES.add(a);
@@ -3195,6 +3292,7 @@ function applyViewFilters() {
       : `${rows.length} of ${_viewRuns.length} runs`;
   _vfRows = rows;
   vfRenderControls(rows);
+  if (VF_STEP_POP_FOR) vfRenderStepPop();
   renderFilterChips({ sample, script, stand, since, until });
   // The Comparisons picker is built from the same index, so it follows a load.
   if (document.getElementById('cmpPick')) cmpRenderPick();
@@ -3335,13 +3433,21 @@ const MAX_METRIC_COLUMNS = 5;
 let _sortKey = null, _sortDir = -1;
 
 // {metric: {value, step, count}} — best per metric across the sample's units.
-function sampleMetrics(run, analysis) {
+function sampleMetrics(run, analysis, steps) {
   const out = {};
   // Scoped when an analysis is named, because a metric name is not unique:
   // HFR is reported by both the polarization curve and EIS, and under the EIS
   // heading it has to be the EIS one rather than whichever the sample-wide
   // reduction happened to pick.
-  (run.Data || []).filter(d => !analysis || d.Analysis === analysis).forEach(d => {
+  //
+  // `steps` narrows it further. Each cell is the best across a sample's steps,
+  // so which steps are in the running decides the number — a break-in step and
+  // a settled one are not the same measurement, and letting the best of the
+  // two stand for the sample hides that.
+  (run.Data || [])
+    .filter(d => !analysis || d.Analysis === analysis)
+    .filter(d => !steps || !steps.size || steps.has(String(d.step || '')))
+    .forEach(d => {
     Object.entries(d.key_values || {}).forEach(([raw, v]) => {
       if (typeof v !== 'number' || !isFinite(v)) return;
       const name = canonMetric(raw);
@@ -3370,8 +3476,8 @@ function metricColumns(rows) {
 
 // Tint only the extremes of a column, so colour marks an outlier rather than
 // decorating every cell.
-function columnExtremes(rows, metric, analysis) {
-  const vals = rows.map(r => (sampleMetrics(r, analysis)[metric] || {}).value)
+function columnExtremes(rows, metric, analysis, steps) {
+  const vals = rows.map(r => (sampleMetrics(r, analysis, steps)[metric] || {}).value)
                    .filter(v => typeof v === 'number');
   if (vals.length < 2) return {};
   const dir = METRIC_DIR[metric] || 1;
@@ -3414,8 +3520,9 @@ function sortRuns(rows) {
     const k = vfColParts(_sortKey);
     const scope = k.analysis || undefined;
     const name = k.analysis ? k.metric : _sortKey;
-    const av = (sampleMetrics(a, scope)[name] || {}).value;
-    const bv = (sampleMetrics(b, scope)[name] || {}).value;
+    const st = vfStepScope(k.analysis);
+    const av = (sampleMetrics(a, scope, st)[name] || {}).value;
+    const bv = (sampleMetrics(b, scope, st)[name] || {}).value;
     // A sample missing the metric sorts last either way — it is absent, not
     // worst, and burying it under the worst values would misread as a result.
     if (av == null && bv == null) return 0;
@@ -3465,7 +3572,8 @@ function renderViewRuns(rows) {
   cols.forEach(id => { colInfo[id] = vfColParts(id); });
   const ext = {};
   cols.forEach(c => { ext[c] = columnExtremes(rows, colInfo[c].metric,
-                                               colInfo[c].analysis); });
+                                               colInfo[c].analysis,
+                                               vfStepScope(colInfo[c].analysis)); });
   const sorted = sortRuns(rows);
 
   const body = sorted.map(r => {
@@ -3474,7 +3582,8 @@ function renderViewRuns(rows) {
       const sep = starts.has(c) ? ' vr-sep' : '';
       const { analysis, metric } = colInfo[c];
       const m = scoped[analysis]
-        || (scoped[analysis] = sampleMetrics(r, analysis || undefined));
+        || (scoped[analysis] = sampleMetrics(r, analysis || undefined,
+                                             vfStepScope(analysis)));
       const e = m[metric];
       if (!e) return `<td class="num miss${sep}">—</td>`;
       const x = ext[c];
@@ -3507,10 +3616,23 @@ function renderViewRuns(rows) {
          onclick="setSort('${escapeAttr(k)}')">${escapeHtml(label)}`
     + `<span class="car">${caret(k)}</span></th>`;
 
+  // The group title is where the step scope belongs: it is the heading over
+  // exactly the columns the scope changes.
   const band = grouped ? `<tr class="vr-gband">
       <th colspan="4"></th>
-      ${groups.map((g, gi) => `<th colspan="${g.metrics.length}"`
-        + `${gi ? ' class="vr-sep"' : ''}>${escapeHtml(g.analysis)}</th>`).join('')}
+      ${groups.map((g, gi) => {
+        const all = vfStepsFor(rows, g.analysis);
+        const sel = VF_STEPS[g.analysis];
+        const n = sel && sel.size ? sel.size : all.length;
+        return `<th colspan="${g.metrics.length}"`
+          + `${gi ? ' class="vr-sep"' : ''}>`
+          + `<span class="vr-gtitle${sel && sel.size ? ' set' : ''}"`
+          + ` onclick="vfToggleStepPop(event,'${escapeAttr(g.analysis)}')"`
+          + ` title="Choose which steps these numbers come from">`
+          + `${escapeHtml(g.analysis)}`
+          + (all.length > 1 ? ` <span class="vr-gsteps">${n} of ${all.length} steps ▾</span>` : '')
+          + '</span></th>';
+      }).join('')}
     </tr>` : '';
 
   host.innerHTML = `<table class="runs-table">
