@@ -3037,22 +3037,25 @@ function vfStepsFor(rows, analysis) {
   }));
   return [...out].sort();
 }
-const vfStepScope = a => {
-  const s = VF_STEPS[a];
-  return (s && s.size) ? s : null;
-};
+// Absent means every step. A set means exactly those, and an empty set means
+// none — which is a real state to be in halfway through "deselect all, then
+// tick the one I want", so it is kept rather than snapped back to all.
+const vfStepScope = a => VF_STEPS[a] || null;
+
 function vfToggleStep(a, step) {
   const all = vfStepsFor(_vfRows || [], a);
-  const cur = new Set(VF_STEPS[a] && VF_STEPS[a].size ? VF_STEPS[a] : all);
+  const cur = new Set(VF_STEPS[a] || all);
   cur.has(step) ? cur.delete(step) : cur.add(step);
-  // Back to "every step" rather than an empty column when the last one goes,
-  // and when everything is ticked, so the chip does not claim a filter that
-  // changes nothing.
-  if (!cur.size || cur.size === all.length) delete VF_STEPS[a];
+  // Ticking the last missing step is the same as not filtering, so the scope
+  // drops out and its chip with it rather than claiming a filter that changes
+  // nothing.
+  if (cur.size === all.length) delete VF_STEPS[a];
   else VF_STEPS[a] = cur;
+  vfSyncStepPop();
   applyViewFilters();
 }
-function vfClearSteps(a) { delete VF_STEPS[a]; applyViewFilters(); }
+function vfClearSteps(a) { delete VF_STEPS[a]; vfSyncStepPop(); applyViewFilters(); }
+function vfNoSteps(a) { VF_STEPS[a] = new Set(); vfSyncStepPop(); applyViewFilters(); }
 
 // A column is an analysis and a metric together, since the name alone does not
 // identify one.
@@ -3130,26 +3133,54 @@ function vfToggleStepPop(ev, analysis) {
   pop.style.top = (th.bottom - host.top + 6) + 'px';
 }
 
+const vfStepOn = (a, st) => { const sel = VF_STEPS[a]; return !sel || sel.has(st); };
+
+// Rebuilt only when the list of steps itself changes. Rebuilding on every tick
+// replaced the scrolled body with a fresh one, so the menu jumped back to the
+// top each time a box was clicked — unusable with more than a handful of
+// steps.
 function vfRenderStepPop() {
   const a = VF_STEP_POP_FOR;
   const pop = document.getElementById('vfStepPop');
   if (!pop || !a) return;
   const all = vfStepsFor(_vfRows || [], a);
-  const sel = VF_STEPS[a];
-  const on = st => !sel || !sel.size || sel.has(st);
+  pop.dataset.steps = all.join('\u241f');
   pop.innerHTML = `
     <div class="vf-pophead">${escapeHtml(a)} steps<span class="spacer"></span>
-      <span class="vf-hint">${sel && sel.size ? sel.size : all.length} of ${all.length}</span></div>
-    <div class="vf-popbody">
-      ${all.map(st => `<label class="vf-opt${on(st) ? ' on' : ''}">
-        <input type="checkbox" ${on(st) ? 'checked' : ''}
+      <span class="vf-hint" id="vfStepCount"></span></div>
+    <div class="vf-popbody" id="vfStepBody">
+      ${all.map(st => `<label class="vf-opt" data-step="${escapeAttr(st)}">
+        <input type="checkbox"
                onchange="vfToggleStep('${escapeAttr(a)}','${escapeAttr(st)}')">
         ${escapeHtml(st || '(no step)')}</label>`).join('')}
     </div>
     <div class="vf-popfoot">
-      <button class="btn btn-sm" onclick="vfClearSteps('${escapeAttr(a)}')">All steps</button>
+      <button class="btn btn-sm" onclick="vfClearSteps('${escapeAttr(a)}')">All</button>
+      <button class="btn btn-sm" onclick="vfNoSteps('${escapeAttr(a)}')">None</button>
       <span class="spacer"></span>
       <span class="vf-hint">Each cell is the best of these</span></div>`;
+  vfSyncStepPop();
+}
+
+// Ticks and the count are written onto the existing nodes, so the scroll
+// position, and anything the pointer is over, survive.
+function vfSyncStepPop() {
+  const a = VF_STEP_POP_FOR;
+  const pop = document.getElementById('vfStepPop');
+  if (!pop || !a) return;
+  const all = vfStepsFor(_vfRows || [], a);
+  if (pop.dataset.steps !== all.join('\u241f')) { vfRenderStepPop(); return; }
+  let n = 0;
+  pop.querySelectorAll('.vf-opt').forEach(el => {
+    const st = el.getAttribute('data-step') || '';
+    const on = vfStepOn(a, st);
+    if (on) n += 1;
+    el.classList.toggle('on', on);
+    const box = el.querySelector('input');
+    if (box && box.checked !== on) box.checked = on;
+  });
+  const c = document.getElementById('vfStepCount');
+  if (c) c.textContent = `${n} of ${all.length}`;
 }
 
 function vfTogglePop(id) {
@@ -3292,7 +3323,7 @@ function applyViewFilters() {
       : `${rows.length} of ${_viewRuns.length} runs`;
   _vfRows = rows;
   vfRenderControls(rows);
-  if (VF_STEP_POP_FOR) vfRenderStepPop();
+  if (VF_STEP_POP_FOR) vfSyncStepPop();
   renderFilterChips({ sample, script, stand, since, until });
   // The Comparisons picker is built from the same index, so it follows a load.
   if (document.getElementById('cmpPick')) cmpRenderPick();
@@ -3446,7 +3477,7 @@ function sampleMetrics(run, analysis, steps) {
   // two stand for the sample hides that.
   (run.Data || [])
     .filter(d => !analysis || d.Analysis === analysis)
-    .filter(d => !steps || !steps.size || steps.has(String(d.step || '')))
+    .filter(d => !steps || steps.has(String(d.step || '')))
     .forEach(d => {
     Object.entries(d.key_values || {}).forEach(([raw, v]) => {
       if (typeof v !== 'number' || !isFinite(v)) return;
@@ -3623,10 +3654,10 @@ function renderViewRuns(rows) {
       ${groups.map((g, gi) => {
         const all = vfStepsFor(rows, g.analysis);
         const sel = VF_STEPS[g.analysis];
-        const n = sel && sel.size ? sel.size : all.length;
+        const n = sel ? sel.size : all.length;
         return `<th colspan="${g.metrics.length}"`
           + `${gi ? ' class="vr-sep"' : ''}>`
-          + `<span class="vr-gtitle${sel && sel.size ? ' set' : ''}"`
+          + `<span class="vr-gtitle${sel ? ' set' : ''}"`
           + ` onclick="vfToggleStepPop(event,'${escapeAttr(g.analysis)}')"`
           + ` title="Choose which steps these numbers come from">`
           + `${escapeHtml(g.analysis)}`
