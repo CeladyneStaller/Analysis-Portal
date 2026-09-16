@@ -2934,7 +2934,7 @@ function clearAllFilters() {
   applyViewFilters();
   VF_ANALYSES = new Set();
   VF_COLS = null;
-  VF_STEPS = {};
+  VF_COND = {};
 }
 
 function renderFilterChips(active) {
@@ -2966,11 +2966,11 @@ function renderFilterChips(active) {
     `<span class="vf-chip"><span class="k">analysis</span>${escapeHtml(a)}`
     + `<span class="x" title="Remove this filter"`
     + ` onclick="vfToggleAnalysis('${escapeAttr(a)}')">×</span></span>`));
-  Object.keys(VF_STEPS).forEach(a => {
-    const n = VF_STEPS[a].size;
-    chips.push(`<span class="vf-chip"><span class="k">${escapeHtml(a)} steps</span>`
-      + `${n} of ${vfStepsFor(_vfRows || [], a).length}`
-      + `<span class="x" title="Use every step again"`
+  Object.keys(VF_COND).forEach(a => {
+    const c = vfCondCount(_vfRows || [], a);
+    chips.push(`<span class="vf-chip"><span class="k">${escapeHtml(a)} conditions</span>`
+      + `${c.chosen} of ${c.total}`
+      + `<span class="x" title="Use every condition again"`
       + ` onclick="vfClearSteps('${escapeAttr(a)}')">×</span></span>`);
   });
   if (VF_COLS) chips.push(
@@ -3023,39 +3023,110 @@ function vfCatalog(rows) {
   return cat;
 }
 
-// Which steps feed each analysis group. Absent or empty means every step,
-// which is the default and what the table did before.
-let VF_STEPS = {};
+// Which measurements feed each analysis group, chosen by their conditions
+// rather than by step code. A step is a label; the conditions are what the
+// measurement actually was, and "every 80 °C point" is a question about the
+// experiment where "every b4" is a question about the naming.
+//
+// Shape: {analysis: {field: Set(values)}}. A field with no entry is
+// unconstrained. Within a field the selected values are alternatives; across
+// fields they must all hold, which is how the other filters in this bar behave.
+let VF_COND = {};
 
-// The steps an analysis actually has in the visible rows, so the menu never
-// offers one that would empty the column.
-function vfStepsFor(rows, analysis) {
-  const out = new Set();
+// The condition fields worth faceting on, with how each reads. P_unit rides
+// with P_value rather than being offered on its own.
+const VF_FACETS = [
+  ['T_C',      'Temperature', v => `${v} °C`],
+  ['RH_pct',   'Humidity',    v => `${v} % RH`],
+  ['P_value',  'Pressure',    (v, c) => `${v} ${(c && c.P_unit) || ''}`.trim()],
+  ['H2_slpm',  'H₂ flow',     v => `${v} slpm`],
+  ['Air_slpm', 'Air flow',    v => `${v} slpm`],
+  ['N2_slpm',  'N₂ flow',     v => `${v} slpm`],
+  ['O2_slpm',  'O₂ flow',     v => `${v} slpm`],
+];
+
+// The facets an analysis actually varies on. A field every measurement agrees
+// about is not a choice, so it is left out — offering "80.3 °C" as the only
+// temperature is a control that cannot change anything.
+function vfFacetsFor(rows, analysis) {
+  const seen = {};
   rows.forEach(r => (r.Data || []).forEach(d => {
     if (String(d.Analysis || '') !== analysis) return;
-    out.add(String(d.step || ''));
+    const c = d.Conditions || {};
+    VF_FACETS.forEach(([k, , fmt]) => {
+      if (c[k] == null) return;
+      const key = String(c[k]);
+      (seen[k] || (seen[k] = new Map())).set(key, fmt(c[k], c));
+    });
   }));
-  return [...out].sort();
+  const out = VF_FACETS
+    .filter(([k]) => seen[k] && seen[k].size > 1)
+    .map(([k, label]) => ({
+      key: k, label,
+      values: [...seen[k].entries()]
+        .map(([v, text]) => ({ v, text }))
+        .sort((a, b) => (parseFloat(a.v) - parseFloat(b.v)) || a.v.localeCompare(b.v)),
+    }));
+  // Nothing recorded to choose between, so fall back to the step code — it is
+  // the only handle an analysis without stored conditions has.
+  if (!out.length) {
+    const steps = new Set();
+    rows.forEach(r => (r.Data || []).forEach(d => {
+      if (String(d.Analysis || '') === analysis) steps.add(String(d.step || ''));
+    }));
+    if (steps.size > 1) out.push({ key: 'step', label: 'Step',
+      values: [...steps].sort().map(v => ({ v, text: v || '(no step)' })) });
+  }
+  return out;
 }
-// Absent means every step. A set means exactly those, and an empty set means
-// none — which is a real state to be in halfway through "deselect all, then
-// tick the one I want", so it is kept rather than snapped back to all.
-const vfStepScope = a => VF_STEPS[a] || null;
 
-function vfToggleStep(a, step) {
-  const all = vfStepsFor(_vfRows || [], a);
-  const cur = new Set(VF_STEPS[a] || all);
-  cur.has(step) ? cur.delete(step) : cur.add(step);
-  // Ticking the last missing step is the same as not filtering, so the scope
-  // drops out and its chip with it rather than claiming a filter that changes
-  // nothing.
-  if (cur.size === all.length) delete VF_STEPS[a];
-  else VF_STEPS[a] = cur;
+// A predicate rather than a value set, because matching now spans several
+// fields and the rule belongs in one place.
+function vfCondScope(analysis) {
+  const sel = VF_COND[analysis];
+  if (!sel || !Object.keys(sel).length) return null;
+  return d => Object.entries(sel).every(([k, vals]) => {
+    if (!vals) return true;
+    const raw = k === 'step' ? String(d.step || '')
+                             : (d.Conditions || {})[k];
+    return vals.has(raw == null ? '' : String(raw));
+  });
+}
+
+function vfCondCount(rows, analysis) {
+  const facets = vfFacetsFor(rows, analysis);
+  const sel = VF_COND[analysis] || {};
+  let chosen = 0, total = 0;
+  facets.forEach(f => {
+    total += f.values.length;
+    chosen += sel[f.key] ? sel[f.key].size : f.values.length;
+  });
+  return { chosen, total, constrained: Object.keys(sel).length > 0 };
+}
+
+function vfToggleCond(a, field, value) {
+  const facets = vfFacetsFor(_vfRows || [], a);
+  const f = facets.find(x => x.key === field);
+  if (!f) return;
+  const sel = VF_COND[a] || (VF_COND[a] = {});
+  const cur = new Set(sel[field] || f.values.map(x => x.v));
+  cur.has(value) ? cur.delete(value) : cur.add(value);
+  // A field with everything ticked is not a constraint, so it drops out and
+  // stops claiming one.
+  if (cur.size === f.values.length) delete sel[field];
+  else sel[field] = cur;
+  if (!Object.keys(sel).length) delete VF_COND[a];
   vfSyncStepPop();
   applyViewFilters();
 }
-function vfClearSteps(a) { delete VF_STEPS[a]; vfSyncStepPop(); applyViewFilters(); }
-function vfNoSteps(a) { VF_STEPS[a] = new Set(); vfSyncStepPop(); applyViewFilters(); }
+function vfClearSteps(a) { delete VF_COND[a]; vfSyncStepPop(); applyViewFilters(); }
+function vfNoSteps(a) {
+  // Every field emptied — the state you pass through on the way to picking one.
+  const sel = VF_COND[a] = {};
+  vfFacetsFor(_vfRows || [], a).forEach(f => { sel[f.key] = new Set(); });
+  vfSyncStepPop();
+  applyViewFilters();
+}
 
 // A column is an analysis and a metric together, since the name alone does not
 // identify one.
@@ -3133,26 +3204,36 @@ function vfToggleStepPop(ev, analysis) {
   pop.style.top = (th.bottom - host.top + 6) + 'px';
 }
 
-const vfStepOn = (a, st) => { const sel = VF_STEPS[a]; return !sel || sel.has(st); };
+const vfCondOn = (a, field, v) => {
+  const sel = (VF_COND[a] || {})[field];
+  return !sel || sel.has(v);
+};
 
-// Rebuilt only when the list of steps itself changes. Rebuilding on every tick
+// Rebuilt only when the facets themselves change. Rebuilding on every tick
 // replaced the scrolled body with a fresh one, so the menu jumped back to the
-// top each time a box was clicked — unusable with more than a handful of
-// steps.
+// top each time a box was clicked — unusable past a handful of values.
 function vfRenderStepPop() {
   const a = VF_STEP_POP_FOR;
   const pop = document.getElementById('vfStepPop');
   if (!pop || !a) return;
-  const all = vfStepsFor(_vfRows || [], a);
-  pop.dataset.steps = all.join('\u241f');
+  const facets = vfFacetsFor(_vfRows || [], a);
+  pop.dataset.facets = facets.map(f =>
+    f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   pop.innerHTML = `
-    <div class="vf-pophead">${escapeHtml(a)} steps<span class="spacer"></span>
+    <div class="vf-pophead">${escapeHtml(a)} conditions<span class="spacer"></span>
       <span class="vf-hint" id="vfStepCount"></span></div>
     <div class="vf-popbody" id="vfStepBody">
-      ${all.map(st => `<label class="vf-opt" data-step="${escapeAttr(st)}">
-        <input type="checkbox"
-               onchange="vfToggleStep('${escapeAttr(a)}','${escapeAttr(st)}')">
-        ${escapeHtml(st || '(no step)')}</label>`).join('')}
+      ${facets.length ? facets.map(f => `
+        <div class="vf-grp">${escapeHtml(f.label)}
+          <span class="all" onclick="vfCondAll('${escapeAttr(a)}','${escapeAttr(f.key)}')"
+                >all</span></div>`
+        + f.values.map(x => `<label class="vf-opt"
+            data-field="${escapeAttr(f.key)}" data-val="${escapeAttr(x.v)}">
+            <input type="checkbox"
+                   onchange="vfToggleCond('${escapeAttr(a)}','${escapeAttr(f.key)}','${escapeAttr(x.v)}')">
+            ${escapeHtml(x.text)}</label>`).join('')).join('')
+        : '<div class="vf-hint" style="padding:10px 12px">Every measurement here '
+          + 'was taken under the same conditions — nothing to choose between.</div>'}
     </div>
     <div class="vf-popfoot">
       <button class="btn btn-sm" onclick="vfClearSteps('${escapeAttr(a)}')">All</button>
@@ -3168,19 +3249,30 @@ function vfSyncStepPop() {
   const a = VF_STEP_POP_FOR;
   const pop = document.getElementById('vfStepPop');
   if (!pop || !a) return;
-  const all = vfStepsFor(_vfRows || [], a);
-  if (pop.dataset.steps !== all.join('\u241f')) { vfRenderStepPop(); return; }
-  let n = 0;
+  const facets = vfFacetsFor(_vfRows || [], a);
+  const sig = facets.map(f =>
+    f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
+  if (pop.dataset.facets !== sig) { vfRenderStepPop(); return; }
   pop.querySelectorAll('.vf-opt').forEach(el => {
-    const st = el.getAttribute('data-step') || '';
-    const on = vfStepOn(a, st);
-    if (on) n += 1;
+    const on = vfCondOn(a, el.getAttribute('data-field'),
+                        el.getAttribute('data-val'));
     el.classList.toggle('on', on);
     const box = el.querySelector('input');
     if (box && box.checked !== on) box.checked = on;
   });
-  const c = document.getElementById('vfStepCount');
-  if (c) c.textContent = `${n} of ${all.length}`;
+  const c = vfCondCount(_vfRows || [], a);
+  const el = document.getElementById('vfStepCount');
+  if (el) el.textContent = `${c.chosen} of ${c.total}`;
+}
+
+// Restores one field without touching the others, since the fields combine.
+function vfCondAll(a, field) {
+  const sel = VF_COND[a];
+  if (!sel) return;
+  delete sel[field];
+  if (!Object.keys(sel).length) delete VF_COND[a];
+  vfSyncStepPop();
+  applyViewFilters();
 }
 
 function vfTogglePop(id) {
@@ -3464,20 +3556,20 @@ const MAX_METRIC_COLUMNS = 5;
 let _sortKey = null, _sortDir = -1;
 
 // {metric: {value, step, count}} — best per metric across the sample's units.
-function sampleMetrics(run, analysis, steps) {
+function sampleMetrics(run, analysis, scope) {
   const out = {};
   // Scoped when an analysis is named, because a metric name is not unique:
   // HFR is reported by both the polarization curve and EIS, and under the EIS
   // heading it has to be the EIS one rather than whichever the sample-wide
   // reduction happened to pick.
   //
-  // `steps` narrows it further. Each cell is the best across a sample's steps,
-  // so which steps are in the running decides the number — a break-in step and
-  // a settled one are not the same measurement, and letting the best of the
-  // two stand for the sample hides that.
+  // `scope` narrows it further. Each cell is the best across a sample's
+  // measurements, so which ones are in the running decides the number — a
+  // point taken at 50 % RH and one at 95 % are not the same measurement, and
+  // letting the better of the two stand for the sample hides that.
   (run.Data || [])
     .filter(d => !analysis || d.Analysis === analysis)
-    .filter(d => !steps || steps.has(String(d.step || '')))
+    .filter(d => !scope || scope(d))
     .forEach(d => {
     Object.entries(d.key_values || {}).forEach(([raw, v]) => {
       if (typeof v !== 'number' || !isFinite(v)) return;
@@ -3551,7 +3643,7 @@ function sortRuns(rows) {
     const k = vfColParts(_sortKey);
     const scope = k.analysis || undefined;
     const name = k.analysis ? k.metric : _sortKey;
-    const st = vfStepScope(k.analysis);
+    const st = vfCondScope(k.analysis);
     const av = (sampleMetrics(a, scope, st)[name] || {}).value;
     const bv = (sampleMetrics(b, scope, st)[name] || {}).value;
     // A sample missing the metric sorts last either way — it is absent, not
@@ -3604,7 +3696,7 @@ function renderViewRuns(rows) {
   const ext = {};
   cols.forEach(c => { ext[c] = columnExtremes(rows, colInfo[c].metric,
                                                colInfo[c].analysis,
-                                               vfStepScope(colInfo[c].analysis)); });
+                                               vfCondScope(colInfo[c].analysis)); });
   const sorted = sortRuns(rows);
 
   const body = sorted.map(r => {
@@ -3614,7 +3706,7 @@ function renderViewRuns(rows) {
       const { analysis, metric } = colInfo[c];
       const m = scoped[analysis]
         || (scoped[analysis] = sampleMetrics(r, analysis || undefined,
-                                             vfStepScope(analysis)));
+                                             vfCondScope(analysis)));
       const e = m[metric];
       if (!e) return `<td class="num miss${sep}">—</td>`;
       const x = ext[c];
@@ -3652,16 +3744,14 @@ function renderViewRuns(rows) {
   const band = grouped ? `<tr class="vr-gband">
       <th colspan="4"></th>
       ${groups.map((g, gi) => {
-        const all = vfStepsFor(rows, g.analysis);
-        const sel = VF_STEPS[g.analysis];
-        const n = sel ? sel.size : all.length;
+        const c = vfCondCount(rows, g.analysis);
         return `<th colspan="${g.metrics.length}"`
           + `${gi ? ' class="vr-sep"' : ''}>`
-          + `<span class="vr-gtitle${sel ? ' set' : ''}"`
+          + `<span class="vr-gtitle${c.constrained ? ' set' : ''}"`
           + ` onclick="vfToggleStepPop(event,'${escapeAttr(g.analysis)}')"`
-          + ` title="Choose which steps these numbers come from">`
+          + ` title="Choose which conditions these numbers come from">`
           + `${escapeHtml(g.analysis)}`
-          + (all.length > 1 ? ` <span class="vr-gsteps">${n} of ${all.length} steps ▾</span>` : '')
+          + (c.total ? ` <span class="vr-gsteps">${c.chosen} of ${c.total} conditions ▾</span>` : '')
           + '</span></th>';
       }).join('')}
     </tr>` : '';
