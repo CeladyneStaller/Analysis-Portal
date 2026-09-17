@@ -1029,6 +1029,23 @@
   .tr-lgsec { border-bottom: 1px solid var(--border); padding: 2px 0 7px; }
   .tr-lgsec .h { padding: 9px 13px 4px; font-size: 9.5px; letter-spacing: .05em;
     text-transform: uppercase; color: var(--text-dim); }
+  /* Conditions down the side, one column per visible index value. */
+  .tr-rates { display: grid; align-items: center; column-gap: 8px;
+    row-gap: 2px; padding: 4px 13px 2px; font-size: 12px; }
+  .tr-rates .hd { display: flex; justify-content: flex-end; padding-bottom: 2px;
+    opacity: .7; }
+  .tr-rates .tr-sw { cursor: pointer; }
+  .tr-rates .cnd { white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; cursor: pointer; padding: 3px 0; }
+  .tr-rates .rate { font-family: var(--mono); font-size: 10.5px;
+    text-align: right; white-space: nowrap; }
+  .tr-rates .rate.up { color: var(--green); }
+  .tr-rates .rate.down { color: var(--red); }
+  .tr-rates .rate.flat { color: var(--text-dim); }
+  .tr-rates .off { opacity: .35; }
+  .tr-lgsec .h .sub { text-transform: none; letter-spacing: 0; opacity: .75;
+    margin-left: 6px; }
+
   .tr-srow { display: grid; grid-template-columns: 16px 1fr auto; gap: 9px;
     align-items: center; padding: 6px 13px; cursor: pointer; }
   .tr-srow:hover { background: var(--accent-glow); }
@@ -7062,28 +7079,46 @@ function trRender() {
         }).join('')
         : '<div class="cmp-empty" style="padding:10px 13px;font-size:11.5px">'
           + 'Nothing selected yet.</div>')
-      + '</div><div class="tr-lgsec"><div class="h">Condition — colour</div>'
-      + (avail.conds.length ? avail.conds.map(c => {
-          const ci = trCondIndex(c);
-          const sub = first ? pts.filter(p => p.cond === c && p.metric === first) : [];
-          const all = first ? trPointsForCond(TR_ACTIVE, c, first) : [];
-          const f = trFit(all);
-          const latest = all.length
-            ? all.slice().sort((a, b) => b.x - a.x)[0].y : null;
-          const dir = f ? (f.perMonth * dirn > 0 ? 'up'
-                        : f.perMonth * dirn < 0 ? 'down' : 'flat') : 'flat';
-          return `<div class="tr-srow${trHideFor(trAnalysis()).has(c) ? ' off' : ''}"
-                       onclick="trToggleCond('${escapeAttr(c)}')">
-            <span class="tr-sw" style="background:${TR_PAL[ci % TR_PAL.length]}"></span>
-            <span class="nm"><div class="a">${escapeHtml(c)}</div>
-              <div class="b">${all.length} pt${first ? ' · ' + escapeHtml(first) : ''}</div></span>
-            <span class="val"><div class="v">${latest == null ? '—' : escapeHtml(fmtNum(latest))}</div>
-              <div class="b ${dir}" title="${dir === 'up' ? 'improving'
-                : dir === 'down' ? 'getting worse' : 'flat'}">${f
-                ? (dir === 'up' ? '▲ ' : dir === 'down' ? '▼ ' : '')
-                  + (f.perMonth > 0 ? '+' : '') + fmtNum(f.perMonth) + '/mo'
-                : '—'}</div></span></div>`;
-        }).join('')
+      + '</div>'
+      // A rate per condition per index value, rather than one number that had
+      // to belong to whichever series happened to be first. Columns are the
+      // visible series, so switching one off in the shape legend takes its
+      // column with it — a rate for a series that is not on the chart is a
+      // number with nothing to check it against.
+      + `<div class="tr-lgsec"><div class="h">Condition — colour
+          <span class="sub">change per month</span></div>`
+      + (avail.conds.length ? `<div class="tr-rates"
+             style="grid-template-columns:12px minmax(0,1fr) repeat(${shown.length}, auto)">`
+          + `<span></span><span></span>`
+          + shown.map(m => `<span class="hd" title="${escapeAttr(m)}">`
+              + trMarkerSvg(TR_SHAPES[ms.indexOf(m) % TR_SHAPES.length], 'var(--text-dim)')
+              + '</span>').join('')
+          + avail.conds.map(c => {
+              const off = trHideFor(trAnalysis()).has(c);
+              const cells = shown.map(m => {
+                const all = trPointsForCond(TR_ACTIVE, c, m);
+                const f = trFit(all);
+                if (!f) return `<span class="rate flat${off ? ' off' : ''}"
+                  title="${escapeAttr(m)} — ${all.length} point(s), too few to fit">—</span>`;
+                const d = (METRIC_DIR[m] || 1);
+                const dir = f.perMonth * d > 0 ? 'up' : f.perMonth * d < 0 ? 'down' : 'flat';
+                const latest = all.slice().sort((x, y) => y.x - x.x)[0].y;
+                return `<span class="rate ${dir}${off ? ' off' : ''}" title="${escapeAttr(m)} — `
+                  + `${all.length} point(s), latest ${escapeAttr(fmtNum(latest))}, `
+                  + `${dir === 'up' ? 'improving' : dir === 'down' ? 'getting worse' : 'flat'}">`
+                  + (dir === 'up' ? '▲' : dir === 'down' ? '▼' : '·')
+                  + (f.perMonth > 0 ? '+' : '') + escapeHtml(fmtNum(f.perMonth)) + '</span>';
+              }).join('');
+              // Grid cells are direct children, so the row is emitted flat
+              // rather than wrapped — a wrapper would collapse the columns.
+              return `<span class="tr-sw${off ? ' off' : ''}"
+                        style="background:${TR_PAL[trCondIndex(c) % TR_PAL.length]}"
+                        onclick="trToggleCond('${escapeAttr(c)}')"></span>`
+                + `<span class="cnd${off ? ' off' : ''}" title="${escapeAttr(c)}"
+                     onclick="trToggleCond('${escapeAttr(c)}')">${escapeHtml(c)}</span>`
+                + cells;
+            }).join('')
+          + '</div>'
         : '<div class="cmp-empty" style="padding:10px 13px;font-size:11.5px">'
           + 'Nothing selected yet.</div>')
       + '</div>';
