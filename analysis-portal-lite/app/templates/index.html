@@ -6511,7 +6511,7 @@ const trParts = k => ({ a: k.slice(0, k.indexOf(TR_SEP)),
 
 let TR_TABS = [], TR_ACTIVE = null;
 let TR_OFF = {};          // per chart, series switched off
-let TR_PICKED = null;      // selected sample keys; empty until picked
+let TR_SEL = new Map();    // sample key -> Set of step codes, as on Comparisons
 let TR_HIDDEN = new Set();// conditions
 let TR_OPT = { fit: true, goal: true };
 let TR_GOALS = {};
@@ -6556,24 +6556,63 @@ function trConditions() {
 }
 const trCondIndex = c => trConditions().indexOf(c);
 
-// Nothing is charted until it is picked, the way Comparisons works — a trend
-// across every sample ever run is rarely the question, and starting full means
-// clearing before you can start.
-function trPickedKeys() { return TR_PICKED || (TR_PICKED = new Set()); }
+// One measurement at a time, the way Comparisons picks curves: a sample run
+// under three conditions is three things you might want on the chart, and
+// "the whole sample" is rarely the unit of interest.
+function trToggleAdd(k, st) {
+  if (!TR_SEL.has(k)) TR_SEL.set(k, new Set());
+  const set = TR_SEL.get(k);
+  set.has(st) ? set.delete(st) : set.add(st);
+  if (!set.size) TR_SEL.delete(k);
+  trRender();
+}
+function trToggleAll(k) {
+  const run = trRunFor(k);
+  if (!run) return;
+  // Only the steps currently shown: with a condition filter on, an "all" that
+  // quietly added the hidden ones would contradict what is on screen.
+  const steps = trShownUnits(run).map(u => u.step);
+  const have = TR_SEL.get(k) || new Set();
+  const all = steps.length && steps.every(st => have.has(st));
+  if (all) TR_SEL.delete(k);
+  else TR_SEL.set(k, new Set(steps));
+  trRender();
+}
+const trRunFor = k => (_viewRuns || []).find(r => runKey(r) === k);
+const trSelectedCount = () =>
+  [...TR_SEL.values()].reduce((a, set) => a + set.size, 0);
+
+// The measurements of a run that belong to the active chart's analysis and
+// pass the condition filter — the ones its chips offer.
+function trShownUnits(run) {
+  const a = TR_ACTIVE ? trParts(TR_ACTIVE).a : '';
+  const cd = (document.getElementById('trCond') || {}).value || '';
+  const out = [];
+  (run.Data || []).forEach(d => {
+    if (a && String(d.Analysis || '') !== a) return;
+    const cond = conditionSummary(d.Conditions || {}) || '(no conditions)';
+    if (cd && cond !== cd) return;
+    const step = String(d.step || '');
+    if (out.some(u => u.step === step)) return;
+    out.push({ step, cond });
+  });
+  return out;
+}
 
 // A point is one sample, one condition, one index value.
 function trPoints(k) {
   if (!k) return [];
   const { a } = trParts(k);
   const ms = trSeriesOf(k).filter(m => trSeriesOn(k, m));
-  const picked = trPickedKeys();
   const out = [];
   (_viewRuns || []).forEach(r => {
-    if (!picked.has(runKey(r))) return;
+    const picked = TR_SEL.get(runKey(r));
+    if (!picked || !picked.size) return;
     const when = runDateOf(r);
     if (!when) return;
     (r.Data || []).forEach(d => {
       if (String(d.Analysis || '') !== a) return;
+      if (!picked.has(String(d.step || ''))) return;
       const cond = conditionSummary(d.Conditions || {}) || '(no conditions)';
       if (TR_HIDDEN.has(cond)) return;
       Object.entries(d.key_values || {}).forEach(([raw, v]) => {
@@ -6642,21 +6681,22 @@ function trSetActive(k) { TR_ACTIVE = k; trRender(); }
 function trToggleSeries(k, m) {
   const s = TR_OFF[k] || (TR_OFF[k] = new Set());
   s.has(m) ? s.delete(m) : s.add(m);
-  // Never an empty chart: the last visible series stays.
-  if (s.size >= trSeriesOf(k).length) s.delete(m);
+  // Never an empty chart: the last visible series stays. Measured against what
+  // the selection holds rather than the whole catalog, since the rest is not
+  // on screen to be switched back on.
+  const avail = trAvailable(k).series;
+  if (avail.length && avail.every(x => s.has(x))) s.delete(m);
   trRender();
 }
 function trToggleCond(c) { TR_HIDDEN.has(c) ? TR_HIDDEN.delete(c) : TR_HIDDEN.add(c); trRender(); }
-function trToggleSample(k) {
-  const p = trPickedKeys();
-  p.has(k) ? p.delete(k) : p.add(k);
-  trRender();
-}
 function trPickAll(on) {
-  const shown = trShownRuns();
-  const p = trPickedKeys();
-  if (on) shown.forEach(r => p.add(runKey(r)));
-  else TR_PICKED = new Set();
+  if (!on) { TR_SEL = new Map(); trRender(); return; }
+  // Only what the filters are showing, and only the measurements of the
+  // active chart's analysis — the same rule the per-row "all" follows.
+  trShownRuns().forEach(r => {
+    const steps = trShownUnits(r).map(u => u.step);
+    if (steps.length) TR_SEL.set(runKey(r), new Set(steps));
+  });
   trRender();
 }
 function trSetGoal(k, v) {
@@ -6698,6 +6738,32 @@ function trShownRuns() {
       String(d.Analysis || '') === trParts(TR_ACTIVE).a)) return false;
     return true;
   });
+}
+
+// What the current selection actually contains, ignoring the legend's own
+// on/off switches — a series or condition that is switched off must stay
+// listed, or there would be no way to switch it back. Listing everything the
+// catalog knows instead put rows on screen for measurements nobody had chosen.
+function trAvailable(k) {
+  if (!k) return { series: [], conds: [] };
+  const { a } = trParts(k);
+  const all = trSeriesOf(k);
+  const series = new Set(), conds = [];
+  (_viewRuns || []).forEach(r => {
+    const picked = TR_SEL.get(runKey(r));
+    if (!picked || !picked.size) return;
+    (r.Data || []).forEach(d => {
+      if (String(d.Analysis || '') !== a) return;
+      if (!picked.has(String(d.step || ''))) return;
+      const c = conditionSummary(d.Conditions || {}) || '(no conditions)';
+      if (!conds.includes(c)) conds.push(c);
+      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
+        if (typeof v === 'number' && isFinite(v) && all.includes(canonMetric(raw)))
+          series.add(canonMetric(raw));
+      });
+    });
+  });
+  return { series: all.filter(m => series.has(m)), conds: conds.sort() };
 }
 
 function trRender() {
@@ -6764,7 +6830,8 @@ function trRender() {
     document.getElementById('trLegCount').textContent = '';
   } else {
     const { u } = trParts(TR_ACTIVE);
-    const ms = trSeriesOf(TR_ACTIVE);
+    const avail = trAvailable(TR_ACTIVE);
+    const ms = avail.series;
     const shown = ms.filter(m => trSeriesOn(TR_ACTIVE, m));
     const dirn = shown.length ? (METRIC_DIR[shown[0]] || 1) : 1;
     const goal = TR_OPT.goal && TR_GOALS[TR_ACTIVE] != null ? TR_GOALS[TR_ACTIVE] : null;
@@ -6790,7 +6857,7 @@ function trRender() {
     const first = shown[0];
     legend.innerHTML =
       '<div class="tr-lgsec"><div class="h">Index value — shape</div>'
-      + ms.map(m => {
+      + (ms.length ? ms.map(m => {
           const on = trSeriesOn(TR_ACTIVE, m);
           const n = pts.filter(p => p.metric === m).length;
           return `<div class="tr-srow${on ? '' : ' off'}"
@@ -6802,8 +6869,11 @@ function trRender() {
             <span class="val"><div class="b">${(METRIC_DIR[m] || 1) > 0
               ? 'higher better' : 'lower better'}</div></span></div>`;
         }).join('')
+        : '<div class="cmp-empty" style="padding:10px 13px;font-size:11.5px">'
+          + 'Nothing selected yet.</div>')
       + '</div><div class="tr-lgsec"><div class="h">Condition — colour</div>'
-      + trConditions().map((c, ci) => {
+      + (avail.conds.length ? avail.conds.map(c => {
+          const ci = trCondIndex(c);
           const sub = first ? pts.filter(p => p.cond === c && p.metric === first) : [];
           const all = first ? trPointsForCond(TR_ACTIVE, c, first) : [];
           const f = trFit(all);
@@ -6823,9 +6893,13 @@ function trRender() {
                   + (f.perMonth > 0 ? '+' : '') + fmtNum(f.perMonth) + '/mo'
                 : '—'}</div></span></div>`;
         }).join('')
+        : '<div class="cmp-empty" style="padding:10px 13px;font-size:11.5px">'
+          + 'Nothing selected yet.</div>')
       + '</div>';
-    document.getElementById('trLegCount').textContent =
-      `${shown.length} series · ${trConditions().length - TR_HIDDEN.size} conditions`;
+    const liveConds = avail.conds.filter(c => !TR_HIDDEN.has(c)).length;
+    document.getElementById('trLegCount').textContent = ms.length
+      ? `${shown.length} of ${ms.length} series · ${liveConds} of ${avail.conds.length} conditions`
+      : '';
   }
 
   // ── picker ──
@@ -6836,32 +6910,35 @@ function trRender() {
   // "All" and nothing else for the rest of the session.
   trFillSelect('trCond', trConditions(), 'All');
   trFillSelect('trStand', _viewFacets.stands || [], 'All stands');
-  const picked = trPickedKeys();
+  // One chip per measurement, as on Comparisons: click a chip to chart that
+  // (sample, condition) and the row's button takes or drops all of them.
   document.getElementById('trPicks').innerHTML = shownRuns.length
     ? shownRuns.map(r => {
         const k = runKey(r);
-        const conds = [...new Set((r.Data || [])
-          .filter(d => !TR_ACTIVE || String(d.Analysis || '') === trParts(TR_ACTIVE).a)
-          .map(d => conditionSummary(d.Conditions || {}) || '(no conditions)'))];
+        const units = trShownUnits(r);
+        const have = TR_SEL.get(k) || new Set();
+        const all = units.length && units.every(u => have.has(u.step));
         return `<div class="cmp-prow" style="grid-template-columns:250px 96px 1fr auto">
           <span class="cmp-pname" title="${escapeAttr(r.sample_name || '')}">${escapeHtml(r.sample_name || '—')}</span>
           <span class="cmp-pstand">${escapeHtml(r.stand || '—')}</span>
-          <span class="cmp-chiprow">${conds.map(c =>
-            `<span class="cmp-chip${picked.has(k) ? ' on' : ''}"
-                   onclick="trToggleSample('${escapeAttr(k)}')">
-              <span class="cs">${escapeHtml(runDateLabel(r))}</span>
-              <span class="cc">${escapeHtml(c)}</span></span>`).join('')}</span>
-          <button class="btn btn-sm" onclick="trToggleSample('${escapeAttr(k)}')">${
-            picked.has(k) ? 'remove' : 'add'}</button></div>`;
+          <span class="cmp-chiprow">${units.map(u =>
+            `<span class="cmp-chip${have.has(u.step) ? ' on' : ''}"
+                   title="${escapeAttr(runDateLabel(r) + ' · ' + u.cond)}"
+                   onclick="trToggleAdd('${escapeAttr(k)}','${escapeAttr(u.step)}')">
+              <span class="cs">${escapeHtml(u.step || '—')}</span>
+              <span class="cc">${escapeHtml(u.cond)}</span></span>`).join('')}</span>
+          <button class="btn btn-sm" onclick="trToggleAll('${escapeAttr(k)}')">${
+            all ? 'none' : 'all'}</button></div>`;
       }).join('')
     : '<div class="cmp-empty" style="padding:22px 16px">No samples match these filters.</div>';
 
-  const nSel = (_viewRuns || []).filter(r => picked.has(runKey(r))).length;
+  const nSel = trSelectedCount();
   document.getElementById('trCount').textContent = String(nSel);
-  const dates = (_viewRuns || []).filter(r => picked.has(runKey(r)))
+  const dates = (_viewRuns || []).filter(r => (TR_SEL.get(runKey(r)) || new Set()).size)
     .map(runDateOf).filter(Boolean).sort((a, b) => a - b);
   document.getElementById('trSpan').textContent = dates.length
-    ? `${nSel} samples · ${dates[0].toISOString().slice(0, 10)} → ${dates[dates.length - 1].toISOString().slice(0, 10)}`
+    ? `${nSel} measurement${nSel === 1 ? '' : 's'} · `
+      + `${dates[0].toISOString().slice(0, 10)} → ${dates[dates.length - 1].toISOString().slice(0, 10)}`
     : '';
   document.getElementById('trPickHint').textContent =
     `${shownRuns.length} shown`;
@@ -6876,14 +6953,15 @@ function trRender() {
 // is hidden — the legend still reports where a hidden condition stands.
 function trPointsForCond(k, cond, metric) {
   const { a } = trParts(k);
-  const picked = trPickedKeys();
   const out = [];
   (_viewRuns || []).forEach(r => {
-    if (!picked.has(runKey(r))) return;
+    const picked = TR_SEL.get(runKey(r));
+    if (!picked || !picked.size) return;
     const when = runDateOf(r);
     if (!when) return;
     (r.Data || []).forEach(d => {
       if (String(d.Analysis || '') !== a) return;
+      if (!picked.has(String(d.step || ''))) return;
       if ((conditionSummary(d.Conditions || {}) || '(no conditions)') !== cond) return;
       Object.entries(d.key_values || {}).forEach(([raw, v]) => {
         if (canonMetric(raw) !== metric) return;
