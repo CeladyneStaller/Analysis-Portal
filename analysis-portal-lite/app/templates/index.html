@@ -1047,6 +1047,9 @@
     border: 1px solid var(--border); border-radius: var(--radius);
     color: var(--text); font-family: var(--mono); font-size: 11.5px;
     padding: 3px 6px; text-align: right; }
+  #trChart { cursor: grab; }
+  #trChart.panning { cursor: grabbing; }
+
   #trChart svg .pt { cursor: pointer; }
   #trChart svg .pt:hover { stroke: var(--text); stroke-width: 1.8; }
   #trChart svg .fit { stroke-width: 1.5; fill: none; opacity: .45; }
@@ -6073,19 +6076,23 @@ const cmpHasView = () => !!(CMP_VIEW &&
 // Pointer position in data coordinates. The SVG is drawn in viewBox units and
 // laid out at whatever width the panel gives it, so the two have to be related
 // before the pointer means anything.
-function cmpPointToData(ev) {
-  const svg = document.querySelector('#cmpChart svg');
-  if (!svg || !CMP_SCALE) return null;
+// Pointer to data coordinates. The geometry is the same for any chart drawn
+// this way, so it takes the scale and the host rather than reaching for the
+// Comparisons one — Trends inverts its own transform with the same code.
+function chartPointToData(ev, scale, sel) {
+  const svg = document.querySelector(sel);
+  if (!svg || !scale) return null;
   const r = svg.getBoundingClientRect();
-  const vx = (ev.clientX - r.left) * (CMP_SCALE.W / r.width);
-  const vy = (ev.clientY - r.top) * (CMP_SCALE.H / r.height);
-  const { L, T, iw, ih, x0, x1, y0, y1 } = CMP_SCALE;
+  const vx = (ev.clientX - r.left) * (scale.W / r.width);
+  const vy = (ev.clientY - r.top) * (scale.H / r.height);
+  const { L, T, iw, ih, x0, x1, y0, y1 } = scale;
   return {
     x: x0 + ((vx - L) / iw) * (x1 - x0),
     y: y0 + ((T + ih - vy) / ih) * (y1 - y0),
     inside: vx >= L && vx <= L + iw && vy >= T && vy <= T + ih,
   };
 }
+const cmpPointToData = ev => chartPointToData(ev, CMP_SCALE, '#cmpChart svg');
 
 function cmpWheel(ev) {
   if (!CMP_SCALE) return;
@@ -7011,11 +7018,30 @@ function trRender() {
          placeholder="none" onchange="trSetGoal('${escapeAttr(TR_ACTIVE)}', this.value)">
          <span class="cmp-hint">${escapeHtml(u)}</span></span>
        <span class="cmp-spacer"></span>
+       <span class="cmp-ranges">
+         <span class="cmp-hint">x</span>
+         <input class="cmp-range${trBoundText('x0') ? ' set' : ''}" id="trx0"
+                placeholder="from" value="${trBoundText('x0')}"
+                onchange="trSetBound('x0', this.value)" title="Date, or blank to fit">
+         <input class="cmp-range${trBoundText('x1') ? ' set' : ''}" id="trx1"
+                placeholder="to" value="${trBoundText('x1')}"
+                onchange="trSetBound('x1', this.value)" title="Date, or blank to fit">
+         <span class="cmp-hint">y</span>
+         <input class="cmp-range${trBoundText('y0') ? ' set' : ''}" id="try0"
+                placeholder="min" value="${trBoundText('y0')}"
+                onchange="trSetBound('y0', this.value)">
+         <input class="cmp-range${trBoundText('y1') ? ' set' : ''}" id="try1"
+                placeholder="max" value="${trBoundText('y1')}"
+                onchange="trSetBound('y1', this.value)">
+         <button class="btn btn-sm" onclick="trResetView()"
+                 ${trHasView() ? '' : 'disabled'}>Reset</button>
+       </span>
        <span class="cmp-hint">${shown.length > 1
          ? 'Shape is the index value, colour is the condition'
          : 'Colour is the condition'}</span>`;
 
     chart.innerHTML = trChartSvg(pts, TR_ACTIVE, goal, shown, ms);
+    trWireChart();
     trWireTips(pts);
 
     // Two legends, because there are two channels.
@@ -7144,18 +7170,36 @@ function trChartSvg(pts, key, goal, shown, ms) {
   const { u } = trParts(key);
   const W = 760, H = 380, L = 70, R = 18, T = 14, B = 46;
   const iw = W - L - R, ih = H - T - B;
-  if (!pts.length) return '<div class="cmp-empty" style="padding:80px 16px">'
-    + 'No points — add samples below.</div>';
+  if (!pts.length) {
+    TR_SCALE = null;
+    return '<div class="cmp-empty" style="padding:80px 16px">'
+      + 'No points — add samples below.</div>';
+  }
   const xs = pts.map(p => p.x.getTime());
   const ys = pts.map(p => p.y).concat(goal != null ? [goal] : []);
   let x0 = Math.min(...xs), x1 = Math.max(...xs);
   const xp = (x1 - x0) * 0.06 || 86400000; x0 -= xp; x1 += xp;
   let y0 = Math.min(...ys), y1 = Math.max(...ys);
   const yp = (y1 - y0) * 0.12 || Math.abs(y0 * 0.05) || 0.01; y0 -= yp; y1 += yp;
+  // The fitted extent is kept so an emptied range box can return that one edge
+  // to the data without disturbing the other three.
+  const fit = { x0, x1, y0, y1 };
+  const win = trView();
+  if (win) {
+    if (isFinite(win.x0)) x0 = win.x0;
+    if (isFinite(win.x1)) x1 = win.x1;
+    if (isFinite(win.y0)) y0 = win.y0;
+    if (isFinite(win.y1)) y1 = win.y1;
+  }
   const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
   const sy = v => T + ih - ((v - y0) / (y1 - y0)) * ih;
   const dlab = t => new Date(t).toISOString().slice(2, 10);
-  let g = '';
+  TR_SCALE = { L, T, iw, ih, W, H, x0, x1, y0, y1,
+               fitx0: fit.x0, fitx1: fit.x1, fity0: fit.y0, fity1: fit.y1 };
+  // Zoomed in, a marker whose point is outside the window would otherwise be
+  // drawn over the axes and the labels.
+  let g = '<defs><clipPath id="trClip">'
+    + `<rect x="${L}" y="${T}" width="${iw}" height="${ih}"/></clipPath></defs>`;
   for (let i = 0; i <= 4; i++) { const v = y0 + (y1 - y0) * i / 4;
     g += `<line class="grid" x1="${L}" y1="${sy(v).toFixed(1)}" x2="${L + iw}" y2="${sy(v).toFixed(1)}"/>`
        + `<text class="tick" x="${L - 8}" y="${(sy(v) + 3.5).toFixed(1)}" text-anchor="end">${escapeHtml(fmtNum(v))}</text>`; }
@@ -7164,10 +7208,11 @@ function trChartSvg(pts, key, goal, shown, ms) {
        + `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${dlab(v)}</text>`; }
   g += `<line class="axis" x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"/>`
      + `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${T + ih}"/>`;
-  if (goal != null) {
+  if (goal != null && sy(goal) >= T && sy(goal) <= T + ih) {
     g += `<line class="goalline" x1="${L}" y1="${sy(goal).toFixed(1)}" x2="${L + iw}" y2="${sy(goal).toFixed(1)}"/>`
        + `<text class="goaltxt" x="${L + iw - 4}" y="${(sy(goal) - 5).toFixed(1)}" text-anchor="end">target ${escapeHtml(fmtNum(goal))} ${escapeHtml(u)}</text>`;
   }
+  g += '<g clip-path="url(#trClip)">';
   // One fit per (condition, index value) — the pair a marker identifies, so
   // every line on the chart has a legend entry that explains it.
   if (TR_OPT.fit) {
@@ -7187,6 +7232,7 @@ function trChartSvg(pts, key, goal, shown, ms) {
     g += trMarker(TR_SHAPES[p.mi % TR_SHAPES.length], sx(p.x.getTime()), sy(p.y),
                   4.4, TR_PAL[p.ci % TR_PAL.length], 'pt', `data-i="${i}"`);
   });
+  g += '</g>';
   g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">Run date</text>`
      + `<text class="alab" transform="translate(16,${T + ih / 2}) rotate(-90)" text-anchor="middle">${
         escapeHtml(TR_QUANTITY[u] || u || 'value')}${u ? ` (${escapeHtml(u)})` : ''}</text>`;
@@ -7348,6 +7394,121 @@ function trExportRows() {
     });
   });
   return rows;
+}
+
+// ── zoom, pan and explicit ranges ───────────────────────────────
+//
+// The same interaction as the Comparisons chart, on the same geometry helper.
+// The state is separate because the window belongs to the chart being looked
+// at, and Trends has several — a range set on the voltage chart should not
+// follow you to the crossover one.
+let TR_SCALE = null;                 // last chart's transform, for inverting
+let TR_VIEW = {};                    // chart key -> {x0,x1,y0,y1}
+let TR_PAN = null;
+
+const trView = () => (TR_ACTIVE && TR_VIEW[TR_ACTIVE]) || null;
+const trHasView = () => !!trView();
+const trPointToData = ev => chartPointToData(ev, TR_SCALE, '#trChart svg');
+
+function trSetView(v) {
+  if (!TR_ACTIVE) return;
+  if (v) TR_VIEW[TR_ACTIVE] = v; else delete TR_VIEW[TR_ACTIVE];
+}
+function trResetView() { trSetView(null); trRender(); }
+
+// A blank box means "fit the data", so a range can be half-specified: pin the
+// left edge and let the right follow the samples.
+function trSetBound(which, raw) {
+  if (!TR_ACTIVE || !TR_SCALE) return;
+  const cur = trView() || { x0: TR_SCALE.x0, x1: TR_SCALE.x1,
+                            y0: TR_SCALE.y0, y1: TR_SCALE.y1 };
+  const txt = String(raw == null ? '' : raw).trim();
+  const next = { ...cur };
+  if (!txt) {
+    // Back to the fitted value for that edge alone.
+    next[which] = TR_SCALE['fit' + which] != null
+      ? TR_SCALE['fit' + which] : TR_SCALE[which];
+  } else if (which === 'x0' || which === 'x1') {
+    const d = new Date(txt);
+    if (isNaN(d.getTime())) return;
+    next[which] = d.getTime();
+  } else {
+    const n = parseFloat(txt);
+    if (!isFinite(n)) return;
+    next[which] = n;
+  }
+  if (next.x1 <= next.x0 || next.y1 <= next.y0) return;
+  trSetView(next);
+  trRender();
+}
+
+// Blank unless the window has been set, so an untouched box reads as "fit"
+// rather than showing a number that only looks like a choice.
+function trBoundText(which) {
+  const v = trView();
+  if (!v || !isFinite(v[which])) return '';
+  if (which === 'x0' || which === 'x1')
+    return new Date(v[which]).toISOString().slice(0, 10);
+  return String(+(+v[which]).toPrecision(6));
+}
+
+function trWheel(ev) {
+  if (!TR_SCALE) return;
+  const at = trPointToData(ev);
+  if (!at || !at.inside) return;
+  // Only over the plot itself, so the page still scrolls when the pointer is
+  // merely passing across the panel.
+  ev.preventDefault();
+  const f = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
+  const { x0, x1, y0, y1 } = TR_SCALE;
+  // About the pointer rather than the centre: the point under the cursor stays
+  // put, which is what makes zooming feel aimed.
+  trSetView({
+    x0: at.x - (at.x - x0) * f, x1: at.x + (x1 - at.x) * f,
+    y0: at.y - (at.y - y0) * f, y1: at.y + (y1 - at.y) * f,
+  });
+  trRender();
+}
+
+// Keeps the grabbed point under the cursor, worked out from absolute pointer
+// positions against the transform captured at mousedown — accumulating
+// movementX drifts, and it is unset on synthetic events so it cannot be tested.
+function trPanStart(ev) {
+  if (ev.button !== 0 || !TR_SCALE) return;
+  const at = trPointToData(ev);
+  if (!at || !at.inside) return;
+  const svg = document.querySelector('#trChart svg');
+  TR_PAN = { grabbed: { x: at.x, y: at.y }, scale: { ...TR_SCALE },
+             rect: svg.getBoundingClientRect() };
+  document.getElementById('trChart').classList.add('panning');
+  ev.preventDefault();
+}
+function trPanMove(ev) {
+  if (!TR_PAN) return;
+  const { grabbed, scale: v, rect: r } = TR_PAN;
+  if (!r.width || !r.height) return;
+  const vx = (ev.clientX - r.left) * (v.W / r.width);
+  const vy = (ev.clientY - r.top) * (v.H / r.height);
+  const nowX = v.x0 + ((vx - v.L) / v.iw) * (v.x1 - v.x0);
+  const nowY = v.y0 + ((v.T + v.ih - vy) / v.ih) * (v.y1 - v.y0);
+  const dx = nowX - grabbed.x, dy = nowY - grabbed.y;
+  trSetView({ x0: v.x0 - dx, x1: v.x1 - dx, y0: v.y0 - dy, y1: v.y1 - dy });
+  trRender();
+}
+function trPanEnd() {
+  TR_PAN = null;
+  const el = document.getElementById('trChart');
+  if (el) el.classList.remove('panning');
+}
+
+function trWireChart() {
+  const el = document.getElementById('trChart');
+  if (!el || el.dataset.wired) return;
+  el.dataset.wired = '1';
+  el.addEventListener('wheel', trWheel, { passive: false });
+  el.addEventListener('mousedown', trPanStart);
+  window.addEventListener('mousemove', trPanMove);
+  window.addEventListener('mouseup', trPanEnd);
 }
 
 async function trExport() {
