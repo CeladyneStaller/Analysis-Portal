@@ -2791,8 +2791,14 @@
             <select id="cf-stand" onchange="CF.stand=this.value;cmpRenderPick()"></select></span>
           <span class="cmp-pre" id="cfw-step"><span class="pre">Step</span>
             <select id="cf-step" onchange="CF.step=this.value;cmpRenderPick()"></select></span>
-          <span class="cmp-pre" id="cfw-cond"><span class="pre">Condition</span>
-            <select id="cf-cond" onchange="CF.cond=this.value;cmpRenderPick()"></select></span>
+          <span class="vf-anchor">
+            <span class="cmp-pre vf-multi" id="cfw-cond" onclick="cmpToggleCondPop()">
+              <span class="pre">Condition</span>
+              <span class="vf-multi-val" id="cfCondVal">All</span>
+              <span class="vf-caret">▾</span>
+            </span>
+            <div class="vf-pop" id="cfCondPop"></div>
+          </span>
           <span class="cmp-pre" id="cfw-has"><span class="pre">Show</span>
             <select id="cf-has" onchange="CF.has=this.value;cmpRenderPick()">
               <option value="">all samples</option>
@@ -3436,7 +3442,8 @@ function vfTogglePop(id) {
 document.addEventListener('click', ev => {
   if (ev.target.closest('.vf-pop') || ev.target.closest('#vf-analysis-wrap')
       || ev.target.closest('#vfColBtn') || ev.target.closest('.vr-gtitle')
-      || ev.target.closest('#trwCond') || ev.target.closest('#trAddBtn')) return;
+      || ev.target.closest('#trwCond') || ev.target.closest('#trAddBtn')
+      || ev.target.closest('#cfw-cond')) return;
   document.querySelectorAll('.vf-pop').forEach(p => p.classList.remove('show'));
   VF_STEP_POP_FOR = null;
 });
@@ -5901,10 +5908,136 @@ function cmpRender() {
 // ── picker ──────────────────────────────────────────────────────
 // One definition of "the steps this row is showing", so the row tick, the
 // chips, the count and 'all' cannot disagree about what a row contains.
+// The condition filter is the faceted one the View and Trends tabs use —
+// temperature, humidity, the flows — rather than a flat list of summary
+// strings. Same helper, so the three cannot drift apart in what they offer.
+//
+// Per analysis type, since that is what the tab is showing at the time.
+let CF_COND = {};          // analysis -> {field: Set(values)}
+
+const cmpCondSel = a => CF_COND[a] || (CF_COND[a] = {});
+function cmpCondScope(a) {
+  const sel = CF_COND[a];
+  if (!sel || !Object.keys(sel).length) return null;
+  return d => Object.entries(sel).every(([k, vals]) => {
+    if (!vals) return true;
+    const raw = k === 'step' ? String(d.step || '') : (d.Conditions || {})[k];
+    return vals.has(raw == null ? '' : String(raw));
+  });
+}
+// The picker works on flattened units, which carry the conditions summary but
+// not the raw fields, so matching is done against the run's own Data.
+function cmpUnitPasses(run, unit) {
+  const scope = cmpCondScope(CMP_TYPE);
+  if (!scope) return true;
+  return (run.Data || []).some(d =>
+    String(d.Analysis || '') === CMP_TYPE
+    && String(d.step || '') === String(unit.step || '')
+    && scope(d));
+}
+const cmpCondOn = (a, field, v) => {
+  const sel = (CF_COND[a] || {})[field];
+  return !sel || sel.has(v);
+};
+function cmpToggleCondPop() {
+  const el = document.getElementById('cfCondPop');
+  if (!el) return;
+  document.querySelectorAll('.vf-pop').forEach(p => { if (p !== el) p.classList.remove('show'); });
+  if (!el.classList.contains('show')) cmpRenderCondPop();
+  el.classList.toggle('show');
+}
+function cmpToggleCondVal(field, value) {
+  const a = CMP_TYPE;
+  const f = vfFacetsFor(_viewRuns || [], a).find(x => x.key === field);
+  if (!f) return;
+  const sel = cmpCondSel(a);
+  const cur = new Set(sel[field] || f.values.map(x => x.v));
+  cur.has(value) ? cur.delete(value) : cur.add(value);
+  if (cur.size === f.values.length) delete sel[field];
+  else sel[field] = cur;
+  if (!Object.keys(sel).length) delete CF_COND[a];
+  cmpSyncCondPop();
+  cmpRenderPick();
+}
+function cmpCondFieldAll(field) {
+  const sel = CF_COND[CMP_TYPE];
+  if (!sel) return;
+  delete sel[field];
+  if (!Object.keys(sel).length) delete CF_COND[CMP_TYPE];
+  cmpSyncCondPop();
+  cmpRenderPick();
+}
+function cmpCondAll() { delete CF_COND[CMP_TYPE]; cmpSyncCondPop(); cmpRenderPick(); }
+function cmpCondNone() {
+  const sel = CF_COND[CMP_TYPE] = {};
+  vfFacetsFor(_viewRuns || [], CMP_TYPE).forEach(f => { sel[f.key] = new Set(); });
+  cmpSyncCondPop();
+  cmpRenderPick();
+}
+
+function cmpRenderCondPop() {
+  const a = CMP_TYPE;
+  const pop = document.getElementById('cfCondPop');
+  if (!pop) return;
+  const facets = vfFacetsFor(_viewRuns || [], a);
+  pop.dataset.facets = facets.map(f =>
+    f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
+  pop.innerHTML = `
+    <div class="vf-pophead">Conditions<span class="spacer"></span>
+      <span class="vf-hint" id="cfCondCount"></span></div>
+    <div class="vf-popbody">
+      ${facets.length ? facets.map(f => `
+        <div class="vf-grp">${escapeHtml(f.label)}
+          <span class="all" onclick="cmpCondFieldAll('${escapeAttr(f.key)}')">all</span></div>`
+        + f.values.map(x => `<label class="vf-opt"
+            data-field="${escapeAttr(f.key)}" data-val="${escapeAttr(x.v)}">
+            <input type="checkbox"
+                   onchange="cmpToggleCondVal('${escapeAttr(f.key)}','${escapeAttr(x.v)}')">
+            ${escapeHtml(x.text)}</label>`).join('')).join('')
+        : '<div class="vf-hint" style="padding:10px 12px">Every measurement here '
+          + 'was taken under the same conditions — nothing to choose between.</div>'}
+    </div>
+    <div class="vf-popfoot">
+      <button class="btn btn-sm" onclick="cmpCondAll()">All</button>
+      <button class="btn btn-sm" onclick="cmpCondNone()">None</button>
+      <span class="spacer"></span>
+      <span class="vf-hint">Narrows which curves are offered</span></div>`;
+  cmpSyncCondPop();
+}
+
+// Ticks written onto the existing nodes, so the scroll position survives.
+function cmpSyncCondPop() {
+  const a = CMP_TYPE;
+  const pop = document.getElementById('cfCondPop');
+  if (!pop) return;
+  const facets = vfFacetsFor(_viewRuns || [], a);
+  const sig = facets.map(f => f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
+  if (pop.dataset.facets !== sig) { cmpRenderCondPop(); return; }
+  pop.querySelectorAll('.vf-opt').forEach(el => {
+    const on = cmpCondOn(a, el.getAttribute('data-field'), el.getAttribute('data-val'));
+    el.classList.toggle('on', on);
+    const box = el.querySelector('input');
+    if (box && box.checked !== on) box.checked = on;
+  });
+  const sel = CF_COND[a] || {};
+  let chosen = 0, total = 0;
+  facets.forEach(f => {
+    total += f.values.length;
+    chosen += sel[f.key] ? sel[f.key].size : f.values.length;
+  });
+  const c = document.getElementById('cfCondCount');
+  if (c) c.textContent = `${chosen} of ${total}`;
+  const val = document.getElementById('cfCondVal');
+  const wrap = document.getElementById('cfw-cond');
+  const constrained = Object.keys(sel).length > 0;
+  if (val) val.textContent = constrained ? `${chosen} of ${total}` : 'All';
+  if (wrap) wrap.classList.toggle('set', constrained);
+}
+
 function cmpShownUnits(run) {
   return cmpUnitsFor(run, CMP_TYPE)
     .filter(u => (!CF.step || u.step === CF.step)
-              && (!CF.cond || u.cond === CF.cond));
+              && cmpUnitPasses(run, u));
 }
 
 function cmpConditions() {
@@ -5913,11 +6046,17 @@ function cmpConditions() {
     if (u.cond) c.add(u.cond); }));
   return [...c].sort();
 }
-function cmpClearFilter(w) { CF[w] = ''; cmpRenderPick(); }
+function cmpClearFilter(w) {
+  if (w === 'cond') { delete CF_COND[CMP_TYPE]; cmpSyncCondPop(); }
+  else CF[w] = '';
+  cmpRenderPick();
+}
 function cmpClearFilters() {
   CF = { stand: '', step: '', cond: '', has: '' };
   const q = document.getElementById('cf-q'); if (q) q.value = '';
   cmpRenderPick();
+  CF_COND = {};
+  cmpSyncCondPop();
 }
 
 function cmpRenderPick() {
@@ -5931,13 +6070,10 @@ function cmpRenderPick() {
   if (stepSel) stepSel.innerHTML = '<option value="">All</option>' +
     cmpStepVocab().map(v =>
       `<option ${CF.step === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
-  const cs = document.getElementById('cf-cond');
-  if (cs) cs.innerHTML = '<option value="">All</option>' +
-    cmpConditions().map(v =>
-      `<option ${CF.cond === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+
+  cmpSyncCondPop();
   const hs = document.getElementById('cf-has'); if (hs) hs.value = CF.has;
-  [['cfw-stand', CF.stand], ['cfw-step', CF.step],
-   ['cfw-cond', CF.cond], ['cfw-has', CF.has]]
+  [['cfw-stand', CF.stand], ['cfw-step', CF.step], ['cfw-has', CF.has]]
     .forEach(([id, v]) => {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('set', !!v);
@@ -5949,7 +6085,7 @@ function cmpRenderPick() {
     // The stand filter reuses the View tab's matcher rather than a second copy.
     .filter(r => standMatches(r.stand, CF.stand))
     .filter(r => !CF.step || cmpUnitsFor(r, CMP_TYPE).some(u => u.step === CF.step))
-    .filter(r => !CF.cond || cmpUnitsFor(r, CMP_TYPE).some(u => u.cond === CF.cond))
+    .filter(r => cmpUnitsFor(r, CMP_TYPE).some(u => cmpUnitPasses(r, u)))
     .filter(r => {
       const n = (CMP_SEL.get(runKey(r)) || new Set()).size;
       return CF.has === 'none' ? n === 0 : CF.has === 'some' ? n > 0 : true;
@@ -5958,7 +6094,17 @@ function cmpRenderPick() {
   const chips = [];
   if (CF.stand) chips.push(['stand', CF.stand, 'stand']);
   if (CF.step) chips.push(['step', CF.step, 'step']);
-  if (CF.cond) chips.push(['condition', CF.cond, 'cond']);
+  // The faceted filter carries its own chip, since it is several choices.
+  if (Object.keys(CF_COND[CMP_TYPE] || {}).length) {
+    const facets = vfFacetsFor(_viewRuns || [], CMP_TYPE);
+    const sel = CF_COND[CMP_TYPE];
+    let chosen = 0, total = 0;
+    facets.forEach(f => {
+      total += f.values.length;
+      chosen += sel[f.key] ? sel[f.key].size : f.values.length;
+    });
+    chips.push(['conditions', `${chosen} of ${total}`, 'cond']);
+  }
   if (CF.has) chips.push(['showing', CF.has === 'none' ? 'not yet added' : 'already added', 'has']);
   const host = document.getElementById('cmpFChips');
   host.innerHTML = chips.map(([k, v, id]) =>
@@ -6013,7 +6159,7 @@ function cmpRenderPick() {
 }
 
 // ── actions ─────────────────────────────────────────────────────
-function cmpSetType(k) { CMP_TYPE = k; CF.step = ''; CF.cond = ''; cmpRender(); }
+function cmpSetType(k) { CMP_TYPE = k; CF.step = ''; cmpRender(); }
 function cmpToggleStep(k, st) {
   const kk = cmpKey(k, st);
   CMP_HIDDEN.has(kk) ? CMP_HIDDEN.delete(kk) : CMP_HIDDEN.add(kk);
