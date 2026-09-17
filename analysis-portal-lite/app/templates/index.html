@@ -6511,7 +6511,7 @@ const trParts = k => ({ a: k.slice(0, k.indexOf(TR_SEP)),
 
 let TR_TABS = [], TR_ACTIVE = null;
 let TR_OFF = {};          // per chart, series switched off
-let TR_PICKED = null, TR_PICK_SEEDED = false;   // selected sample keys
+let TR_PICKED = null;      // selected sample keys; empty until picked
 let TR_HIDDEN = new Set();// conditions
 let TR_OPT = { fit: true, goal: true };
 let TR_GOALS = {};
@@ -6556,17 +6556,10 @@ function trConditions() {
 }
 const trCondIndex = c => trConditions().indexOf(c);
 
-// Everything loaded is selected to begin with, seeded once the index is
-// actually here. Guarding on the set itself failed: the first call happens
-// while the fetch is still in flight, and the empty Set it cached is truthy,
-// so nothing was ever selected again.
-function trPickedKeys() {
-  if (!TR_PICK_SEEDED && (_viewRuns || []).length) {
-    TR_PICKED = new Set(_viewRuns.map(r => runKey(r)));
-    TR_PICK_SEEDED = true;
-  }
-  return TR_PICKED || (TR_PICKED = new Set());
-}
+// Nothing is charted until it is picked, the way Comparisons works — a trend
+// across every sample ever run is rarely the question, and starting full means
+// clearing before you can start.
+function trPickedKeys() { return TR_PICKED || (TR_PICKED = new Set()); }
 
 // A point is one sample, one condition, one index value.
 function trPoints(k) {
@@ -6670,6 +6663,21 @@ function trSetGoal(k, v) {
   const n = parseFloat(v);
   if (isFinite(n)) TR_GOALS[k] = n; else delete TR_GOALS[k];
   trRender();
+}
+
+// Keeps the selected value across a rebuild, and only touches the DOM when the
+// option list actually differs — otherwise an open dropdown would close itself
+// on every redraw.
+function trFillSelect(id, values, allLabel) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const want = ['\u0000' + allLabel].concat(values.map(String)).join('\u241f');
+  if (el.dataset.built === want) return;
+  const keep = el.value;
+  el.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>`
+    + values.map(v => `<option value="${escapeAttr(String(v))}">${escapeHtml(String(v))}</option>`).join('');
+  el.dataset.built = want;
+  if (values.map(String).includes(keep)) el.value = keep;
 }
 
 function trShownRuns() {
@@ -6822,12 +6830,12 @@ function trRender() {
 
   // ── picker ──
   const shownRuns = trShownRuns();
-  const cs = document.getElementById('trCond');
-  if (cs && !cs.options.length) cs.innerHTML = '<option value="">All</option>'
-    + trConditions().map(c => `<option>${escapeHtml(c)}</option>`).join('');
-  const ss = document.getElementById('trStand');
-  if (ss && !ss.options.length) ss.innerHTML = '<option value="">All stands</option>'
-    + (_viewFacets.stands || []).map(t => `<option>${escapeHtml(t)}</option>`).join('');
+  // Rebuilt whenever the available values change, keeping the current choice.
+  // Filling them once was wrong: the first render happens before the index has
+  // arrived, so both dropdowns were built empty and never refilled — they read
+  // "All" and nothing else for the rest of the session.
+  trFillSelect('trCond', trConditions(), 'All');
+  trFillSelect('trStand', _viewFacets.stands || [], 'All stands');
   const picked = trPickedKeys();
   document.getElementById('trPicks').innerHTML = shownRuns.length
     ? shownRuns.map(r => {
