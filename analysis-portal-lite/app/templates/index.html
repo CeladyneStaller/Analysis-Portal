@@ -1011,6 +1011,62 @@
   .section.section-menus { overflow: visible; }
   .section.section-menus .section-body { overflow: visible; }
 
+  /* ─── Trends tab ───────────────────────────── */
+  .tr-tab { display: inline-flex; align-items: center; gap: 7px;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    color: var(--text-dim); border-radius: var(--radius);
+    padding: 5px 8px 5px 12px; font-size: 12.5px; cursor: pointer; }
+  .tr-tab.on { border-color: var(--accent); color: var(--accent);
+    background: var(--accent-glow); }
+  .tr-tab .ana { font-size: 9.5px; opacity: .6; font-family: var(--mono);
+    margin-left: 5px; }
+  .tr-tab .x { opacity: .4; padding: 0 3px; }
+  .tr-tab .x:hover { opacity: 1; color: var(--red); }
+  .tr-anchor { position: relative; display: inline-flex; }
+  .tr-holds { margin-left: auto; font-size: 9.5px; color: var(--text-dim);
+    font-family: var(--mono); max-width: 170px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; padding-left: 10px; }
+  .tr-lgsec { border-bottom: 1px solid var(--border); padding: 2px 0 7px; }
+  .tr-lgsec .h { padding: 9px 13px 4px; font-size: 9.5px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-dim); }
+  .tr-srow { display: grid; grid-template-columns: 16px 1fr auto; gap: 9px;
+    align-items: center; padding: 6px 13px; cursor: pointer; }
+  .tr-srow:hover { background: var(--accent-glow); }
+  .tr-srow.off { opacity: .35; }
+  .tr-sw { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto; }
+  .tr-srow .nm { font-size: 12px; min-width: 0; }
+  .tr-srow .nm .a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tr-srow .nm .b, .tr-srow .val .b { font-size: 10px; color: var(--text-dim);
+    font-family: var(--mono); margin-top: 2px; }
+  .tr-srow .val { text-align: right; }
+  .tr-srow .val .v { font-family: var(--mono); font-size: 12px; }
+  .tr-srow .val .b.up { color: var(--green); }
+  .tr-srow .val .b.down { color: var(--red); }
+  .tr-goal { display: inline-flex; align-items: center; gap: 5px; }
+  .tr-goal input { width: 78px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-family: var(--mono); font-size: 11.5px;
+    padding: 3px 6px; text-align: right; }
+  #trChart svg .pt { cursor: pointer; }
+  #trChart svg .pt:hover { stroke: var(--text); stroke-width: 1.8; }
+  #trChart svg .fit { stroke-width: 1.5; fill: none; opacity: .45; }
+  #trChart svg .goalline { stroke: var(--amber); stroke-width: 1.2;
+    stroke-dasharray: 6 4; opacity: .8; }
+  #trChart svg .goaltxt { fill: var(--amber); font-size: 10px;
+    font-family: var(--font); }
+  .tr-tip { position: absolute; pointer-events: none;
+    background: var(--surface-raised); border: 1px solid var(--border-hover);
+    border-radius: var(--radius); padding: 8px 11px; font-size: 11.5px;
+    box-shadow: 0 10px 26px rgba(0,0,0,.45); display: none; z-index: 30;
+    min-width: 180px; }
+  .tr-tip.show { display: block; }
+  .tr-tip .nm { font-size: 12px; margin-bottom: 4px; }
+  .tr-tip .kv { display: flex; gap: 10px; font-family: var(--mono);
+    font-size: 10.5px; color: var(--text-dim); }
+  .tr-tip .kv b { color: var(--text); font-weight: 500; margin-left: auto; }
+  .tr-tip .cond { font-size: 10px; color: var(--text-dim); margin-top: 5px;
+    padding-top: 5px; border-top: 1px solid var(--border); }
+
   .vr-gtitle { cursor: pointer; border-bottom: 1px dashed transparent;
     padding-bottom: 1px; }
   .vr-gtitle:hover { border-bottom-color: var(--accent); }
@@ -2466,6 +2522,7 @@
     <button class="tab active" id="tab-analysis" onclick="switchTab('analysis')">Analysis</button>
     <button class="tab" id="tab-view" onclick="switchTab('view')">View</button>
     <button class="tab" id="tab-compare" onclick="switchTab('compare')">Comparisons</button>
+    <button class="tab" id="tab-trends" onclick="switchTab('trends')">Trends</button>
   </div>
 
   <div class="tabview active" id="view-analysis">
@@ -2734,6 +2791,55 @@
     </div>
   </div>
 
+  <!-- ─── Trends tab ─────────────────────────── -->
+  <div class="tabview" id="view-trends">
+    <div class="section section-menus">
+      <div class="section-head">
+        Trends
+        <span class="count" id="trCount">0</span>
+        <span class="cmp-spacer"></span>
+        <span class="cmp-hint" id="trSpan"></span>
+        <button class="btn btn-go" id="trExport" onclick="trExport()"
+                title="Save this chart as a PNG">⭳ Export PNG</button>
+      </div>
+
+      <div class="cmp-types" id="trStrip"></div>
+
+      <div class="cmp-body">
+        <div class="cmp-side">
+          <div class="cmp-sidehead"><span class="cmp-t">Legend</span>
+            <span class="cmp-spacer"></span>
+            <span class="cmp-hint" id="trLegCount"></span></div>
+          <div class="cmp-curves" id="trLegend"></div>
+        </div>
+        <div class="cmp-main">
+          <div class="cmp-opts" id="trOpts"></div>
+          <div class="cmp-chartwrap"><div id="trChart"></div></div>
+          <div class="tr-tip" id="trTip"></div>
+        </div>
+      </div>
+
+      <div class="cmp-picker">
+        <div class="cmp-pickhead">
+          <span class="cmp-t">Add samples</span>
+          <span class="cmp-search"><span class="cmp-mag">⌕</span>
+            <input id="trq" placeholder="Search samples…" oninput="trRender()"></span>
+          <span class="cmp-pre" id="trwStand"><span class="pre">Stand</span>
+            <select id="trStand" onchange="trRender()"></select></span>
+          <span class="cmp-pre" id="trwCond"><span class="pre">Condition</span>
+            <select id="trCond" onchange="trRender()"></select></span>
+          <span class="cmp-spacer"></span>
+          <span class="cmp-hint" id="trPickHint"></span>
+          <button class="btn btn-sm" onclick="trPickAll(true)">Add all shown</button>
+          <button class="btn btn-sm" onclick="trPickAll(false)">Clear</button>
+        </div>
+        <div id="trPicks"></div>
+      </div>
+      <div class="cmp-note" id="trNote"></div>
+    </div>
+  </div>
+
+
   <div class="compare-modal" id="compareModal" onclick="closeCompareModalBg(event)">
     <div class="compare-modal-inner">
       <h2>Plot Comparison</h2>
@@ -2867,10 +2973,14 @@ function switchTab(name) {
   document.getElementById('view-view').classList.toggle('active', name === 'view');
   document.getElementById('tab-compare').classList.toggle('active', name === 'compare');
   document.getElementById('view-compare').classList.toggle('active', name === 'compare');
-  // Comparisons reads the same index the View tab does, so it is loaded once
-  // and both tabs share it.
-  if ((name === 'view' || name === 'compare') && !_viewLoaded) loadViewRuns(false);
+  document.getElementById('tab-trends').classList.toggle('active', name === 'trends');
+  document.getElementById('view-trends').classList.toggle('active', name === 'trends');
+  // Comparisons and Trends read the same index the View tab does, so it is
+  // loaded once and all three share it.
+  if ((name === 'view' || name === 'compare' || name === 'trends') && !_viewLoaded)
+    loadViewRuns(false);
   if (name === 'compare') cmpRender();
+  if (name === 'trends') trRender();
 }
 
 async function loadViewRuns(force) {
@@ -2887,6 +2997,11 @@ async function loadViewRuns(force) {
     populateViewFacets();
     populateMetricPicker();
     applyViewFilters();
+    // Comparisons and Trends draw from this index, and switchTab starts the
+    // fetch then renders immediately — so whichever is open redraws once the
+    // data is actually here.
+    if (document.getElementById('view-trends').classList.contains('active')) trRender();
+    if (document.getElementById('view-compare').classList.contains('active')) cmpRender();
   } catch (e) {
     host.innerHTML = '<div class="empty">Could not load history: '
       + escapeHtml(String(e.message || e)) + '</div>';
@@ -6356,6 +6471,507 @@ function cmpToggleStat(i) {
   cmpRender();
 }
 
+// ═══ Trends ═══════════════════════════════════════════════════════
+//
+// A chart is an analysis and a quantity, and the unit decides which index
+// values may share its axis: the polarization curve's voltage chart holds OCV
+// and every V @ j, its current chart every j @ V. Colour is the measurement
+// condition and shape is the index value, so several series can sit on one
+// axis without borrowing the channel that already means something.
+//
+// The analysis comes from the index — whichever reported the value. Only the
+// unit has to be declared, because key_values are bare numbers; the patterns
+// below mean a new "j @ 0.55 V" lands on the right chart without a code change.
+const TR_UNIT = {
+  'OCV': 'V', 'HFR': 'mΩ·cm²', 'Mean HFR': 'mΩ·cm²',
+  'R_ohm': 'mΩ·cm²', 'R_ct': 'mΩ·cm²',
+  'Peak P': 'mW/cm²', 'Peak Power': 'mW/cm²', 'Tafel': 'mV/dec',
+  '|j_xover|': 'mA/cm²', 'H₂ Flux': 'nmol/cm²/s',
+  'Average ECSA': 'm²/g', 'Average RF': '',
+};
+function trUnitOf(name) {
+  if (TR_UNIT[name] != null) return TR_UNIT[name];
+  if (/^j\s*@/i.test(name)) return 'A/cm²';      // j @ any voltage
+  if (/^V\s*@/i.test(name)) return 'V';          // V @ any current
+  return '';
+}
+const TR_QUANTITY = {
+  'V': 'Voltage', 'A/cm²': 'Current density', 'mΩ·cm²': 'Resistance',
+  'mW/cm²': 'Power density', 'mV/dec': 'Tafel slope',
+  'mA/cm²': 'Crossover current', 'nmol/cm²/s': 'H₂ flux', 'm²/g': 'ECSA',
+};
+const TR_PAL = ['#47b5ff', '#f87171', '#4ade80', '#fbbf24', '#c084fc',
+                '#22d3ee', '#fb923c'];
+const TR_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'cross'];
+const TR_DASH = ['0', '5 4', '2 3', '8 3 2 3', '1 4'];
+const TR_SEP = '\u241f';
+const trKey = (a, u) => a + TR_SEP + u;
+const trParts = k => ({ a: k.slice(0, k.indexOf(TR_SEP)),
+                        u: k.slice(k.indexOf(TR_SEP) + 1) });
+
+let TR_TABS = [], TR_ACTIVE = null;
+let TR_OFF = {};          // per chart, series switched off
+let TR_PICKED = null, TR_PICK_SEEDED = false;   // selected sample keys
+let TR_HIDDEN = new Set();// conditions
+let TR_OPT = { fit: true, goal: true };
+let TR_GOALS = {};
+let TR_SEEDED = false;
+
+// Every (analysis, unit) a stored run actually reports, and the index values
+// under each. Built from the index so a chart is never offered that nothing
+// could fill.
+function trCatalog() {
+  const out = {};
+  (_viewRuns || []).forEach(r => (r.Data || []).forEach(d => {
+    const a = String(d.Analysis || '');
+    if (!a) return;
+    Object.entries(d.key_values || {}).forEach(([raw, v]) => {
+      if (typeof v !== 'number' || !isFinite(v)) return;
+      const m = canonMetric(raw), u = trUnitOf(m);
+      const k = trKey(a, u);
+      const set = out[k] || (out[k] = new Set());
+      set.add(m);
+    });
+  }));
+  const rank = n => { const i = COLUMN_ORDER.indexOf(n);
+    return i < 0 ? COLUMN_ORDER.length : i; };
+  const cat = {};
+  Object.keys(out).sort().forEach(k => {
+    cat[k] = [...out[k]].sort((x, y) => rank(x) - rank(y) || x.localeCompare(y));
+  });
+  return cat;
+}
+const trSeriesOf = k => trCatalog()[k] || [];
+const trSeriesOn = (k, m) => !(TR_OFF[k] && TR_OFF[k].has(m));
+
+// Conditions present, in a stable order so a colour keeps its meaning as the
+// selection changes.
+function trConditions() {
+  const seen = [];
+  (_viewRuns || []).forEach(r => (r.Data || []).forEach(d => {
+    const c = conditionSummary(d.Conditions || {}) || '(no conditions)';
+    if (!seen.includes(c)) seen.push(c);
+  }));
+  return seen.sort();
+}
+const trCondIndex = c => trConditions().indexOf(c);
+
+// Everything loaded is selected to begin with, seeded once the index is
+// actually here. Guarding on the set itself failed: the first call happens
+// while the fetch is still in flight, and the empty Set it cached is truthy,
+// so nothing was ever selected again.
+function trPickedKeys() {
+  if (!TR_PICK_SEEDED && (_viewRuns || []).length) {
+    TR_PICKED = new Set(_viewRuns.map(r => runKey(r)));
+    TR_PICK_SEEDED = true;
+  }
+  return TR_PICKED || (TR_PICKED = new Set());
+}
+
+// A point is one sample, one condition, one index value.
+function trPoints(k) {
+  if (!k) return [];
+  const { a } = trParts(k);
+  const ms = trSeriesOf(k).filter(m => trSeriesOn(k, m));
+  const picked = trPickedKeys();
+  const out = [];
+  (_viewRuns || []).forEach(r => {
+    if (!picked.has(runKey(r))) return;
+    const when = runDateOf(r);
+    if (!when) return;
+    (r.Data || []).forEach(d => {
+      if (String(d.Analysis || '') !== a) return;
+      const cond = conditionSummary(d.Conditions || {}) || '(no conditions)';
+      if (TR_HIDDEN.has(cond)) return;
+      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
+        if (typeof v !== 'number' || !isFinite(v)) return;
+        const m = canonMetric(raw);
+        if (!ms.includes(m)) return;
+        out.push({ x: when, y: v, cond, ci: trCondIndex(cond), metric: m,
+                   mi: trSeriesOf(k).indexOf(m), sample: r.sample_name || runKey(r),
+                   stand: r.stand || '', step: String(d.step || '') });
+      });
+    });
+  });
+  return out;
+}
+
+// The run date as a Date, from whichever field the entry carries.
+function runDateOf(r) {
+  const raw = r.run_date || r.timestamp;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function trFit(pts) {
+  if (pts.length < 2) return null;
+  const xs = pts.map(p => p.x.getTime()), ys = pts.map(p => p.y), n = xs.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+  if (!den) return null;
+  const sl = num / den;
+  return { at: x => my + sl * (x - mx), perMonth: sl * 1000 * 60 * 60 * 24 * 30 };
+}
+
+// Drawn rather than glyph characters, so a marker sits on the axis and keeps
+// its size whatever the font does.
+function trMarker(shape, x, y, r, fill, cls, attrs) {
+  const a = `${attrs || ''} class="${cls || ''}" fill="${fill}"`;
+  if (shape === 'square')
+    return `<rect ${a} x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}"/>`;
+  if (shape === 'triangle')
+    return `<polygon ${a} points="${x},${y - r * 1.15} ${x + r * 1.1},${y + r * 0.8} ${x - r * 1.1},${y + r * 0.8}"/>`;
+  if (shape === 'diamond')
+    return `<polygon ${a} points="${x},${y - r * 1.3} ${x + r * 1.2},${y} ${x},${y + r * 1.3} ${x - r * 1.2},${y}"/>`;
+  if (shape === 'cross')
+    return `<path ${a} d="M${x - r} ${y - r * 0.36} h${r * 0.64} v${-r * 0.64} h${r * 0.72} v${r * 0.64} h${r * 0.64} v${r * 0.72} h${-r * 0.64} v${r * 0.64} h${-r * 0.72} v${-r * 0.64} h${-r * 0.64} Z"/>`;
+  return `<circle ${a} cx="${x}" cy="${y}" r="${r}"/>`;
+}
+const trMarkerSvg = (sh, fill) =>
+  `<svg width="14" height="14" viewBox="0 0 14 14" style="flex:0 0 auto">`
+  + trMarker(sh, 7, 7, 4.6, fill) + '</svg>';
+
+// ── interaction ──
+function trTogglePop() {
+  const el = document.getElementById('trAddPop');
+  if (el) el.classList.toggle('show');
+}
+function trToggleTab(k) {
+  if (TR_TABS.includes(k)) {
+    TR_TABS = TR_TABS.filter(x => x !== k);
+    if (TR_ACTIVE === k) TR_ACTIVE = TR_TABS[0] || null;
+  } else { TR_TABS = [...TR_TABS, k]; TR_ACTIVE = k; }
+  trRender();
+}
+function trSetActive(k) { TR_ACTIVE = k; trRender(); }
+function trToggleSeries(k, m) {
+  const s = TR_OFF[k] || (TR_OFF[k] = new Set());
+  s.has(m) ? s.delete(m) : s.add(m);
+  // Never an empty chart: the last visible series stays.
+  if (s.size >= trSeriesOf(k).length) s.delete(m);
+  trRender();
+}
+function trToggleCond(c) { TR_HIDDEN.has(c) ? TR_HIDDEN.delete(c) : TR_HIDDEN.add(c); trRender(); }
+function trToggleSample(k) {
+  const p = trPickedKeys();
+  p.has(k) ? p.delete(k) : p.add(k);
+  trRender();
+}
+function trPickAll(on) {
+  const shown = trShownRuns();
+  const p = trPickedKeys();
+  if (on) shown.forEach(r => p.add(runKey(r)));
+  else TR_PICKED = new Set();
+  trRender();
+}
+function trSetGoal(k, v) {
+  const n = parseFloat(v);
+  if (isFinite(n)) TR_GOALS[k] = n; else delete TR_GOALS[k];
+  trRender();
+}
+
+function trShownRuns() {
+  const q = (document.getElementById('trq') || {}).value || '';
+  const st = (document.getElementById('trStand') || {}).value || '';
+  const cd = (document.getElementById('trCond') || {}).value || '';
+  [['trwStand', st], ['trwCond', cd]].forEach(([id, v]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('set', !!v);
+  });
+  const ql = q.toLowerCase();
+  return (_viewRuns || []).filter(r => {
+    if (ql && !String(r.sample_name || '').toLowerCase().includes(ql)) return false;
+    if (st && !standMatches(r.stand, st)) return false;
+    if (cd && !(r.Data || []).some(d =>
+      (conditionSummary(d.Conditions || {}) || '(no conditions)') === cd)) return false;
+    if (TR_ACTIVE && !(r.Data || []).some(d =>
+      String(d.Analysis || '') === trParts(TR_ACTIVE).a)) return false;
+    return true;
+  });
+}
+
+function trRender() {
+  const cat = trCatalog();
+  const keys = Object.keys(cat);
+  // Open on the polarization curve's voltage chart when there is one, because
+  // it is the number most builds are judged on; otherwise whatever exists.
+  // Seeded once, and only while nothing has been chosen — an early render
+  // against an empty index used to leave the seed pending, so the first chart
+  // the operator added was then replaced by the default.
+  if (!TR_SEEDED && keys.length && !TR_TABS.length) {
+    TR_SEEDED = true;
+    const pref = keys.find(k => trParts(k).a === 'polcurve' && trParts(k).u === 'V');
+    TR_TABS = [pref || keys[0]];
+    TR_ACTIVE = TR_TABS[0];
+  }
+  TR_TABS = TR_TABS.filter(k => cat[k]);
+  if (TR_ACTIVE && !cat[TR_ACTIVE]) TR_ACTIVE = TR_TABS[0] || null;
+
+  // ── chart tabs ──
+  const byAnalysis = {};
+  keys.forEach(k => { const a = trParts(k).a; (byAnalysis[a] || (byAnalysis[a] = [])).push(k); });
+  document.getElementById('trStrip').innerHTML =
+    '<span class="cmp-t">Charts</span>'
+    + TR_TABS.map(k => { const { a, u } = trParts(k);
+        return `<span class="tr-tab${k === TR_ACTIVE ? ' on' : ''}"
+                      onclick="trSetActive('${escapeAttr(k)}')">
+          <span>${escapeHtml(TR_QUANTITY[u] || u || '—')}
+            <span class="ana">${escapeHtml(a)}</span></span>
+          <span class="x" title="Remove this chart"
+                onclick="event.stopPropagation();trToggleTab('${escapeAttr(k)}')">×</span>
+        </span>`; }).join('')
+    + `<span class="tr-anchor">
+        <button class="btn btn-sm" id="trAddBtn" onclick="event.stopPropagation();trTogglePop()"
+                title="Choose an analysis and a quantity to follow over time">＋ Add chart</button>
+        <div class="vf-pop" id="trAddPop">
+          <div class="vf-pophead">Index data<span class="spacer"></span>
+            <span class="vf-hint">${TR_TABS.length} charted</span></div>
+          <div class="vf-popbody">${
+            Object.keys(byAnalysis).length ? Object.keys(byAnalysis).sort().map(a =>
+              `<div class="vf-grp">${escapeHtml(CMP_TYPES[a] ? CMP_TYPES[a].label : a)}</div>`
+              + byAnalysis[a].map(k => { const u = trParts(k).u;
+                  return `<label class="vf-opt${TR_TABS.includes(k) ? ' on' : ''}">
+                    <input type="checkbox" ${TR_TABS.includes(k) ? 'checked' : ''}
+                           onchange="trToggleTab('${escapeAttr(k)}')">
+                    ${escapeHtml(TR_QUANTITY[u] || u || '—')}
+                    <span class="vf-hint">${escapeHtml(u)}</span>
+                    <span class="tr-holds">${escapeHtml(cat[k].join(', '))}</span></label>`;
+                }).join('')).join('')
+            : '<div class="vf-hint" style="padding:10px 12px">No index data loaded</div>'}
+          </div>
+          <div class="vf-popfoot"><span class="vf-hint">A chart holds every index
+            value sharing its unit</span></div>
+        </div></span>`;
+
+  const chart = document.getElementById('trChart');
+  const legend = document.getElementById('trLegend');
+  const opts = document.getElementById('trOpts');
+
+  if (!TR_ACTIVE) {
+    chart.innerHTML = '<div class="cmp-empty" style="padding:80px 16px">'
+      + 'No charts — <b>Add chart</b> to pick an analysis and a quantity.</div>';
+    legend.innerHTML = ''; opts.innerHTML = '';
+    document.getElementById('trLegCount').textContent = '';
+  } else {
+    const { u } = trParts(TR_ACTIVE);
+    const ms = trSeriesOf(TR_ACTIVE);
+    const shown = ms.filter(m => trSeriesOn(TR_ACTIVE, m));
+    const dirn = shown.length ? (METRIC_DIR[shown[0]] || 1) : 1;
+    const goal = TR_OPT.goal && TR_GOALS[TR_ACTIVE] != null ? TR_GOALS[TR_ACTIVE] : null;
+    const pts = trPoints(TR_ACTIVE);
+
+    opts.innerHTML =
+      `<label><input type="checkbox" ${TR_OPT.fit ? 'checked' : ''}
+         onchange="TR_OPT.fit=this.checked;trRender()"> Trend line</label>
+       <label><input type="checkbox" ${TR_OPT.goal ? 'checked' : ''}
+         onchange="TR_OPT.goal=this.checked;trRender()"> Target</label>
+       <span class="tr-goal">at <input type="text" value="${goal == null ? '' : goal}"
+         placeholder="none" onchange="trSetGoal('${escapeAttr(TR_ACTIVE)}', this.value)">
+         <span class="cmp-hint">${escapeHtml(u)}</span></span>
+       <span class="cmp-spacer"></span>
+       <span class="cmp-hint">${shown.length > 1
+         ? 'Shape is the index value, colour is the condition'
+         : 'Colour is the condition'}</span>`;
+
+    chart.innerHTML = trChartSvg(pts, TR_ACTIVE, goal, shown, ms);
+    trWireTips(pts);
+
+    // Two legends, because there are two channels.
+    const first = shown[0];
+    legend.innerHTML =
+      '<div class="tr-lgsec"><div class="h">Index value — shape</div>'
+      + ms.map(m => {
+          const on = trSeriesOn(TR_ACTIVE, m);
+          const n = pts.filter(p => p.metric === m).length;
+          return `<div class="tr-srow${on ? '' : ' off'}"
+                       onclick="trToggleSeries('${escapeAttr(TR_ACTIVE)}','${escapeAttr(m)}')">
+            ${trMarkerSvg(TR_SHAPES[ms.indexOf(m) % TR_SHAPES.length],
+                          on ? 'var(--text)' : 'var(--text-dim)')}
+            <span class="nm"><div class="a">${escapeHtml(m)}</div>
+              <div class="b">${n} point(s)</div></span>
+            <span class="val"><div class="b">${(METRIC_DIR[m] || 1) > 0
+              ? 'higher better' : 'lower better'}</div></span></div>`;
+        }).join('')
+      + '</div><div class="tr-lgsec"><div class="h">Condition — colour</div>'
+      + trConditions().map((c, ci) => {
+          const sub = first ? pts.filter(p => p.cond === c && p.metric === first) : [];
+          const all = first ? trPointsForCond(TR_ACTIVE, c, first) : [];
+          const f = trFit(all);
+          const latest = all.length
+            ? all.slice().sort((a, b) => b.x - a.x)[0].y : null;
+          const dir = f ? (f.perMonth * dirn > 0 ? 'up'
+                        : f.perMonth * dirn < 0 ? 'down' : 'flat') : 'flat';
+          return `<div class="tr-srow${TR_HIDDEN.has(c) ? ' off' : ''}"
+                       onclick="trToggleCond('${escapeAttr(c)}')">
+            <span class="tr-sw" style="background:${TR_PAL[ci % TR_PAL.length]}"></span>
+            <span class="nm"><div class="a">${escapeHtml(c)}</div>
+              <div class="b">${all.length} pt${first ? ' · ' + escapeHtml(first) : ''}</div></span>
+            <span class="val"><div class="v">${latest == null ? '—' : escapeHtml(fmtNum(latest))}</div>
+              <div class="b ${dir}" title="${dir === 'up' ? 'improving'
+                : dir === 'down' ? 'getting worse' : 'flat'}">${f
+                ? (dir === 'up' ? '▲ ' : dir === 'down' ? '▼ ' : '')
+                  + (f.perMonth > 0 ? '+' : '') + fmtNum(f.perMonth) + '/mo'
+                : '—'}</div></span></div>`;
+        }).join('')
+      + '</div>';
+    document.getElementById('trLegCount').textContent =
+      `${shown.length} series · ${trConditions().length - TR_HIDDEN.size} conditions`;
+  }
+
+  // ── picker ──
+  const shownRuns = trShownRuns();
+  const cs = document.getElementById('trCond');
+  if (cs && !cs.options.length) cs.innerHTML = '<option value="">All</option>'
+    + trConditions().map(c => `<option>${escapeHtml(c)}</option>`).join('');
+  const ss = document.getElementById('trStand');
+  if (ss && !ss.options.length) ss.innerHTML = '<option value="">All stands</option>'
+    + (_viewFacets.stands || []).map(t => `<option>${escapeHtml(t)}</option>`).join('');
+  const picked = trPickedKeys();
+  document.getElementById('trPicks').innerHTML = shownRuns.length
+    ? shownRuns.map(r => {
+        const k = runKey(r);
+        const conds = [...new Set((r.Data || [])
+          .filter(d => !TR_ACTIVE || String(d.Analysis || '') === trParts(TR_ACTIVE).a)
+          .map(d => conditionSummary(d.Conditions || {}) || '(no conditions)'))];
+        return `<div class="cmp-prow" style="grid-template-columns:250px 96px 1fr auto">
+          <span class="cmp-pname" title="${escapeAttr(r.sample_name || '')}">${escapeHtml(r.sample_name || '—')}</span>
+          <span class="cmp-pstand">${escapeHtml(r.stand || '—')}</span>
+          <span class="cmp-chiprow">${conds.map(c =>
+            `<span class="cmp-chip${picked.has(k) ? ' on' : ''}"
+                   onclick="trToggleSample('${escapeAttr(k)}')">
+              <span class="cs">${escapeHtml(runDateLabel(r))}</span>
+              <span class="cc">${escapeHtml(c)}</span></span>`).join('')}</span>
+          <button class="btn btn-sm" onclick="trToggleSample('${escapeAttr(k)}')">${
+            picked.has(k) ? 'remove' : 'add'}</button></div>`;
+      }).join('')
+    : '<div class="cmp-empty" style="padding:22px 16px">No samples match these filters.</div>';
+
+  const nSel = (_viewRuns || []).filter(r => picked.has(runKey(r))).length;
+  document.getElementById('trCount').textContent = String(nSel);
+  const dates = (_viewRuns || []).filter(r => picked.has(runKey(r)))
+    .map(runDateOf).filter(Boolean).sort((a, b) => a - b);
+  document.getElementById('trSpan').textContent = dates.length
+    ? `${nSel} samples · ${dates[0].toISOString().slice(0, 10)} → ${dates[dates.length - 1].toISOString().slice(0, 10)}`
+    : '';
+  document.getElementById('trPickHint').textContent =
+    `${shownRuns.length} shown`;
+  document.getElementById('trNote').innerHTML = TR_ACTIVE
+    ? 'Only index values sharing this chart’s unit can appear on it, so the axis '
+      + 'always means one thing. Where several are shown, shape tells them apart '
+      + 'and the trend lines are dashed to match — colour stays the condition.'
+    : 'Pick an analysis and a quantity to start a chart.';
+}
+
+// Points of one condition and one index value, ignoring whether that condition
+// is hidden — the legend still reports where a hidden condition stands.
+function trPointsForCond(k, cond, metric) {
+  const { a } = trParts(k);
+  const picked = trPickedKeys();
+  const out = [];
+  (_viewRuns || []).forEach(r => {
+    if (!picked.has(runKey(r))) return;
+    const when = runDateOf(r);
+    if (!when) return;
+    (r.Data || []).forEach(d => {
+      if (String(d.Analysis || '') !== a) return;
+      if ((conditionSummary(d.Conditions || {}) || '(no conditions)') !== cond) return;
+      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
+        if (canonMetric(raw) !== metric) return;
+        if (typeof v === 'number' && isFinite(v)) out.push({ x: when, y: v });
+      });
+    });
+  });
+  return out;
+}
+
+function trChartSvg(pts, key, goal, shown, ms) {
+  const { u } = trParts(key);
+  const W = 760, H = 380, L = 70, R = 18, T = 14, B = 46;
+  const iw = W - L - R, ih = H - T - B;
+  if (!pts.length) return '<div class="cmp-empty" style="padding:80px 16px">'
+    + 'No points — add samples below.</div>';
+  const xs = pts.map(p => p.x.getTime());
+  const ys = pts.map(p => p.y).concat(goal != null ? [goal] : []);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const xp = (x1 - x0) * 0.06 || 86400000; x0 -= xp; x1 += xp;
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const yp = (y1 - y0) * 0.12 || Math.abs(y0 * 0.05) || 0.01; y0 -= yp; y1 += yp;
+  const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
+  const sy = v => T + ih - ((v - y0) / (y1 - y0)) * ih;
+  const dlab = t => new Date(t).toISOString().slice(2, 10);
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = y0 + (y1 - y0) * i / 4;
+    g += `<line class="grid" x1="${L}" y1="${sy(v).toFixed(1)}" x2="${L + iw}" y2="${sy(v).toFixed(1)}"/>`
+       + `<text class="tick" x="${L - 8}" y="${(sy(v) + 3.5).toFixed(1)}" text-anchor="end">${escapeHtml(fmtNum(v))}</text>`; }
+  for (let i = 0; i <= 5; i++) { const v = x0 + (x1 - x0) * i / 5;
+    g += `<line class="grid" x1="${sx(v).toFixed(1)}" y1="${T}" x2="${sx(v).toFixed(1)}" y2="${T + ih}"/>`
+       + `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${dlab(v)}</text>`; }
+  g += `<line class="axis" x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"/>`
+     + `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${T + ih}"/>`;
+  if (goal != null) {
+    g += `<line class="goalline" x1="${L}" y1="${sy(goal).toFixed(1)}" x2="${L + iw}" y2="${sy(goal).toFixed(1)}"/>`
+       + `<text class="goaltxt" x="${L + iw - 4}" y="${(sy(goal) - 5).toFixed(1)}" text-anchor="end">target ${escapeHtml(fmtNum(goal))} ${escapeHtml(u)}</text>`;
+  }
+  // One fit per (condition, index value) — the pair a marker identifies, so
+  // every line on the chart has a legend entry that explains it.
+  if (TR_OPT.fit) {
+    trConditions().forEach((c, ci) => {
+      if (TR_HIDDEN.has(c)) return;
+      shown.forEach(m => {
+        const f = trFit(pts.filter(p => p.cond === c && p.metric === m));
+        if (!f) return;
+        g += `<line class="fit" x1="${sx(x0).toFixed(1)}" y1="${sy(f.at(x0)).toFixed(1)}"`
+           + ` x2="${sx(x1).toFixed(1)}" y2="${sy(f.at(x1)).toFixed(1)}"`
+           + ` stroke="${TR_PAL[ci % TR_PAL.length]}"`
+           + ` stroke-dasharray="${TR_DASH[ms.indexOf(m) % TR_DASH.length]}"/>`;
+      });
+    });
+  }
+  pts.forEach((p, i) => {
+    g += trMarker(TR_SHAPES[p.mi % TR_SHAPES.length], sx(p.x.getTime()), sy(p.y),
+                  4.4, TR_PAL[p.ci % TR_PAL.length], 'pt', `data-i="${i}"`);
+  });
+  g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">Run date</text>`
+     + `<text class="alab" transform="translate(16,${T + ih / 2}) rotate(-90)" text-anchor="middle">${
+        escapeHtml(TR_QUANTITY[u] || u || 'value')}${u ? ` (${escapeHtml(u)})` : ''}</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+
+function trWireTips(pts) {
+  const main = document.querySelector('#view-trends .cmp-main');
+  const tip = document.getElementById('trTip');
+  if (!main || !tip) return;
+  main.querySelectorAll('#trChart .pt').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      const p = pts[+el.dataset.i];
+      if (!p) return;
+      const { u } = trParts(TR_ACTIVE);
+      tip.innerHTML = `<div class="nm">${escapeHtml(p.sample)}</div>`
+        + `<div class="kv"><span>${escapeHtml(p.metric)}</span><b>${escapeHtml(fmtNum(p.y))} ${escapeHtml(u)}</b></div>`
+        + `<div class="kv"><span>run date</span><b>${p.x.toISOString().slice(0, 10)}</b></div>`
+        + (p.step ? `<div class="kv"><span>step</span><b>${escapeHtml(p.step)}</b></div>` : '')
+        + (p.stand ? `<div class="kv"><span>stand</span><b>${escapeHtml(p.stand)}</b></div>` : '')
+        + `<div class="cond">${escapeHtml(p.cond)}</div>`;
+      tip.classList.add('show');
+      const host = main.getBoundingClientRect(), c = el.getBoundingClientRect();
+      tip.style.left = Math.min(c.left - host.left + 14,
+                                host.width - tip.offsetWidth - 8) + 'px';
+      tip.style.top = Math.max(4, c.top - host.top - 8) + 'px';
+    });
+    el.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+}
+
+async function trExport() {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  const btn = document.getElementById('trExport');
+  btn.disabled = true;
+  try { await cmpDownloadPng(`trend-${stamp}.png`, '#trChart svg'); }
+  finally { btn.disabled = false; }
+}
+
 // ── Saved views ─────────────────────────────────────────────────
 //
 // A named curve set, kept in localStorage. What is saved is the *selection* —
@@ -6541,8 +7157,8 @@ function cmpExportRows() {
   return rows;
 }
 
-function cmpSvgToPng(scale) {
-  const live = document.querySelector('#cmpChart svg');
+function cmpSvgToPng(scale, sel) {
+  const live = document.querySelector(sel || '#cmpChart svg');
   if (!live) return null;
   const w = +live.getAttribute('width'), h = +live.getAttribute('height');
   const clone = live.cloneNode(true);
@@ -6661,8 +7277,8 @@ function cmpSvgToPng(scale) {
            w, h: total, scale: scale || 2 };
 }
 
-async function cmpDownloadPng(name) {
-  const job = cmpSvgToPng(2);
+async function cmpDownloadPng(name, sel) {
+  const job = cmpSvgToPng(2, sel);
   if (!job) return false;
   return new Promise(resolve => {
     const img = new Image();
