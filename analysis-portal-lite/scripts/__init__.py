@@ -250,6 +250,12 @@ SCRIPT_PARAMS = {
          "default": 30, "step": 1, "min": 0, "max": 10080},
         {"key": "rate_window_h", "label": "OCV Decay Rate Window (h)", "type": "number",
          "default": 10, "step": 1, "min": 1, "max": 1000},
+        # How dense the OCV plot, and the copy the portal stores of it, is.
+        # 0 lets the script choose (the test in 600 bins); a re-upload with
+        # another value replaces the stored plot. The rules use every sample
+        # whatever this is.
+        {"key": "ocv_plot_bin_min", "label": "OCV Plot Bin (min, 0 = auto)", "type": "number",
+         "default": 0, "step": 1, "min": 0, "max": 1440},
     ],
     "Electrolyzer Pol Curve": [
         _SAMPLE_FIELD,

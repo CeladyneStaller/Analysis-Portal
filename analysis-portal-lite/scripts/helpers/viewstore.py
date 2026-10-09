@@ -304,9 +304,16 @@ def run_plots(key: str) -> List[Dict[str, Any]]:
 # Only the browser sees decimated data. Export re-renders server-side from the
 # stored sidecar at full resolution, so the figure and workbook are unaffected.
 MAX_SERIES_POINTS = 400
+# A chart that computes from the points rather than only drawing them asks for
+# them whole (`full`): Comparisons' OCV smoothing takes medians of the stored
+# points, and medians of bucket extremes are not those. Only for the plot types
+# named here, and still bounded, far above the most points an FC Durability
+# OCV line holds (about 3,000 bins per test).
+MAX_FULL_SERIES_POINTS = 20_000
+FULL_SERIES_PLOT_TYPES = {'fcdur_ocv_vs_time'}
 
 
-def _decimate(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
+def _decimate(xs: List[Any], ys: List[Any], limit: int = MAX_SERIES_POINTS) -> Dict[str, List[Any]]:
     """Thin a series while keeping its extremes, endpoints included.
 
     Min/max per bucket rather than plain subsampling. Taking every nth point
@@ -323,10 +330,10 @@ def _decimate(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
     sidecar at full resolution, so the figure and workbook are unaffected.
     """
     n = min(len(xs), len(ys))
-    if n <= MAX_SERIES_POINTS:
+    if n <= limit:
         return {'x': list(xs[:n]), 'y': list(ys[:n])}
 
-    buckets = max(1, MAX_SERIES_POINTS // 2)
+    buckets = max(1, limit // 2)
     width = n / float(buckets)
     keep = {0, n - 1}
     for b in range(buckets):
@@ -342,7 +349,8 @@ def _decimate(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
 
 
 def plot_series(key: str, analysis: str = '', step: str = '',
-                plot: str = '', plot_type: str = '') -> Optional[Dict[str, Any]]:
+                plot: str = '', plot_type: str = '',
+                full: bool = False) -> Optional[Dict[str, Any]]:
     """The plotted series for one stored plot, for charting in the browser.
 
     Every other read path returns a rendered PNG. The numbers behind it are in
@@ -355,6 +363,10 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     analysis such as FC Durability stores ten plots under its one unit, and
     the first of them is not the one a chart of OCV against hours wants. A
     name, when given, still wins.
+
+    Lines longer than MAX_SERIES_POINTS come back thinned to bucket extremes
+    and marked `decimated`; with `full`, on a plot type in
+    FULL_SERIES_PLOT_TYPES, only past MAX_FULL_SERIES_POINTS.
 
     Returns None when the plot is not stored — cleaning sidecars are excluded
     at write time, so this is an ordinary outcome rather than an error.
@@ -386,10 +398,12 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     # text and reference lines: those are readout furniture for a rendered
     # figure, and a comparison of several curves cannot show one curve's
     # readout box without implying it applies to all of them.
+    whole = full and sc.get('plot_type') in FULL_SERIES_PLOT_TYPES
+    limit = MAX_FULL_SERIES_POINTS if whole else MAX_SERIES_POINTS
     axes = []
     for ax in (sc.get('data') or {}).get('axes', []):
         lines = [{'label': ln.get('label') or '',
-                  **_decimate(ln.get('x') or [], ln.get('y') or [])}
+                  **_decimate(ln.get('x') or [], ln.get('y') or [], limit)}
                  for ln in ax.get('lines', []) if ln.get('x')]
         if lines:
             axes.append({'title': ax.get('title') or '',
@@ -421,7 +435,8 @@ def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
             got = plot_series(key, str(sel.get('analysis') or ''),
                               str(sel.get('step') or ''),
                               str(sel.get('plot') or ''),
-                              str(sel.get('plot_type') or ''))
+                              str(sel.get('plot_type') or ''),
+                              full=sel.get('full') is True)
         except Exception as e:
             missing.append({**sel, 'reason': f'{type(e).__name__}: {e}'})
             continue

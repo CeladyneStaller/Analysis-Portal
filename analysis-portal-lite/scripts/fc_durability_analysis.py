@@ -537,6 +537,14 @@ TRACE_BIN_S = 60.0       # resolution of the OCV trace sheet and the rate fits
 # (plan: at most 3,000 points). 600 keeps the plot's sidecar near 60 KB of
 # the ~150 KB the plan allows all plots; 1,500 took 149 KB on its own.
 PLOT_MAX_BINS = 600
+# A bin width set on the form (ocv_plot_bin_min) replaces that automatic one,
+# but is never finer than 1 min, nor so fine that the test takes more than
+# about this many bins: the plot is also the copy the portal stores and
+# redraws. Each hold starts a bin of its own, so a test of n holds can have up
+# to n more. Asked for, the plot goes past the plan's 3,000 points: at the cap
+# Gore-A's 150 h hold is 6,000 points, and its stored record 52 KB of the
+# 900 KB a push may send (22 KB at the automatic bin).
+PLOT_BINS_CAP = 3000
 
 
 @dataclass
@@ -548,6 +556,7 @@ class OcvSettings:
     settle_min: float = SETTLE_MIN
     rate_window_h: float = RATE_WINDOW_H
     current_tol_a: float = CURRENT_TOL_A
+    plot_bin_min: float = 0.0          # OCV plot bin width; 0 is automatic
 
     def describe(self) -> str:
         return (f'{self.window_min:g}-min centred rolling median below {self.threshold_v:g} V '
@@ -904,6 +913,8 @@ class OcvResult:
     final_from: Optional[HoldOcv] = None     # final values came from
     by_condition: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    plot_bin_s: float = math.nan     # bin width of the OCV plot (and its stored copy)
+    plot_bin_rule: str = ''          # how that width was chosen
 
     @property
     def death_h(self) -> Optional[float]:
@@ -998,7 +1009,46 @@ def _ocv_notes(res: OcvResult) -> List[str]:
     if len(res.by_condition) > 1:
         out.append(f"OCV initial, final, loss and decay rate are for the first hold's conditions "
                    f'({res.reference}); every condition is in the "OCV by condition" sheet')
+    if res.plot_bin_rule.startswith('raised'):
+        out.append(f'OCV plot bin {res.plot_bin_s / 60:.4g} min, {res.plot_bin_rule}')
     return out
+
+
+def ocv_plot_bin(hours_tested: float, plot_bin_min: float = 0.0) -> Tuple[float, str]:
+    """The OCV plot's bin width (s), and how it was chosen.
+
+    Automatic (0): about PLOT_MAX_BINS bins over the test. Set: that width,
+    but at least 1 min, and no finer than about PLOT_BINS_CAP bins over the
+    test allow (_plot_bin_cap_s). Bins start at each hold's start, so a test
+    of n holds can have up to n more. Only the plot and its stored copy
+    follow it; every rule works on the samples.
+    """
+    total_s = hours_tested * 3600.0
+    if not plot_bin_min > 0:
+        return (max(TRACE_BIN_S, total_s / PLOT_MAX_BINS),
+                f'automatic: about {PLOT_MAX_BINS:,} bins over the test, each at least 1 min')
+    asked_s = plot_bin_min * 60.0
+    bin_s = max(TRACE_BIN_S, asked_s, _plot_bin_cap_s(total_s))
+    # Widths typed in minutes land a hair off in seconds (2.05 × 60 is
+    # 122.99999999999999): only a real raise is called one.
+    if bin_s > asked_s * (1 + 1e-9):
+        # The width set as typed, every figure of it, so it never prints as
+        # the width it was raised to.
+        return bin_s, (f'raised from the {plot_bin_min:.10g} min set: bins are at least 1 min, '
+                       f'and no more than about {PLOT_BINS_CAP:,} are plotted and stored')
+    return bin_s, 'as set'
+
+
+def _plot_bin_cap_s(total_s: float) -> float:
+    """The finest bin (s) about PLOT_BINS_CAP bins over the test allow, rounded
+    up at the four significant figures of minutes the readout, workbook and
+    notes print: the width they show, typed back on the form, is then taken as
+    set, and a raised width never prints as the one asked for."""
+    cap_min = total_s / PLOT_BINS_CAP / 60.0
+    if not cap_min > 0:
+        return 0.0
+    digits = 3 - math.floor(math.log10(cap_min))
+    return math.ceil(cap_min * 10.0 ** digits - 1e-6) / 10.0 ** digits * 60.0
 
 
 def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResult:
@@ -1009,7 +1059,8 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
     """
     s = settings or OcvSettings()
     res = OcvResult(settings=s)
-    plot_bin_s = max(TRACE_BIN_S, tl.hours_tested * 3600.0 / PLOT_MAX_BINS)
+    plot_bin_s, res.plot_bin_rule = ocv_plot_bin(tl.hours_tested, s.plot_bin_min)
+    res.plot_bin_s = plot_bin_s
     ref_key = tl.segments[0].files[0].conditions_key if tl.segments else None
     initial: Optional[float] = None
     for seg in tl.segments:
@@ -1785,10 +1836,13 @@ def _kv(key: str, x: Optional[float], spec: str, unit: str) -> Optional[str]:
 def _series(ax, x, y, **style):
     """ax.plot, except for two points level in x or y: the sidecar writer
     stores such a line as a reference line across the whole axes, so it is
-    drawn as two markers instead."""
+    drawn as two markers instead. A single point gets a marker, or nothing
+    would show (an OCV plot bin as long as a hold leaves it one)."""
     if len(x) == 2 and (x[0] == x[1] or y[0] == y[1]):
         ax.scatter(x, y, s=10, color=style.get('color'), label=style.get('label'), zorder=3)
     else:
+        if len(x) == 1:
+            style = {'marker': 'o', 'ms': 3, **style}
         ax.plot(x, y, **style)
 
 
@@ -1873,7 +1927,8 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
              _kv('OCV min (10-min median)', res.lowest_v, '.4f', 'V'),
              (_kv('OCV death', res.death_h, '.2f', 'h') if res.death
               else 'OCV death: none' if res.judged else 'OCV death: not judged'),
-             _kv('Hours tested', tl.hours_tested, '.2f', 'h')]
+             _kv('Hours tested', tl.hours_tested, '.2f', 'h'),
+             _kv('OCV plot bin', res.plot_bin_s / 60.0, '.4g', 'min')]
     if len(colors) > 1:
         lines.append(f'Initial, final, loss and rate at\n{res.reference}')
     _readout(ax, lines, x=1.01, y=1.0, ha='left', va='top')
@@ -2310,6 +2365,8 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
                                f'positive while the OCV falls'),
             ('OCV trace sheet', f'{TRACE_BIN_S:g} s bins of every open-circuit sample; '
                                 f'the 10-min median is blank where nothing was judged'),
+            ('OCV plot bin (min)', f'{ocv.plot_bin_s / 60:.4g} ({ocv.plot_bin_rule}); '
+                                   f'each bin is drawn as its median and minimum'),
         ]
     if ca is not None:
         summary += char_summary_rows(ca, ocv)
@@ -2424,6 +2481,7 @@ PARAM_RANGES: Dict[str, Tuple[float, float, float]] = {
     'ocv_persist_min': (OCV_PERSIST_MIN, 0.0, 10080.0),
     'settle_min': (SETTLE_MIN, 0.0, 1440.0),
     'rate_window_h': (RATE_WINDOW_H, 0.1, 1000.0),
+    'ocv_plot_bin_min': (0.0, 0.0, 1440.0),               # 0 = automatic
     'xover_threshold': (XOVER_THRESHOLD, 0.0, 1000.0),     # mA/cm²
     # Inside the stations' 0.12-0.80 V crossover CVs.
     'xover_window_lo': (XOVER_WINDOW_V[0], 0.15, 0.75),    # V
@@ -2448,7 +2506,8 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
                                window_min=num['ocv_window_min'],
                                persist_min=num['ocv_persist_min'],
                                settle_min=num['settle_min'],
-                               rate_window_h=num['rate_window_h'])
+                               rate_window_h=num['rate_window_h'],
+                               plot_bin_min=num['ocv_plot_bin_min'])
     char_settings = CharSettings(geo_area=num['geo_area'], loading=num['loading'],
                                  xover_threshold=num['xover_threshold'],
                                  xover_lo=num['xover_window_lo'], xover_hi=num['xover_window_hi'])

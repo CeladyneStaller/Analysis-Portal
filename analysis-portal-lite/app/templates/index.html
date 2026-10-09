@@ -778,6 +778,9 @@
     color: var(--text-dim); }
   .cmp-opts label { display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer; }
+  /* Full width is the rule for form fields; this one sits in a row of options. */
+  .cmp-opts select { width: auto; padding: 4px 26px 4px 8px; font-size: 12px;
+    background-position: right 9px center; }
   .cmp-chartwrap { flex: 1; padding: 14px 18px; overflow-x: auto; }
   .cmp-chartbox {
     position: relative;
@@ -5150,10 +5153,13 @@ const CMP_TYPES = {
   // flow it was measured at, drawn in the sample's colour, dashed by series.
   // The panel is found by its axis label: a panel with no lines is not
   // stored, so its position cannot be trusted. Characterizations are a handful
-  // of points, drawn with markers; the OCV trace is dense and is not.
+  // of points, drawn with markers; the OCV trace is dense and is not. It can
+  // be drawn coarser than stored instead: `bins` are the smoothing widths
+  // offered, in hours (cmpRebin).
   fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability',
                  plotType: 'fcdur_ocv_vs_time', x: 'Hold time (h)', y: 'Hold OCV (V)',
-                 panel: /^Hold OCV/i, series: l => !!l && l !== 'bin minimum', opts: [] },
+                 panel: /^Hold OCV/i, series: l => !!l && l !== 'bin minimum', opts: [],
+                 bins: [0.25, 0.5, 1, 2, 5, 10] },
   fcdur_xover: { label: 'Durability — H₂ crossover', analysis: 'fc_durability',
                  plotType: 'fcdur_xover_vs_time', x: 'Hold time (h)', dots: true,
                  y: 'H₂ crossover (mA/cm²)', panel: /crossover/i,
@@ -5181,7 +5187,7 @@ const cmpSeriesName = l => String(l || '')
 let CMP_TYPE = 'polcurve';
 let CMP_SEL = new Map();            // sample key -> Set of step codes
 let CMP_HIDDEN = new Set();         // "key::step"
-let CMP_OPT = { irfree: false, power: false, j06: false };
+let CMP_OPT = { irfree: false, power: false, j06: false, bin_h: 0 };
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
 let CMP_LOADING = false;
@@ -5636,6 +5642,10 @@ async function cmpLoadSeries() {
   const ask = t.analysis
     ? want.map(s => ({ key: s.key, analysis: t.analysis, step: '', plot_type: t.plotType }))
     : want;
+  // A type that smooths its trace (bins) computes from the stored points, so
+  // it asks for them whole: the store otherwise thins a line past 400 points
+  // to the extremes of its buckets, whose medians are not the stored ones.
+  if (t.bins) ask.forEach(s => { s.full = true; });
   const stepOf = st => t.analysis ? CMP_WHOLE : st;
   CMP_LOADING = true;
   try {
@@ -5695,21 +5705,150 @@ const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
 // several lines — the OCV trace is a line per hold, and holds at two
 // conditions alternate — so each keeps its parts rather than being joined
 // across the other condition's holds.
+//
+// Worked out once per series fetched and panel, not on every redraw: a pan or
+// a wheel zoom redraws on each event, and a durability test stored at a fine
+// OCV bin is thousands of points. Callers read the groups, never change them.
+const CMP_PICK_MEMO = new WeakMap(); // series payload -> Map(type|panel -> groups)
 function cmpPickSeries(sr) {
   if (!sr || !sr.axes || !sr.axes.length) return [];
   const t = CMP_TYPES[CMP_TYPE] || {};
   const want = CMP_TYPE === 'fcdur_perf' && CMP_OPT.j06 ? /^j @ 0\.6/i : t.panel;
-  const ax = sr.axes.find(a => want && want.test(a.ylabel || ''));
-  if (!ax) return [];
+  const memo = CMP_PICK_MEMO.get(sr) || new Map();
+  CMP_PICK_MEMO.set(sr, memo);
+  const key = CMP_TYPE + '|' + (want ? want.source : '');
+  if (memo.has(key)) return memo.get(key);
   const groups = [];
+  memo.set(key, groups);
+  const ax = sr.axes.find(a => want && want.test(a.ylabel || ''));
+  if (!ax) return groups;
   (ax.lines || []).filter(l => t.series(l.label || '')).forEach(l => {
     const name = cmpSeriesName(l.label), pts = zip(l);
     if (!pts.length) return;
     let g = groups.find(x => x.name === name);
-    if (!g) groups.push(g = { name, parts: [] });
+    if (!g) groups.push(g = { name, parts: [], thin: [] });
     g.parts.push(pts);
+    // A part the store thinned (decimated) is drawn, never smoothed or measured.
+    g.thin.push(!!l.decimated);
   });
   return groups;
+}
+
+// ── smoothing (Durability — OCV) ────────────────────────────────
+// A long test's stored OCV points are minutes apart, denser than a chart of
+// several samples can show. Smoothing draws each trace from wider bins of
+// hold time instead: each bin at its points' mean time and median OCV. Bins
+// sit on multiples of the width, so every sample's fall at the same hours,
+// and never span two holds, each hold being its own part. A sample stored at
+// that width or coarser is drawn as stored — smoothing can only thin the
+// stored points, never add to them. The points are the stored ones, asked
+// for whole (cmpLoadSeries). The chart, and the PNG saved from it, are
+// smoothed; Export's server-side comparison reads the stored points.
+let CMP_SMOOTHED = null;            // cmpSmoothing() as the chart was last drawn
+function cmpBinWidth() {
+  const w = +CMP_OPT.bin_h;
+  return ((CMP_TYPES[CMP_TYPE] || {}).bins || []).includes(w) ? w : 0;
+}
+const cmpMedian = v => {
+  const s = v.slice().sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+// How far apart a sample's points are stored: the median step in x between
+// neighbours, over all its parts. NaN with no two points to measure.
+function cmpSpacing(parts) {
+  const d = [];
+  parts.forEach(pts => {
+    for (let i = 1; i < pts.length; i++) {
+      const s = pts[i][0] - pts[i - 1][0];
+      if (s > 0) d.push(s);
+    }
+  });
+  return d.length ? cmpMedian(d) : NaN;
+}
+// A sample's stored spacing over the parts the store sent whole, and what its
+// chart draws at a width: each worked out once per series (cmpPickSeries).
+const CMP_SPACED = new WeakMap();    // groups -> spacing (h)
+const CMP_DRAWN = new WeakMap();     // groups -> Map(width -> parts per group)
+function cmpGroupSpacing(groups) {
+  if (!CMP_SPACED.has(groups)) {
+    CMP_SPACED.set(groups, cmpSpacing(groups.flatMap(g => g.parts.filter((_, j) => !g.thin[j]))));
+  }
+  return CMP_SPACED.get(groups);
+}
+function cmpDrawnParts(groups, w) {
+  const memo = CMP_DRAWN.get(groups) || new Map();
+  CMP_DRAWN.set(groups, memo);
+  if (!memo.has(w)) {
+    const spacing = cmpGroupSpacing(groups);
+    memo.set(w, groups.map(g => g.parts.map((pts, j) =>
+      w && !g.thin[j] ? cmpRebin(pts, w, spacing) : pts)));
+  }
+  return memo.get(w);
+}
+function cmpRebin(pts, w, spacing) {
+  if (!(w > 0) || !(spacing < w * (1 - 1e-9))) return pts;
+  const bins = new Map();
+  pts.forEach(p => {
+    const k = Math.floor(p[0] / w + 1e-9);
+    if (!bins.has(k)) bins.set(k, []);
+    bins.get(k).push(p);
+  });
+  return [...bins.keys()].sort((a, b) => a - b).map(k => {
+    const ps = bins.get(k);
+    return [ps.reduce((a, p) => a + p[0], 0) / ps.length, cmpMedian(ps.map(p => p[1]))];
+  });
+}
+// Hours as the control and the hint say them: minutes under an hour.
+const cmpFmtHours = h => h < 1 ? `${+(h * 60).toPrecision(2)} min` : `${+h.toPrecision(2)} h`;
+function cmpFmtSpan(lo, hi) {
+  if (!(hi > lo * 1.05)) return cmpFmtHours(lo);
+  if (hi < 1 || lo >= 1) {
+    const [a, b] = [cmpFmtHours(lo), cmpFmtHours(hi)];
+    return `${a.split(' ')[0]}–${b}`;
+  }
+  return `${cmpFmtHours(lo)} to ${cmpFmtHours(hi)}`;
+}
+// One reckoning for the chart, the hint, the note under it and the saved
+// image's subtitle: each sample on the chart's stored spacing, keyed by its
+// curve id, and how many of them the chosen width actually smooths.
+function cmpSmoothing() {
+  const out = { w: cmpBinWidth(), spacing: new Map(), smoothed: 0, of: 0 };
+  if (!(CMP_TYPES[CMP_TYPE] || {}).bins) return out;
+  cmpSelected().forEach(u => {
+    if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
+    const s = cmpGroupSpacing(cmpPickSeries(CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step))));
+    if (!isFinite(s)) return;
+    out.spacing.set(cmpCurveId(u.key, u.step), s);
+    out.of++;
+    if (out.w && s < out.w * (1 - 1e-9)) out.smoothed++;
+  });
+  return out;
+}
+// The hint beside the control: how far apart the samples on the chart are
+// stored, and what the chosen width does with them.
+function cmpBinHint(sm) {
+  const sp = [...sm.spacing.values()];
+  if (!sp.length) return '';
+  const stored = `stored every ${cmpFmtSpan(Math.min(...sp), Math.max(...sp))}`;
+  if (!sm.w) return `Points ${stored}.`;
+  const W = cmpFmtHours(sm.w);
+  if (!sm.smoothed) return `Points ${stored}: none finer than ${W} bins, so all drawn as stored.`;
+  const rest = sm.of - sm.smoothed;
+  return `Medians of ${W} bins, from points ${stored}` + (!rest ? '.'
+    : `; ${rest} of ${sm.of} samples ${rest === 1 ? 'is' : 'are'} stored at least that coarse, `
+      + 'so drawn as stored.');
+}
+// What was smoothed, for the note and the image's subtitle: "1 h bins", or
+// "1 h bins (2 of 3 samples)" when the rest are stored coarser.
+const cmpSmoothedText = sm => `${cmpFmtHours(sm.w)} bins`
+  + (sm.smoothed < sm.of ? ` (${sm.smoothed} of ${sm.of} samples)` : '');
+// The control is rebuilt with the chart, so it takes the focus back: arrow
+// keys then keep stepping through the widths.
+function cmpSetBin(v) {
+  CMP_OPT.bin_h = +v || 0;
+  cmpRender();
+  const el = document.getElementById('cmpBin');
+  if (el) el.focus();
 }
 // Dash by series, from the names in the samples on the chart, in the order
 // they first appear: the same condition draws the same way for every sample.
@@ -5966,11 +6105,22 @@ function cmpRender() {
       placeholder="${ph}" title="Blank follows the data"
       onchange="cmpSetBound('${k}', this.value)">`;
   };
+  const sm = CMP_SMOOTHED = cmpSmoothing();
+  const bin = sm.w;
   document.getElementById('cmpOpts').innerHTML =
     (t.opts.length
       ? t.opts.map(([k, l]) =>
           `<label><input type="checkbox" ${CMP_OPT[k] ? 'checked' : ''}
             onchange="CMP_OPT['${k}']=this.checked;cmpRender()"> ${escapeHtml(l)}</label>`).join('')
+      : '')
+    + (t.bins
+      ? `<label title="Draw each trace from wider bins of hold time, each bin at the median of the stored points in it. Never finer than stored.">Smoothing
+           <select id="cmpBin" onchange="cmpSetBin(this.value)">
+             <option value="0" ${bin ? '' : 'selected'}>as stored</option>
+             ${t.bins.map(w => `<option value="${w}" ${bin === w ? 'selected' : ''}>${
+               escapeHtml(cmpFmtHours(w))} bins</option>`).join('')}
+           </select></label>
+         <span class="cmp-hint" id="cmpBinHint">${escapeHtml(cmpBinHint(sm))}</span>`
       : '')
     + `<span class="cmp-ranges">
          <span class="cmp-rlab">x</span>${box('x0', 'min')}${box('x1', 'max')}
@@ -6146,7 +6296,9 @@ function cmpRender() {
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     if (!sr) return;
     if (whole) {
-      cmpPickSeries(sr).forEach(s => s.parts.forEach((pts, j) => series.push({
+      const groups = cmpPickSeries(sr);
+      const drawn = cmpDrawnParts(groups, bin);
+      groups.forEach((s, gi) => drawn[gi].forEach((pts, j) => series.push({
         pts, color: cmpColorOf(u.key), dash: cmpSeriesDash(s.name, vocab), dots: !!t.dots,
         id: cmpCurveId(u.key, u.step) + '::' + s.name + '::' + j,
         title: `${sr.sample_name || ''} · ${s.name}` })));
@@ -6197,7 +6349,10 @@ function cmpRender() {
        stops being readable and the payload gets heavy. Narrow by condition, or
        hide the steps you are not comparing.</span>`
     : 'Drawn from the stored analysis data — nothing is re-analysed. '
-      + 'Export renders the same comparison server-side, with its readouts and workbook.';
+      + (sm.smoothed
+        ? `Smoothed here to ${escapeHtml(cmpSmoothedText(sm))}, and so is the chart image Export
+           saves; its server-side comparison and workbook use the stored points.`
+        : 'Export renders the same comparison server-side, with its readouts and workbook.');
 
   document.getElementById('cmpExport').disabled =
     series.length < 2 && !stats.length;
@@ -8122,7 +8277,11 @@ function cmpLoadView(name) {
   if (!v) { cmpRenderViews(''); return; }
 
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
-  CMP_OPT = { irfree: false, power: false, ...(v.opt || {}) };
+  CMP_OPT = { irfree: false, power: false, j06: false, bin_h: 0, ...(v.opt || {}) };
+  // A view saved before smoothing has none; one edited by hand gets none
+  // rather than a width the control does not offer.
+  CMP_OPT.bin_h = Object.values(CMP_TYPES).some(x => (x.bins || []).includes(+CMP_OPT.bin_h))
+    ? +CMP_OPT.bin_h : 0;
   CMP_HIDDEN = new Set(v.hidden || []);
   CMP_VIEW = v.view ? { ...v.view } : null;
   CMP_STATS = (v.stats || []).map(st => ({ ...st }));
@@ -8324,6 +8483,10 @@ function cmpSvgToPng(scale, spec) {
     bits = [`${rows.length} curve${rows.length === 1 ? '' : 's'}`];
     if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) bits.push('iR-free');
     if (CMP_TYPE === 'polcurve' && CMP_OPT.power) bits.push('power density');
+    // As the chart was drawn: a width that smoothed nothing is not mentioned.
+    if (CMP_SMOOTHED && CMP_SMOOTHED.smoothed) {
+      bits.push(`smoothed: medians of ${cmpSmoothedText(CMP_SMOOTHED)}`);
+    }
     if (cmpHasView()) bits.push('zoomed');
   }
   bits.push(new Date().toLocaleDateString(undefined,

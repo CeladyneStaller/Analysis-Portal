@@ -64,8 +64,8 @@ with contextlib.redirect_stdout(io.StringIO()):
     from scripts.fc_durability_analysis import (
         parse_step_name, natural_key, build_timeline, order_folders, run,
         analyze_ocv, load_hold_trace, below_runs, rolling_decay, OcvSettings,
-        PLOT_MAX_BINS, analyze_characterizations, decide, CharSettings, _pick_curves,
-        analyze_crossover_file, _series_labels)
+        PLOT_MAX_BINS, PLOT_BINS_CAP, ocv_plot_bin, analyze_characterizations, decide,
+        CharSettings, _pick_curves, analyze_crossover_file, _series_labels)
     from scripts.ecsa_analysis import compute_ecsa_hupd, generate_synthetic_cv
     from scripts.eis_analysis import extract_hfr, MODELS
 
@@ -792,6 +792,95 @@ check('holds sheet marks the death', [r[col] for r in holds_sheet[1:]],
       [None, None, None, round(res['ocv_death_h'], 4), None])
 wb.close()
 
+# The OCV plot's bin width: automatic, or set on the form (ocv_plot_bin_min).
+# Only the plot and its stored copy follow it; every rule works on the samples.
+check('plot bin, automatic: the test in 600 bins', ocv_plot_bin(150.0),
+      (900.0, 'automatic: about 600 bins over the test, each at least 1 min'))
+check('... never under 1 min', ocv_plot_bin(5.0)[0], 60.0)
+check('... and a NaN or negative width is automatic too',
+      [ocv_plot_bin(150.0, x)[0] for x in (float('nan'), -5.0)], [900.0, 900.0])
+check('plot bin set: used as set', ocv_plot_bin(150.0, 5.0), (300.0, 'as set'))
+bin_s, why = ocv_plot_bin(150.0, 1.0)
+check(f'... raised to keep about {PLOT_BINS_CAP:,} bins at most, and says so',
+      (bin_s, why), (150 * 3600.0 / PLOT_BINS_CAP,
+                     'raised from the 1 min set: bins are at least 1 min, and no more than about '
+                     '3,000 are plotted and stored'))
+check('... raised to 1 min at least', (ocv_plot_bin(20.0, 0.5)[0], ocv_plot_bin(20.0, 0.5)[1][:7]),
+      (60.0, 'raised '))
+check('... and a width exactly at the cap is as set', ocv_plot_bin(50.0, 1.0), (60.0, 'as set'))
+# 2 min on a 100.02 h test is a hair too fine for the cap: raised at the four
+# figures the outputs print, so the note never reads "2 min, raised from the
+# 2 min set", and the width it prints, typed back, is taken as set.
+shown = []
+for hours, asked in ((100.02, 2.0), (51.2, 1.0), (163.4, 1.0)):
+    bin_s, why = ocv_plot_bin(hours, asked)
+    shown.append((f'{bin_s / 60:.4g}', why[:6], ocv_plot_bin(hours, float(f'{bin_s / 60:.4g}'))))
+check('... a raise past the width set shows in the minutes printed, which typed back hold',
+      [(s, w, round(b2, 6), why2) for s, w, (b2, why2) in shown],
+      [('2.001', 'raised', 120.06, 'as set'), ('1.024', 'raised', 61.44, 'as set'),
+       ('3.268', 'raised', 196.08, 'as set')])
+check('... nor is a width typed with more figures than it prints, a hair under the cap',
+      ocv_plot_bin(51.2, 1.02399999999)[1], 'as set')
+bin_s, why = ocv_plot_bin(51.67, 1.033999)
+check('... and one raised by a little says the width set with all its figures',
+      (f'{bin_s / 60:.4g}', why.split(':')[0]), ('1.034', 'raised from the 1.033999 min set'))
+
+
+def ocv_plot_points(out_dir):
+    """Median points in the stored OCV plot, and the bin its readout names."""
+    sc = json.loads((Path(out_dir) / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                    parse_constant=_no_nan)
+    n = sum(len(ln['x']) for ln in sc['data']['axes'][0]['lines']
+            if ln.get('label') and ln['label'] != 'bin minimum')
+    return n, extract_values(sc).get('OCV plot bin')
+
+
+def workbook_sheets(out_dir):
+    book = openpyxl.load_workbook(Path(out_dir) / 'fc_durability.xlsx', read_only=True)
+    got = {name: list(book[name].iter_rows(values_only=True)) for name in book.sheetnames}
+    book.close()
+    return got
+
+
+def plot_bin_row(sheets):
+    return next((r[1] for r in sheets['Summary'] if r[0] == 'OCV plot bin (min)'), '')
+
+
+auto_n, auto_bin = ocv_plot_points(out)
+out1 = tmp / 'out_death_bin1'
+res1 = quiet(run, str(death), str(out1), {'image_format': 'png', 'ocv_plot_bin_min': '1'})
+n1, bin1 = ocv_plot_points(out1)
+check('plot bin: automatic over the 20 h death run is 2 min, five holds of 115 bins',
+      (auto_bin, auto_n), ({'value': 2.0, 'unit': 'min'}, 575))
+check('... set to 1 min on the form: twice the points, and the readout says 1 min',
+      (bin1, n1), ({'value': 1.0, 'unit': 'min'}, 2 * auto_n))
+book_auto, book1 = workbook_sheets(out), workbook_sheets(out1)
+check('... the workbook says which bin, and why',
+      [plot_bin_row(b).split(';')[0] for b in (book_auto, book1)],
+      ['2 (automatic: about 600 bins over the test, each at least 1 min)', '1 (as set)'])
+for b in (book_auto, book1):
+    b['Summary'] = [r for r in b['Summary'] if r[0] != 'OCV plot bin (min)']
+check('... and nothing else moves: the summary row, the notes and every sheet are the same',
+      (res1['summary'], res1['notes'], book1), (res['summary'], res['notes'], book_auto))
+res_r = quiet(run, str(death), str(tmp / 'out_death_bin_r'),
+              {'image_format': 'none', 'ocv_plot_bin_min': '0.5'})
+check('a bin under 1 min is raised to 1 min, with a note and in the workbook',
+      ([n for n in res_r['notes'] if n.startswith('OCV plot bin')],
+       plot_bin_row(workbook_sheets(tmp / 'out_death_bin_r')).split(';')[0]),
+      (['OCV plot bin 1 min, raised from the 0.5 min set: bins are at least 1 min, and no more '
+        'than about 3,000 are plotted and stored'],
+       '1 (raised from the 0.5 min set: bins are at least 1 min, and no more than about 3,000 '
+       'are plotted and stored)'))
+# The widest bin the form allows, a day, leaves each 4 h hold one bin.
+out_day = tmp / 'out_death_bin_day'
+quiet(run, str(death), str(out_day), {'image_format': 'png', 'ocv_plot_bin_min': '1440'})
+check('the widest bin the form allows reads as a plain number',
+      plot_bin_row(workbook_sheets(out_day)).split(';')[0], '1440 (as set)')
+day_lines = json.loads((out_day / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                       parse_constant=_no_nan)['data']['axes'][0]['lines']
+check('... a hold left one bin is drawn as a marker, so the plot is not empty',
+      sorted({(len(ln['x']), ln.get('marker')) for ln in day_lines}), [(1, 'o')])
+
 out = tmp / 'out_dips'
 res = quiet(run, str(dips), str(out), {'image_format': 'png'})
 row = res['summary'][0]
@@ -808,12 +897,13 @@ close('ocv_persist_min reaches the rule: the 20-min dip is now a death', res['oc
       (14400 + 5400) / 3600, 60 / 3600)
 res = quiet(run, str(dips), str(tmp / 'out_dips_q'),
             {'image_format': 'none', 'ocv_persist_min': 'abc', 'ocv_window_min': '-5',
-             'ocv_threshold': '700', 'geo_area': '-5', 'rate_window_h': '1e300'})
+             'ocv_threshold': '700', 'geo_area': '-5', 'rate_window_h': '1e300',
+             'ocv_plot_bin_min': '-1'})
 check('unreadable or out-of-range parameters fall back to the defaults',
       (res['ocv_death_h'], res['summary'][0]['geo_area']), (None, 5.0))
 check('... each with a note', [n.split(' = ')[0] for n in res['notes'] if n.startswith('parameter ')],
       ['parameter geo_area', 'parameter ocv_threshold', 'parameter ocv_window_min',
-       'parameter ocv_persist_min', 'parameter rate_window_h'])
+       'parameter ocv_persist_min', 'parameter rate_window_h', 'parameter ocv_plot_bin_min'])
 
 # Pairs of markers or rates never come back from the sidecar as reference
 # lines: flat holds, and 10.425 h holds with two equal rate windows.
@@ -1602,6 +1692,45 @@ check('"fcdur" in the sample name: one durability row after re-analysis, the oth
        next((u for u in entry['Data'] if u['Analysis'] == 'fc_durability'), {}).get('key_values')),
       ([('polcurve', None), ('fc_durability', 'alive')], [('fc_durability', ''), ('polcurve', 'c03')],
        indexed(j5['script_result']['summary'][0])))
+
+# A stored line past 400 points reaches the browser thinned to bucket extremes,
+# unless asked for whole: Comparisons smooths the OCV trace from medians of
+# the stored points, which extremes are not. Whole is still bounded.
+LONG = '260604_DUR-LONG'
+lp = tmp / 'long_out' / '_plot_data'
+lp.mkdir(parents=True)
+hold = [[round(k / 60, 4) for k in range(1000)], [0.6 if k % 10 == 0 else 0.9 for k in range(1000)]]
+huge = [[round(k / 600, 4) for k in range(25000)], [0.9] * 25000]
+(lp / f'{LONG}-FCDurability-fcdur_ocv_vs_time.json').write_text(json.dumps(
+    {'plot_type': 'fcdur_ocv_vs_time',
+     'data': {'axes': [{'ylabel': 'Hold OCV (V)', 'texts': [], 'axhlines': [], 'axvlines': [],
+                        'lines': [{'x': hold[0], 'y': hold[1], 'label': 'hold'},
+                                  {'x': huge[0], 'y': huge[1], 'label': 'huge'}]}]}}))
+(lp / f'{LONG}-FCDurability-fcdur_hfr_vs_time.json').write_text(json.dumps(
+    {'plot_type': 'fcdur_hfr_vs_time',
+     'data': {'axes': [{'ylabel': 'HFR (mΩ·cm²)', 'texts': [], 'axhlines': [], 'axvlines': [],
+                        'lines': [{'x': hold[0], 'y': hold[1], 'label': 'HFR'}]}]}}))
+quiet(jsonbin.push_job_metrics, job_id='job-long', sample_name=LONG, script='FC Durability',
+      output_dir=tmp / 'long_out', input_files=['c2.csv'], script_short='FCDurability',
+      summary=[{'Analysis': 'fc_durability', 'Label': 'fcdur', 'Hours tested': 41.7}])
+key = next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == LONG)
+ask = {'key': key, 'analysis': 'fc_durability', 'step': '', 'plot_type': 'fcdur_ocv_vs_time'}
+with contextlib.redirect_stdout(io.StringIO()):
+    got = viewstore.plot_series_batch([ask, dict(ask, full=True), dict(ask, full='yes')])
+shape = [[(len(ln['x']), ln.get('decimated', False)) for ln in s['axes'][0]['lines']]
+         for s in got['series']]
+check('series: past 400 points thinned and marked; asked for whole, the stored line, '
+      'up to 20,000 points',
+      (shape[0][0][1] and shape[0][0][0] <= 402, shape[1], shape[2] == shape[0]),
+      (True, [(1000, False), (shape[1][1][0], True)], True))
+true('... the stored points themselves, dips and all',
+     got['series'][1]['axes'][0]['lines'][0]['y'] == hold[1]
+     and shape[1][1][0] <= viewstore.MAX_FULL_SERIES_POINTS + 2, shape)
+with contextlib.redirect_stdout(io.StringIO()):
+    hfr = viewstore.plot_series_batch([dict(ask, plot_type='fcdur_hfr_vs_time', full=True)])
+check('... whole only for the OCV plot: another type asked for whole is still thinned',
+      [(len(ln['x']), ln.get('decimated', False)) for ln in hfr['series'][0]['axes'][0]['lines']],
+      [shape[0][0]])
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{passed} passed, {failed} failed')
