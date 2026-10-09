@@ -2512,6 +2512,59 @@
     font-size: 11px;
     color: var(--text-dim);
   }
+
+  /* Sort and skip. The header carries the sort; each row its own skip. */
+  .folder-order-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .folder-order-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+  }
+  .folder-order-tools select {
+    width: auto;
+    padding: 4px 26px 4px 8px;
+    font-size: 12px;
+    background-position: right 9px center;
+  }
+  .folder-order-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .folder-order-skip {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .folder-order-skip:hover { color: var(--text); border-color: var(--border-hover); }
+  .folder-order-item.skipped { opacity: 0.55; }
+  .folder-order-item.skipped .folder-order-name { text-decoration: line-through; }
+  .folder-order-item.skipped .folder-order-skip { color: var(--accent); border-color: var(--accent); }
+  .folder-order-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+  .folder-order-note.warn { color: var(--amber); }
+  #folder-order-container.busy { pointer-events: none; opacity: 0.6; }
+  @media (max-width: 640px) {
+    .folder-order-head { flex-wrap: wrap; }
+    .folder-order-meta { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -2587,8 +2640,25 @@
 
       <div id="folder-order-container" style="display:none">
         <div class="folder-order-section">
-          <div class="folder-order-head">Folder Processing Order (drag to reorder)</div>
+          <div class="folder-order-head">
+            <span>Folder Processing Order (drag to reorder)</span>
+            <label class="folder-order-tools">Sort by
+              <select id="folder-sort" onchange="sortFolders(this.value)">
+                <option value="script">Script's order</option>
+                <option value="name-asc">Name, A → Z</option>
+                <option value="name-desc">Name, Z → A</option>
+                <option value="date-asc">Date modified, oldest first</option>
+                <option value="date-desc">Date modified, newest first</option>
+                <option value="files-desc">Files, most first</option>
+                <option value="files-asc">Files, fewest first</option>
+                <option value="size-desc">Size, largest first</option>
+                <option value="size-asc">Size, smallest first</option>
+                <option value="custom" disabled>Custom (dragged)</option>
+              </select>
+            </label>
+          </div>
           <ul class="folder-order-list" id="folder-order-list"></ul>
+          <div class="folder-order-note" id="folder-order-note"></div>
         </div>
       </div>
 
@@ -9225,7 +9295,8 @@ const SEQUENTIAL_FOLDER_SCRIPTS = ['Electrolyzer Durability', 'FC Durability'];
 // natural sort of the name (order_folders in fc_durability_analysis.py), so an
 // FCTS BOL folder (steps a, b) leads its 40 h folders and 40H_2 precedes
 // 40H_10. Identify Folders lists them in that same order, because whatever
-// the list shows is sent as an explicit folder_order.
+// the list shows is sent as an explicit folder_order (less any folder skipped
+// there, whose files are not sent at all).
 const FOLDER_ORDER_RULES = { 'FC Durability': stepLetterFolderOrder };
 // Both stands write these files the same way, so the stand cannot be told
 // from them and the mismatch warning would only ever be wrong.
@@ -9452,6 +9523,11 @@ function renderChips() {
   checkReady();
 }
 
+// True from Run until its upload has gone or failed. Anything that calls
+// checkReady meanwhile (a Skip click in the folder list, a script change)
+// must not turn Run back on: a second click would send a second job.
+let submitting = false;
+
 function checkReady() {
   const hasScript = document.getElementById('sel').value;
   const script = document.getElementById('sel').value;
@@ -9460,10 +9536,11 @@ function checkReady() {
   if (uploadMode === 'multi' && samples.length > 0) {
     document.getElementById('go').disabled = !hasScript;
   } else if (uploadMode === 'folder' && isSeq && orderedFolders.length > 0) {
-    document.getElementById('go').disabled = !hasScript;
+    document.getElementById('go').disabled = !hasScript || !orderedFolders.some(f => !f.skip);
   } else {
     document.getElementById('go').disabled = !(hasScript && files.length > 0);
   }
+  if (submitting) document.getElementById('go').disabled = true;
   // The file list has just changed, so the stand may now contradict it.
   checkStandMismatch();
 }
@@ -9573,7 +9650,7 @@ function identifySamples() {
       return;
     }
     document.getElementById('identify-btn').style.display = 'none';
-    orderedFolders = ordered;
+    setOrderedFolders(ordered);
     document.getElementById('folder-order-container').style.display = 'block';
     document.getElementById('sample-container').style.display = 'none';
     renderFolderOrder();
@@ -9615,11 +9692,11 @@ function identifySamples() {
 
   if (isSeq && uploadMode === 'folder') {
     // Sequential folder ordering mode (durability)
-    orderedFolders = detected.map(s => ({
+    setOrderedFolders(detected.map(s => ({
       folder: s.folder,
       displayName: s.displayName,
       files: s.files,
-    }));
+    })));
     document.getElementById('folder-order-container').style.display = 'block';
     document.getElementById('sample-container').style.display = 'none';
     renderFolderOrder();
@@ -9638,24 +9715,110 @@ function identifySamples() {
 }
 window.identifySamples = identifySamples;
 
-// ── Folder ordering (drag-and-drop) ────────────
+// ── Folder ordering (drag-and-drop, sort, skip) ────────────
 let dragIdx = null;
+let folderSortKey = 'script';
+
+// A new list from Identify. `order0` is the order it came in, which is the
+// script's own (FOLDER_ORDER_RULES, or the alphabetical order Electrolyzer
+// Durability falls back to), so "Script's order" can put it back after a
+// sort or a drag. Every folder starts included.
+function setOrderedFolders(list) {
+  orderedFolders = list.map((f, i) => ({ ...f, order0: i, skip: false }));
+  folderSortKey = 'script';
+}
+
+const folderBytes = f => f.files.reduce((n, x) => n + ((x.file && x.file.size) || 0), 0);
+// The newest of a folder's dated files, as a folder's own date reads in a
+// file manager; NaN when the browser gave none a date.
+const folderModified = f => f.files.reduce((m, x) => {
+  const t = x.file && x.file.lastModified;
+  return t > 0 && !(t <= m) ? t : m;
+}, NaN);
+// Dated folders come first in either direction: an undated one compared as a
+// tie with every other would leave the dated ones around it unsorted.
+const byFolderDate = dir => (a, b) => {
+  const ta = folderModified(a), tb = folderModified(b);
+  if (isFinite(ta) !== isFinite(tb)) return isFinite(ta) ? -1 : 1;
+  return isFinite(ta) ? dir * (ta - tb) : 0;
+};
+const FOLDER_SORTS = {
+  'name-asc':   (a, b) => naturalCompare(a.displayName, b.displayName),
+  'name-desc':  (a, b) => naturalCompare(b.displayName, a.displayName),
+  'date-asc':   byFolderDate(1),
+  'date-desc':  byFolderDate(-1),
+  'files-desc': (a, b) => b.files.length - a.files.length,
+  'files-asc':  (a, b) => a.files.length - b.files.length,
+  'size-desc':  (a, b) => folderBytes(b) - folderBytes(a),
+  'size-asc':   (a, b) => folderBytes(a) - folderBytes(b),
+};
+
+// Sorting reorders every row, skipped ones too, so a skip stays with its
+// folder. Ties, and folders without a date, keep the script's order.
+function sortFolders(key) {
+  if (submitting) { renderFolderOrder(); return; }
+  const by = FOLDER_SORTS[key];
+  orderedFolders.sort((a, b) => (by ? by(a, b) || 0 : 0) || a.order0 - b.order0);
+  folderSortKey = FOLDER_SORTS[key] || key === 'script' ? key : 'script';
+  renderFolderOrder();
+}
+
+// Skipping leaves a folder out of the analysis: its files are not uploaded
+// and it is not in the folder order sent. Include brings it back.
+function toggleFolderSkip(i) {
+  const f = orderedFolders[i];
+  if (!f || submitting) return;
+  f.skip = !f.skip;
+  renderFolderOrder();
+  checkReady();
+  // The row was redrawn; keep the keyboard where it was.
+  const b = document.querySelectorAll('#folder-order-list .folder-order-skip')[i];
+  if (b) b.focus();
+}
+
+function fmtModified(ms) {
+  if (!isFinite(ms)) return '';
+  const d = new Date(ms), z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} `
+       + `${z(d.getHours())}:${z(d.getMinutes())}`;
+}
 
 function renderFolderOrder() {
   const list = document.getElementById('folder-order-list');
-  list.innerHTML = orderedFolders.map((f, i) => `
-    <li class="folder-order-item" draggable="true"
+  let n = 0;
+  list.innerHTML = orderedFolders.map((f, i) => {
+    const date = fmtModified(folderModified(f));
+    return `
+    <li class="folder-order-item${f.skip ? ' skipped' : ''}" draggable="true"
         ondragstart="folderDragStart(event,${i})"
         ondragover="folderDragOver(event,${i})"
         ondragleave="folderDragLeave(event)"
         ondrop="folderDrop(event,${i})"
         ondragend="folderDragEnd()">
       <span class="folder-order-grip">&#9776;</span>
-      <span class="folder-order-num">${i + 1}</span>
+      <span class="folder-order-num">${f.skip ? '–' : ++n}</span>
       <span class="folder-order-name">${esc(f.displayName)}/</span>
       <span class="folder-order-count">${f.files.length} files</span>
-    </li>
-  `).join('');
+      <span class="folder-order-meta">${fmt(folderBytes(f))}${date ? ' · ' + date : ''}</span>
+      <button type="button" class="folder-order-skip" aria-pressed="${f.skip}"
+              title="${f.skip ? 'Put this folder back into the analysis'
+                              : 'Leave this folder out of the analysis: its files are not uploaded'}"
+              onclick="toggleFolderSkip(${i})">${f.skip ? 'Include' : 'Skip'}</button>
+    </li>`;
+  }).join('');
+  const sel = document.getElementById('folder-sort');
+  if (sel) sel.value = folderSortKey;
+  const note = document.getElementById('folder-order-note');
+  if (note) {
+    const left = orderedFolders.filter(f => f.skip);
+    const nFiles = left.reduce((k, f) => k + f.files.length, 0);
+    note.classList.toggle('warn', left.length === orderedFolders.length && left.length > 0);
+    note.textContent = !left.length ? ''
+      : left.length === orderedFolders.length ? 'Every folder is skipped: there is nothing to analyse.'
+      : `${orderedFolders.length - left.length} of ${orderedFolders.length} folders are analysed, `
+        + `in this order. ${left.length === 1 ? 'The skipped one' : `The ${left.length} skipped`} `
+        + `(${nFiles} file${nFiles === 1 ? '' : 's'}) ${left.length === 1 ? 'is' : 'are'} not uploaded.`;
+  }
 }
 
 function folderDragStart(e, idx) {
@@ -9679,11 +9842,12 @@ function folderDragLeave(e) {
 function folderDrop(e, dropIdx) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
-  if (dragIdx === null || dragIdx === dropIdx) return;
+  if (dragIdx === null || dragIdx === dropIdx || submitting) return;
 
   // Move item from dragIdx to dropIdx
   const item = orderedFolders.splice(dragIdx, 1)[0];
   orderedFolders.splice(dropIdx, 0, item);
+  folderSortKey = 'custom';
   renderFolderOrder();
 }
 
@@ -9700,6 +9864,8 @@ window.folderDragOver = folderDragOver;
 window.folderDragLeave = folderDragLeave;
 window.folderDrop = folderDrop;
 window.folderDragEnd = folderDragEnd;
+window.sortFolders = sortFolders;
+window.toggleFolderSkip = toggleFolderSkip;
 
 function renderSampleTable() {
   const wrap = document.getElementById('sample-table-wrap');
@@ -10122,6 +10288,8 @@ document.getElementById('go').addEventListener('click', async () => {
 
   const btn = document.getElementById('go');
   btn.disabled = true;
+  submitting = true;
+  document.getElementById('folder-order-container').classList.add('busy');
   const submittedName = (document.getElementById('param-sample_name') || {}).value;
 
   try {
@@ -10182,24 +10350,31 @@ document.getElementById('go').addEventListener('click', async () => {
       renderChips();
 
     } else if (uploadMode === 'folder' && isSeq && orderedFolders.length > 0) {
-      // Sequential folder ordering: single job with folder_order param
-      if (!files.length) return;
+      // Sequential folder ordering: single job with folder_order param.
+      // Skipped folders are left out of both the order and the upload, and
+      // named in skipped_folders so the analysis can say what it never saw.
+      const kept = orderedFolders.filter(f => !f.skip);
+      const left = orderedFolders.filter(f => f.skip);
+      const leftFiles = new Set(left.flatMap(f => f.files));
+      const sendFiles = files.filter(f => !leftFiles.has(f));
+      if (!sendFiles.length || !kept.length) return;
       btn.textContent = shouldZip ? 'Compressing…' : 'Uploading…';
       const params = collectParams();
-      params.folder_order = orderedFolders.map(f => f.folder);
+      params.folder_order = kept.map(f => f.folder);
+      if (left.length) params.skipped_folders = left.map(f => f.folder);
 
       const fd = new FormData();
       fd.append('script', script);
       fd.append('params', JSON.stringify(params));
 
       if (shouldZip) {
-        const zipBlob = await buildZipBlob(files, pct => {
+        const zipBlob = await buildZipBlob(sendFiles, pct => {
           btn.textContent = `Compressing… ${Math.round(pct)}%`;
         });
         fd.append('zipfile', zipBlob, 'upload.zip');
         btn.textContent = 'Uploading…';
       } else {
-        files.forEach(f => fd.append('files', f.file, f.path));
+        sendFiles.forEach(f => fd.append('files', f.file, f.path));
       }
 
       const r = await fetch('/api/upload', { method: 'POST', body: fd });
@@ -10251,6 +10426,8 @@ document.getElementById('go').addEventListener('click', async () => {
   } catch(e) {
     alert('Error: ' + e.message);
   } finally {
+    submitting = false;
+    document.getElementById('folder-order-container').classList.remove('busy');
     btn.disabled = false;
     btn.textContent = 'Run Analysis';
     checkReady();

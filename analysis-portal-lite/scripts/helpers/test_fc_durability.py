@@ -398,7 +398,46 @@ check('workbook sheets', wb.sheetnames, ['Summary', 'Cycles', 'Holds', 'OCV by c
                                          'Characterizations', 'Manifest', 'Notes'])
 check('manifest rows: 23 step files + 2 skipped', wb['Manifest'].max_row - 1, 25)
 check('holds sheet rows', wb['Holds'].max_row - 1, 1)
+summary_items = {r[0]: r[1] for r in wb['Summary'].iter_rows(min_row=2, values_only=True)}
+check('nothing left out at upload: said so, and no summary field',
+      (summary_items.get('Folders left out at upload'), 'Folders left out' in row), ('none', False))
 wb.close()
+
+# Folders skipped in the upload page's folder list never arrive; the page
+# names them, and every output says the analysis did not see them.
+out_left = tmp / 'out_left'
+with contextlib.redirect_stdout(io.StringIO()):
+    res_left = run(str(tmp / 'scribner'), str(out_left),
+                   {'image_format': 'none', 'skipped_folders': ['Run/40H_3/', '  ', 'Run/extra']})
+wb = openpyxl.load_workbook(out_left / 'fc_durability.xlsx', read_only=True)
+summary_items = {r[0]: r[1] for r in wb['Summary'].iter_rows(min_row=2, values_only=True)}
+notes_left = [r[0] for r in wb['Notes'].iter_rows(min_row=2, values_only=True)]
+wb.close()
+check('skipped folders: named in the workbook summary, blanks dropped',
+      summary_items.get('Folders left out at upload'), 'Run/40H_3, Run/extra')
+true('... noted as not in the analysis',
+     any('left out at upload' in str(n) and 'Run/40H_3, Run/extra' in str(n) for n in notes_left),
+     notes_left)
+check('... and in the stored summary row', res_left['summary'][0].get('Folders left out'),
+      'Run/40H_3, Run/extra')
+with contextlib.redirect_stdout(io.StringIO()):
+    res_bad = run(str(tmp / 'scribner'), str(tmp / 'out_left_bad'),
+                  {'image_format': 'none', 'skipped_folders': 'Run/40H_3'})
+check('skipped_folders that is not a list is ignored',
+      'Folders left out' in res_bad['summary'][0], False)
+# Names as the page sends them: a control character cannot go into a workbook
+# cell, a non-string is not a name, and a folder that was read is not left out.
+read_folder = build_timeline(str(tmp / 'scribner')).folders[0]
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        res_odd = run(str(tmp / 'scribner'), str(tmp / 'out_left_odd'),
+                      {'image_format': 'none',
+                       'skipped_folders': ['Run/40H\x01_9', None, 7, read_folder + '/']})
+    odd = res_odd['summary'][0].get('Folders left out')
+except Exception as e:                               # noqa: BLE001
+    odd = f'run failed: {type(e).__name__}: {e}'
+check('left-out names cleaned: control characters dropped, non-names and read folders ignored',
+      odd, 'Run/40H_9')
 
 out2 = tmp / 'out_noimg'
 with contextlib.redirect_stdout(io.StringIO()):

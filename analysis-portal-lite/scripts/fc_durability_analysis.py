@@ -281,6 +281,9 @@ class Timeline:
     notes: List[str]
     hold_min_h: float
     step_tail_s: float
+    # Folders skipped in the upload's folder list: never uploaded, so never
+    # read, and named here so the outputs say what the analysis did not see.
+    left_out: List[str] = field(default_factory=list)
 
     @property
     def hours_tested(self) -> float:
@@ -2269,6 +2272,7 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
         ('Hold segments', len(tl.segments)),
         ('Step files', len(tl.files)),
         ('Folders, in order', ' → '.join(tl.folders)),
+        ('Folders left out at upload', ', '.join(tl.left_out) or 'none'),
         ('Hold rule', f'OCV, air or O2 cathode, running ≥ {tl.hold_min_h:g} h'),
         ('Step tail added per hold file (s)', tl.step_tail_s),
         ('Geometric area (cm²)', params.get('geo_area')),
@@ -2362,6 +2366,8 @@ def build_summary(tl: Timeline, params: Dict[str, Any],
         'geo_area': float(params['geo_area']),
         'loading': float(params['loading']),
     }
+    if tl.left_out:
+        row['Folders left out'] = ', '.join(tl.left_out)
     if ocv is not None:
         for key, x, nd in (('OCV initial', ocv.initial_v, 5), ('OCV final', ocv.final_v, 5),
                            ('OCV loss', ocv.loss_pct, 3), ('OCV decay rate', ocv.decay_uV_h, 1),
@@ -2424,6 +2430,7 @@ PARAM_RANGES: Dict[str, Tuple[float, float, float]] = {
     'xover_window_hi': (XOVER_WINDOW_V[1], 0.20, 0.80),
 }
 XOVER_MIN_WINDOW_V = 0.05    # a narrower window averages too few points to judge
+LEFT_OUT_MAX = 50            # folder names kept from skipped_folders
 
 
 def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
@@ -2450,6 +2457,22 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
                         step_tail_s=settings['step_tail_s'],
                         folder_order=order if isinstance(order, list) else None)
     tl.notes[:0] = param_notes
+    # The upload page leaves skipped folders out of the upload and names them
+    # here. Their hours are missing from the clock, so the outputs say so.
+    # Names only, as the page sends them: control characters cannot go into
+    # a workbook cell, and a folder that was read after all is not left out.
+    left = p.get('skipped_folders')
+    if isinstance(left, list):
+        names = [re.sub(r'[\x00-\x1f\x7f]', '', x).strip().strip('/')
+                 for x in left if isinstance(x, str)]
+        names = [n[:200] for n in names if n and n not in tl.folders]
+        tl.left_out = names[:LEFT_OUT_MAX] + ([f'and {len(names) - LEFT_OUT_MAX} more']
+                                             if len(names) > LEFT_OUT_MAX else [])
+    if tl.left_out:
+        tl.notes.insert(len(param_notes),
+                        'left out at upload (skipped in the folder list): '
+                        + ', '.join(tl.left_out)
+                        + '; their steps and hold hours are not in this analysis')
     if not tl.files:
         # Raised rather than returned: a returned error status still shows the
         # job as complete (V22).
