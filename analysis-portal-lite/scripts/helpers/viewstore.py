@@ -342,7 +342,7 @@ def _decimate(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
 
 
 def plot_series(key: str, analysis: str = '', step: str = '',
-                plot: str = '') -> Optional[Dict[str, Any]]:
+                plot: str = '', plot_type: str = '') -> Optional[Dict[str, Any]]:
     """The plotted series for one stored plot, for charting in the browser.
 
     Every other read path returns a rendered PNG. The numbers behind it are in
@@ -351,7 +351,10 @@ def plot_series(key: str, analysis: str = '', step: str = '',
 
     A plot is addressed either by name, or by (analysis, step), which is what
     the index carries and therefore what a picker built from the index can ask
-    for.
+    for. `plot_type` narrows (analysis, step) to one type of plot: a step-less
+    analysis such as FC Durability stores ten plots under its one unit, and
+    the first of them is not the one a chart of OCV against hours wants. A
+    name, when given, still wins.
 
     Returns None when the plot is not stored — cleaning sidecars are excluded
     at write time, so this is an ordinary outcome rather than an error.
@@ -367,9 +370,12 @@ def plot_series(key: str, analysis: str = '', step: str = '',
             if analysis and bucket != analysis:
                 continue
             for pname, entry in plots.items():
-                if str((entry.get('conditions') or {}).get('step') or '') == step:
-                    name = pname
-                    break
+                if str((entry.get('conditions') or {}).get('step') or '') != step:
+                    continue
+                if plot_type and (sidecars.get(pname) or {}).get('plot_type') != plot_type:
+                    continue
+                name = pname
+                break
             if name:
                 break
     sc = sidecars.get(name)
@@ -414,7 +420,8 @@ def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
         try:
             got = plot_series(key, str(sel.get('analysis') or ''),
                               str(sel.get('step') or ''),
-                              str(sel.get('plot') or ''))
+                              str(sel.get('plot') or ''),
+                              str(sel.get('plot_type') or ''))
         except Exception as e:
             missing.append({**sel, 'reason': f'{type(e).__name__}: {e}'})
             continue

@@ -576,6 +576,13 @@ def parse_conditions(filename: str) -> Dict[str, Any]:
 def plot_bucket(plot_type: str) -> str:
     """Map a sidecar plot_type to its characterization bucket."""
     pt = (plot_type or 'other').lower()
+    # Every FC Durability plot goes to one bucket. Without this each plot type
+    # would be a bucket of its own, the summary row (Analysis 'fc_durability')
+    # would belong to none of them, and it would duplicate on every re-push.
+    # Checked first so no later rule (the crossover test takes any type
+    # containing 'h2x') can claim one.
+    if pt.startswith('fcdur'):
+        return 'fc_durability'
     if pt.startswith('activation'):
         return 'activation'
     if pt.startswith('cleaning'):
@@ -630,6 +637,18 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
         ('Average ECSA', ['Average ECSA', 'average_ECSA_m2_per_g',
                           'Avg ECSA (m2/g)']),
     ],
+    # One step-less unit per durability test. Hours to death exists only for
+    # a sample that died: absent means alive, censored at Hours tested.
+    'fc_durability': [
+        ('Hours tested', ['Hours tested']),
+        ('Hours to death', ['Hours to death']),
+        ('OCV initial', ['OCV initial']),
+        ('OCV decay rate', ['OCV decay rate']),
+        ('OCV loss', ['OCV loss']),
+        ('j_xover initial', ['j_xover initial']),
+        ('j_xover final', ['j_xover final']),
+        ('R_short final', ['R_short final']),
+    ],
 }
 
 # Units are implied per canonical key; the {value, unit} form lives in the
@@ -645,6 +664,14 @@ KEY_VALUE_UNITS = {
     'HFR': 'Ω·cm²',
     '|j_xover|': 'mA/cm²',
     'Average ECSA': 'm²/g',
+    'Hours tested': 'h',
+    'Hours to death': 'h',
+    'OCV initial': 'V',
+    'OCV decay rate': 'μV/h',
+    'OCV loss': '%',
+    'j_xover initial': 'mA/cm²',
+    'j_xover final': 'mA/cm²',
+    'R_short final': 'Ω·cm²',
 }
 
 
@@ -1005,11 +1032,19 @@ def build_index_entry(detail_record: Dict[str, Any], bin_id: str) -> Dict[str, A
     run_date = parse_run_date(detail_record.get('sample_name'))
     if run_date:
         entry['run_date'] = run_date
-    stand = (detail_record.get('stand')
-             or parse_stand(detail_record.get('input_files')))
+    stand = detail_record.get('stand')
+    if not stand and detail_record.get('script') not in STAND_DECLARED_ONLY:
+        stand = parse_stand(detail_record.get('input_files'))
     if stand:
         entry['stand'] = stand
     return entry
+
+
+# Scripts whose files are written the same way on every stand, so a family
+# derived from them would be a guess: FC Durability reads station CSVs from the
+# Scribner and the FCTS alike, and every one would be called FCTS (V32). Their
+# stand is recorded only as declared, or not at all.
+STAND_DECLARED_ONLY = {'FC Durability'}
 
 
 def detail_bin_name(detail_record: Dict[str, Any], script_short: str = '') -> str:
@@ -1071,14 +1106,24 @@ def _annotate_summary_rows(record: Dict[str, Any]) -> List[Dict[str, Any]]:
         label = str(row.get('Label') or row.get('label') or '')
         bucket = row.get('Analysis') or ''
         step = ''
-        for b, plots in metrics.items():
-            for plot_name, entry in plots.items():
-                if label and label in plot_name:
-                    bucket = bucket or b
-                    step = _plot_step(entry)
+        # A row that names its analysis takes its step from that analysis's
+        # own plots when the label is found there. Searching every bucket
+        # first let another analysis's plot that happens to contain the
+        # label (a sample named ..._fcdur_... holds 'fcdur' in every plot
+        # name) lend its step, and the row then outlived every re-push.
+        own = (metrics.get(bucket) or {}) if bucket else {}
+        hit = next((e for name, e in own.items() if label and label in name), None)
+        if hit is not None:
+            step = _plot_step(hit)
+        else:
+            for b, plots in metrics.items():
+                for plot_name, entry in plots.items():
+                    if label and label in plot_name:
+                        bucket = bucket or b
+                        step = _plot_step(entry)
+                        break
+                if step:
                     break
-            if step:
-                break
         if not bucket and len(metrics) == 1:
             bucket = next(iter(metrics))       # unambiguous single-bucket run
         if not step and label:
@@ -1162,6 +1207,15 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
     merged['script'] = incoming.get('script', merged.get('script', ''))
     merged['sample_name'] = (incoming.get('sample_name')
                              or merged.get('sample_name', ''))
+    # A stand declared on this push replaces the stored one, by the rule the
+    # index entry uses (V5). The forms default to "Keep stored stand", which
+    # declares nothing, so only a stand someone chose relabels the sample; an
+    # undeclared push keeps what is stored.
+    stand = better_stand(merged.get('stand'), incoming.get('stand'))
+    if stand:
+        merged['stand'] = stand
+    else:
+        merged.pop('stand', None)
     files = list(merged.get('input_files') or [])
     for f in (incoming.get('input_files') or []):
         if f not in files:

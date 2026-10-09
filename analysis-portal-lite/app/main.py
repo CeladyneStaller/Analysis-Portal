@@ -350,16 +350,27 @@ async def list_scripts():
 # ═══════════════════════════════════════════════════════════════════
 
 @app.get("/api/view/runs")
-async def view_runs(sample: str = Query(None), script: str = Query(None),
-                    analysis: str = Query(None), stand: str = Query(None),
-                    since: str = Query(None), until: str = Query(None),
-                    limit: int = Query(None)):
-    """Filtered list of historical runs from the index bin."""
+def view_runs(sample: str = Query(None), script: str = Query(None),
+              analysis: str = Query(None), stand: str = Query(None),
+              since: str = Query(None), until: str = Query(None),
+              limit: int = Query(None), force: bool = Query(False)):
+    """Filtered list of historical runs from the index bin.
+
+    `force` reads the index afresh instead of from the 30 s cache, for a caller
+    that must see a push made a moment ago (the upload page asking whether a
+    sample is stored yet).
+
+    A plain function, so FastAPI runs it in its thread pool: reading JSONBin
+    blocks, and the upload page now asks before every upload left on "Keep
+    stored stand". On the event loop a slow JSONBin held up every other
+    request, the upload and the job polls included.
+    """
     from scripts.helpers import viewstore
     try:
         return viewstore.list_runs(sample=sample, script=script,
                                    analysis=analysis, stand=stand,
-                                   since=since, until=until, limit=limit)
+                                   since=since, until=until, limit=limit,
+                                   force=force)
     except Exception as e:
         raise HTTPException(502, f"could not read index: {e}")
 

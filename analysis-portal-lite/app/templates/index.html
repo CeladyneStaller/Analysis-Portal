@@ -494,6 +494,8 @@
      the table. */
   .runs-table td.num.best { color: var(--green); }
   .runs-table td.num.worst { color: var(--amber); }
+  /* A lower bound (a sample still alive), not a result: muted, never tinted. */
+  .runs-table td.num.cens { color: var(--text-dim); font-style: italic; }
   .ofn {
     font-size: 9px; vertical-align: super; opacity: .55;
     margin-left: 2px; font-family: var(--mono);
@@ -757,6 +759,11 @@
     min-width: 38px; }
   .cmp-strow .cond { color: var(--text-dim); font-size: 10px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A whole test's series, each with the dash it is drawn in. */
+  .cmp-series { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+  .cmp-series .ser { display: inline-flex; align-items: center; gap: 4px;
+    color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+  .cmp-scol1:has(.cmp-series) { flex-wrap: wrap; row-gap: 2px; }
   .cmp-scol2 { display: flex; gap: 9px; align-items: baseline; }
   .cmp-kv { display: inline-flex; gap: 4px; align-items: baseline;
     white-space: nowrap; }
@@ -1306,6 +1313,7 @@
                       color: var(--text-dim); }
   .trend-legend .sw { width: 11px; height: 11px; border-radius: 2px;
                       flex: 0 0 auto; }
+  .trend-legend .cens-note { font-style: italic; }
 
   /* ─── View tab: compare selection ─────────── */
   .rd-select {
@@ -3154,15 +3162,30 @@ function renderFilterChips(active) {
 // follows alphabetically, so a new metric appears rather than being invisible.
 const VF_ANALYSIS_ORDER = ['polcurve', 'eis', 'crossover', 'ecsa'];
 
+// A unit's index values as [metric, value, censored]. FC Durability stores
+// Hours to death only for a sample that died (decision 7); one still running
+// carries Hours tested alone. Its lifetime is then known only to be at least
+// that long — censored — and it is listed under Hours to death as such, so the
+// lifetime column holds every sample instead of only the dead ones.
+function unitValues(d) {
+  const out = [];
+  const kv = d.key_values || {};
+  Object.entries(kv).forEach(([raw, v]) => {
+    if (typeof v === 'number' && isFinite(v)) out.push([canonMetric(raw), v, false]);
+  });
+  if (d.Analysis === 'fc_durability' && !(typeof kv['Hours to death'] === 'number')
+      && typeof kv['Hours tested'] === 'number' && isFinite(kv['Hours tested'])) {
+    out.push(['Hours to death', kv['Hours tested'], true]);
+  }
+  return out;
+}
+
 function vfCatalog(rows) {
   const out = {};
   rows.forEach(r => (r.Data || []).forEach(d => {
     const a = String(d.Analysis || '');
     if (!a) return;
-    Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-      if (typeof v !== 'number' || !isFinite(v)) return;
-      (out[a] || (out[a] = new Set())).add(canonMetric(raw));
-    });
+    unitValues(d).forEach(([m]) => (out[a] || (out[a] = new Set())).add(m));
   }));
   const rank = n => {
     const i = COLUMN_ORDER.indexOf(n);
@@ -3705,12 +3728,23 @@ const METRIC_DIR = {
   'OCV': 1, 'V @ 1 A/cm²': 1, 'Peak P': 1, 'Average ECSA': 1, 'Average RF': 1,
   'j @ 0.7 V': 1, 'j @ 0.65 V': 1, 'j @ 0.6 V': 1, 'j @ 0.5 V': 1, 'j @ 0.4 V': 1,
   'HFR': -1, 'Mean HFR': -1, '|j_xover|': -1, 'R_ohm': -1, 'R_ct': -1,
+  // FC Durability
+  'Hours tested': 1, 'Hours to death': 1, 'OCV initial': 1,
+  'OCV decay rate': -1, 'OCV loss': -1, 'j_xover initial': -1, 'j_xover final': -1,
+  'R_short final': 1,
 };
 // Preference order for which metrics earn a column; the table shows the first
-// few that are actually present.
+// few that are actually present. FC Durability leads with its lifetime, Hours
+// to death (a live sample's shown as at least its hours tested), then the
+// index's other values in the order it lists them.
 const COLUMN_ORDER = ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'HFR', '|j_xover|',
-                      'Average ECSA', 'Peak P'];
+                      'Average ECSA', 'Peak P',
+                      'Hours to death', 'Hours tested', 'OCV initial', 'OCV decay rate',
+                      'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final'];
 const MAX_METRIC_COLUMNS = 5;
+// How long a test has run is neither good nor bad, so its column is sortable
+// but never tinted: a long test that died is not the best sample.
+const UNTINTED_METRICS = new Set(['Hours tested']);
 
 let _sortKey = null, _sortDir = -1;
 
@@ -3730,16 +3764,16 @@ function sampleMetrics(run, analysis, scope) {
     .filter(d => !analysis || d.Analysis === analysis)
     .filter(d => !scope || scope(d))
     .forEach(d => {
-    Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-      if (typeof v !== 'number' || !isFinite(v)) return;
-      const name = canonMetric(raw);
+    unitValues(d).forEach(([name, v, censored]) => {
       const dir = METRIC_DIR[name] || 1;
       const cur = out[name];
       if (!cur) {
-        out[name] = { value: v, step: d.step || '', count: 1 };
+        out[name] = { value: v, step: d.step || '', count: 1, censored };
       } else {
         cur.count += 1;
-        if ((v - cur.value) * dir > 0) { cur.value = v; cur.step = d.step || ''; }
+        if ((v - cur.value) * dir > 0) {
+          cur.value = v; cur.step = d.step || ''; cur.censored = censored;
+        }
       }
     });
   });
@@ -3758,13 +3792,27 @@ function metricColumns(rows) {
 
 // Tint only the extremes of a column, so colour marks an outlier rather than
 // decorating every cell.
+//
+// A censored value (a sample still alive) is a lower bound, not a result: it
+// is never tinted itself, and it decides which exact values can be. While any
+// sample is still alive nobody knows the highest value, since that sample may
+// yet outlive them all; the lowest exact value is known to be the lowest only
+// if no live sample is below it, since one that is may still die sooner.
 function columnExtremes(rows, metric, analysis, steps) {
-  const vals = rows.map(r => (sampleMetrics(r, analysis, steps)[metric] || {}).value)
-                   .filter(v => typeof v === 'number');
-  if (vals.length < 2) return {};
+  if (UNTINTED_METRICS.has(metric)) return {};
+  const ents = rows.map(r => sampleMetrics(r, analysis, steps)[metric])
+                   .filter(e => e && typeof e.value === 'number');
+  const exact = ents.filter(e => !e.censored).map(e => e.value);
+  const bounds = ents.filter(e => e.censored).map(e => e.value);
+  if (ents.length < 2 || !exact.length) return {};
+  const lo = Math.min(...exact), hi = Math.max(...exact);
+  const hiKnown = !bounds.length;
+  const loKnown = !bounds.length || lo <= Math.min(...bounds);
   const dir = METRIC_DIR[metric] || 1;
-  return dir > 0 ? { best: Math.max(...vals), worst: Math.min(...vals) }
-                 : { best: Math.min(...vals), worst: Math.max(...vals) };
+  const out = {};
+  if (dir > 0) { if (hiKnown) out.best = hi; if (loKnown) out.worst = lo; }
+  else { if (loKnown) out.best = lo; if (hiKnown) out.worst = hi; }
+  return out;
 }
 
 // One slot per analysis the portal knows, filled when the sample has it.
@@ -3868,6 +3916,12 @@ function renderViewRuns(rows) {
                                              vfCondScope(analysis)));
       const e = m[metric];
       if (!e) return `<td class="num miss${sep}">—</td>`;
+      if (e.censored) {
+        const unit = KV_UNITS[metric] ? ' ' + KV_UNITS[metric] : '';
+        return `<td class="num cens${sep}" title="${escapeAttr(
+            `still alive: tested ${fmtNum(e.value)}${unit} without dying, so its `
+            + `lifetime is at least that (censored)`)}">≥ ${escapeHtml(fmtNum(e.value))}</td>`;
+      }
       const x = ext[c];
       const tone = e.value === x.best ? ' best'
                  : e.value === x.worst ? ' worst' : '';
@@ -4137,7 +4191,9 @@ function canonMetric(name) { return METRIC_CANON[name] || name; }
 // Values for one plot, preferring the tier-1 summary over the annotation text.
 // The summary carries full precision; annotation values are rounded for
 // display, and a record written before tier-1 existed has only the latter.
-function plotMetrics(detail, bucket, plot) {
+// `ownRowsOnly` leaves the summary out, for an analysis whose summary is shown
+// once for the whole test (rdWholeTestRows).
+function plotMetrics(detail, bucket, plot, ownRowsOnly) {
   const out = {};
   Object.entries(plot.values || {}).forEach(([k, v]) => {
     const num = (v && typeof v === 'object') ? v.value : v;
@@ -4145,6 +4201,7 @@ function plotMetrics(detail, bucket, plot) {
       out[canonMetric(k)] = { value: num, unit: (v && v.unit) || '' };
     }
   });
+  if (ownRowsOnly) return out;
   const step = String((plot.conditions || {}).step || '');
   (detail.summary || []).forEach(row => {
     if (!row || typeof row !== 'object') return;
@@ -4180,12 +4237,44 @@ function conditionSummary(cond) {
   return bits.join(' · ');
 }
 
+// The summary rows of a step-less analysis that describe the whole test. FC
+// Durability writes one row for a test of ten plots, and its label is in every
+// plot's name, so laid under each plot it was repeated ten times. Such a row
+// is shown once, above the plots, and each plot keeps only its own readout.
+//
+// Named analyses only. Every plot name starts with the sample name, so in any
+// other step-less section (two ECSA files, say) a row labelled with a file
+// stem that is also the sample name would pass the label test, be shown as the
+// whole test, and take the other files' values off their plots.
+const WHOLE_TEST_ANALYSES = new Set(['fc_durability']);
+function rdWholeTestRows(detail, bucket, plots) {
+  if (!WHOLE_TEST_ANALYSES.has(bucket)) return [];
+  if (plots.length < 2 || plots.some(p => String((p.conditions || {}).step || ''))) return [];
+  return summaryRowsFor(detail, bucket, plots).filter(row => {
+    const label = String(row.Label || row.label || '');
+    return label && plots.every(p => String(p.plot).includes(label));
+  });
+}
+
+function rdWholeTestBlock(row) {
+  const entries = Object.entries(row).filter(
+    ([k, v]) => !['Label', 'label', 'Analysis'].includes(k) && v != null && v !== '');
+  if (!entries.length) return '';
+  return `<div class="rd-summary rd-whole">
+    <div class="rd-summary-head">Whole test</div>
+    <div class="rd-summary-grid">${entries.map(([k, v]) =>
+      `<div><span class="k">${escapeHtml(k)}</span> `
+      + `<span class="v">${escapeHtml(fmtVal(v))}</span></div>`).join('')}
+    </div></div>`;
+}
+
 function rdAnalysisGrid(detail, bucket, plots, jobId) {
+  const whole = rdWholeTestRows(detail, bucket, plots);
   const cols = plots.map(p => ({
     plot: p,
     step: String((p.conditions || {}).step || ''),
     cond: conditionSummary(p.conditions || {}),
-    vals: plotMetrics(detail, bucket, p),
+    vals: plotMetrics(detail, bucket, p, whole.length > 0),
   }));
 
   // Metric rows are the union across this analysis's plots, in first-seen
@@ -4232,8 +4321,12 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
     }).join('');
   }
 
-  cells += '<div class="pg-label first">Step</div>'
-    + cols.map(c => `<div class="pg-step">${escapeHtml(c.step || '—')}</div>`).join('');
+  // A whole-test analysis has no steps, and its files feed every plot, so
+  // neither row would say anything under any of them.
+  if (!whole.length) {
+    cells += '<div class="pg-label first">Step</div>'
+      + cols.map(c => `<div class="pg-step">${escapeHtml(c.step || '—')}</div>`).join('');
+  }
   if (cols.some(c => c.cond)) {
     cells += '<div class="pg-label">Conditions</div>'
       + cols.map(c => `<div class="pg-cond">${escapeHtml(c.cond || '—')}</div>`).join('');
@@ -4248,10 +4341,12 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
              title="${escapeAttr(src.folder)}">${escapeHtml(src.folder)}</div>`;
     }
     const matched = cols.map(c => fileForStep(src, c.step));
-    cells += '<div class="pg-label">Source file</div>'
-      + cols.map((c, i) => matched[i]
-          ? `<div class="pg-src" title="${escapeAttr(matched[i].full)}">${escapeHtml(matched[i].base)}</div>`
-          : '<div class="pg-src miss">—</div>').join('');
+    if (!whole.length) {
+      cells += '<div class="pg-label">Source file</div>'
+        + cols.map((c, i) => matched[i]
+            ? `<div class="pg-src" title="${escapeAttr(matched[i].full)}">${escapeHtml(matched[i].base)}</div>`
+            : '<div class="pg-src miss">—</div>').join('');
+    }
   }
 
   names.forEach(name => {
@@ -4266,7 +4361,8 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
     }).join('');
   });
 
-  return `<div class="pg-scroll"><div class="pgrid"
+  return whole.map(rdWholeTestBlock).join('')
+    + `<div class="pg-scroll"><div class="pgrid"
     style="grid-template-columns:${template}">${cells}</div></div>`;
 }
 
@@ -4648,6 +4744,9 @@ const KV_UNITS = {
   '|j_xover|': 'mA/cm²', 'Average ECSA': 'm²/g',
   'j @ 0.7 V': 'A/cm²', 'j @ 0.65 V': 'A/cm²', 'j @ 0.6 V': 'A/cm²',
   'j @ 0.5 V': 'A/cm²', 'j @ 0.4 V': 'A/cm²',
+  'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',
+  'OCV decay rate': 'μV/h', 'OCV loss': '%', 'j_xover initial': 'mA/cm²',
+  'j_xover final': 'mA/cm²', 'R_short final': 'Ω·cm²',
 };
 // Distinct hues legible on both dark and light backgrounds.
 const TREND_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -4656,11 +4755,13 @@ const TREND_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
 function availableMetrics(runs) {
   const set = new Set();
   runs.forEach(r => (r.Data || []).forEach(d =>
-    Object.keys(d.key_values || {}).forEach(k => set.add(k))));
+    unitValues(d).forEach(([k]) => set.add(k))));
   // Present whitelisted metrics in a stable, sensible order first.
   const known = ['OCV', 'V @ 1 A/cm²',
                  'j @ 0.7 V', 'j @ 0.65 V', 'j @ 0.6 V', 'j @ 0.5 V', 'j @ 0.4 V',
-                 'HFR', '|j_xover|', 'Average ECSA'];
+                 'HFR', '|j_xover|', 'Average ECSA',
+                 'Hours to death', 'Hours tested', 'OCV initial', 'OCV decay rate',
+                 'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final'];
   const ordered = known.filter(k => set.has(k));
   Array.from(set).sort().forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
   return ordered;
@@ -4688,9 +4789,9 @@ function trendPoints(rows, metric) {
     const t = Date.parse(iso);
     if (isNaN(t)) return;
     (r.Data || []).forEach(d => {
-      const kv = d.key_values || {};
-      if (metric in kv && typeof kv[metric] === 'number') {
-        pts.push({ t, v: kv[metric], sample: r.sample_name || '—',
+      const hit = unitValues(d).find(([k]) => k === metric);
+      if (hit) {
+        pts.push({ t, v: hit[1], censored: hit[2], sample: r.sample_name || '—',
                    step: d.step || '', analysis: d.Analysis || '',
                    dated: !!r.run_date });
       }
@@ -4783,8 +4884,15 @@ function drawTrendChart(pts, metric) {
     const stepStr = p.step ? ` (${p.step})` : '';
     const when = p.dated ? `run ${tstr.slice(0, 10)}`
                          : `analysed ${tstr} (no run date)`;
-    const tip = `${p.sample}${stepStr}\n${metric} = ${fmtNum(p.v)}${unit ? ' ' + unit : ''}\n${when}`;
-    svg += `<circle class="pt" cx="${xOf(p.t)}" cy="${yOf(p.v)}" r="3.6" fill="${colorOf[p.sample]}"><title>${escapeHtml(tip)}</title></circle>`;
+    const val = `${p.censored ? '≥ ' : ''}${fmtNum(p.v)}${unit ? ' ' + unit : ''}`;
+    const tip = `${p.sample}${stepStr}\n${metric} ${p.censored ? '' : '= '}${val}`
+              + `${p.censored ? ' (still alive)' : ''}\n${when}`;
+    // A censored value is a lower bound: drawn hollow, so it does not read as
+    // a sample that died there.
+    const paint = p.censored
+      ? `fill="none" stroke="${colorOf[p.sample]}" stroke-width="1.6"`
+      : `fill="${colorOf[p.sample]}"`;
+    svg += `<circle class="pt${p.censored ? ' cens' : ''}" cx="${xOf(p.t)}" cy="${yOf(p.v)}" r="3.6" ${paint}><title>${escapeHtml(tip)}</title></circle>`;
   });
 
   svg += '</svg>';
@@ -4792,7 +4900,9 @@ function drawTrendChart(pts, metric) {
   // Legend.
   const legend = samples.map(s =>
     `<span class="lg"><span class="sw" style="background:${colorOf[s]}"></span>${escapeHtml(s)}</span>`
-  ).join('');
+  ).join('')
+    + (pts.some(p => p.censored)
+       ? '<span class="lg cens-note">hollow: still alive, at least this long</span>' : '');
   return svg + `<div class="trend-legend">${legend}</div>`;
 }
 
@@ -4964,12 +5074,44 @@ const CMP_TYPES = {
                x: 'Cell voltage (V)', y: 'Current density (mA/cm²)', opts: [] },
   ecsa:      { label: 'ECSA',
                x: 'Potential (V)', y: 'Current density (mA/cm²)', opts: [] },
+  // FC Durability keeps one whole-test unit per sample (no steps), holding a
+  // plot per quantity against hold hours. A type names its analysis and plot
+  // type, and which of the plot's lines are series: every condition, RH or
+  // flow it was measured at, drawn in the sample's colour, dashed by series.
+  // The panel is found by its axis label: a panel with no lines is not
+  // stored, so its position cannot be trusted. Characterizations are a handful
+  // of points, drawn with markers; the OCV trace is dense and is not.
+  fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability',
+                 plotType: 'fcdur_ocv_vs_time', x: 'Hold time (h)', y: 'Hold OCV (V)',
+                 panel: /^Hold OCV/i, series: l => !!l && l !== 'bin minimum', opts: [] },
+  fcdur_xover: { label: 'Durability — H₂ crossover', analysis: 'fc_durability',
+                 plotType: 'fcdur_xover_vs_time', x: 'Hold time (h)', dots: true,
+                 y: 'H₂ crossover (mA/cm²)', panel: /crossover/i,
+                 series: l => /window mean/i.test(l), opts: [] },
+  fcdur_hfr:   { label: 'Durability — HFR', analysis: 'fc_durability',
+                 plotType: 'fcdur_hfr_vs_time', x: 'Hold time (h)', y: 'HFR (mΩ·cm²)',
+                 panel: /^HFR/i, dots: true, series: l => !!l, opts: [] },
+  fcdur_ecsa:  { label: 'Durability — ECSA', analysis: 'fc_durability',
+                 plotType: 'fcdur_ecsa_vs_time', x: 'Hold time (h)', dots: true,
+                 y: 'Roughness factor (cm² Pt/cm²)', panel: /^Roughness/i,
+                 series: l => !!l, opts: [] },
+  fcdur_perf:  { label: 'Durability — performance', analysis: 'fc_durability',
+                 plotType: 'fcdur_perf_vs_time', x: 'Hold time (h)', y: 'V @ 1 A/cm² (V)',
+                 panel: /^V @ 1/i, dots: true, series: l => !!l,
+                 opts: [['j06', 'j @ 0.6 V instead']] },
 };
+// The step code a whole-test unit is listed under.
+const CMP_WHOLE = 'test';
+const cmpWholeType = (type) => !!(CMP_TYPES[type] || {}).analysis;
+// A series named without the quantity the chart already shows:
+// "Crossover, 100% RH, window mean" is "100% RH" on the crossover chart.
+const cmpSeriesName = l => String(l || '')
+  .replace(/^(Crossover|EIS|ECSA|Pol curve),\s*/i, '').replace(/,\s*window mean$/i, '');
 
 let CMP_TYPE = 'polcurve';
 let CMP_SEL = new Map();            // sample key -> Set of step codes
 let CMP_HIDDEN = new Set();         // "key::step"
-let CMP_OPT = { irfree: false, power: false };
+let CMP_OPT = { irfree: false, power: false, j06: false };
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
 let CMP_LOADING = false;
@@ -4981,9 +5123,20 @@ const cmpOrder = () => [...CMP_SEL.keys()];
 // type. The picker is built from the index, so it needs no detail fetch.
 function cmpUnitsFor(run, type) {
   const seen = new Map();
+  const whole = cmpWholeType(type);
+  const analysis = whole ? CMP_TYPES[type].analysis : type;
   (run.Data || []).forEach(d => {
-    if (d.Analysis !== type) return;
+    if (d.Analysis !== analysis) return;
     const step = String(d.step || '');
+    if (whole) {
+      // One per sample: the test, said by its lifetime rather than a step.
+      if (step || seen.has(CMP_WHOLE)) return;
+      const life = unitValues(d).find(([m]) => m === 'Hours to death');
+      seen.set(CMP_WHOLE, { step: CMP_WHOLE, kv: d.key_values || {},
+        cond: !life ? '' : life[2] ? `alive at ${fmtNum(life[1])} h`
+                                   : `died at ${fmtNum(life[1])} h` });
+      return;
+    }
     if (!step || seen.has(step)) return;
     seen.set(step, { step, cond: conditionSummary(d.Conditions || {}),
                      kv: d.key_values || {} });
@@ -4999,13 +5152,24 @@ const CMP_METRICS = {
   eis:       ['HFR', 'R_ohm', 'R_ct'],
   crossover: ['|j_xover|', 'H₂ flux'],
   ecsa:      ['Average ECSA', 'Average RF'],
+  fcdur_ocv:   ['Hours to death', 'OCV loss', 'OCV decay rate'],
+  fcdur_xover: ['Hours to death', 'j_xover final', 'R_short final'],
+  fcdur_hfr:   ['Hours to death', 'Hours tested'],
+  fcdur_ecsa:  ['Hours to death', 'Hours tested'],
+  fcdur_perf:  ['Hours to death', 'Hours tested'],
 };
 const CMP_METRIC_MAX = 3;
 
 // {name, value} for one unit, canonicalised so a summary field name and its
-// annotation spelling do not appear as two different metrics.
+// annotation spelling do not appear as two different metrics. A whole-test
+// unit shows its own list only, a live sample's lifetime as "≥".
 function cmpUnitMetrics(unit) {
   const want = CMP_METRICS[CMP_TYPE] || [];
+  if (cmpWholeType(CMP_TYPE)) {
+    const vals = unitValues({ Analysis: CMP_TYPES[CMP_TYPE].analysis, key_values: unit.kv });
+    return want.map(n => vals.find(([m]) => m === n)).filter(Boolean)
+      .map(([name, value, censored]) => ({ name, value, censored }));
+  }
   const have = {};
   Object.entries(unit.kv || {}).forEach(([k, v]) => {
     if (typeof v === 'number' && isFinite(v)) have[canonMetric(k)] = v;
@@ -5392,20 +5556,31 @@ async function cmpLoadSeries() {
   const want = [...need.values()].filter(s =>
     !CMP_SERIES.has(cmpKey(s.key, CMP_TYPE + '::' + s.step)));
   if (!want.length) { if (CMP_LOADING) { CMP_LOADING = false; cmpRender(); } return; }
+  // A whole-test unit is the step-less unit of its analysis, narrowed to the
+  // type's plot; its answers come back under step '' and are filed under the
+  // code the panel lists it by.
+  // Filed under the type they were asked for: the type can change while the
+  // request is out, and the durability types share one analysis and step.
+  const type = CMP_TYPE;
+  const t = CMP_TYPES[type] || {};
+  const ask = t.analysis
+    ? want.map(s => ({ key: s.key, analysis: t.analysis, step: '', plot_type: t.plotType }))
+    : want;
+  const stepOf = st => t.analysis ? CMP_WHOLE : st;
   CMP_LOADING = true;
   try {
     const r = await fetch('/api/view/series', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selections: want }),
+      body: JSON.stringify({ selections: ask }),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     (d.series || []).forEach(sr =>
-      CMP_SERIES.set(cmpKey(sr.key, CMP_TYPE + '::' + sr.step), sr));
+      CMP_SERIES.set(cmpKey(sr.key, type + '::' + stepOf(sr.step)), sr));
     // A selection with no stored sidecar is cached as null so it is not
     // requested again on every redraw.
     (d.missing || []).forEach(m =>
-      CMP_SERIES.set(cmpKey(m.key, CMP_TYPE + '::' + m.step), null));
+      CMP_SERIES.set(cmpKey(m.key, type + '::' + stepOf(m.step)), null));
   } catch (e) {
     console.error('series:', e);
   } finally {
@@ -5444,6 +5619,42 @@ function cmpPickLine(sr) {
 }
 const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
                               .filter(p => typeof p[1] === 'number');
+
+// The series of a whole-test plot, named without the quantity: the lines of
+// its panel the type counts as series, grouped by name. A series can be
+// several lines — the OCV trace is a line per hold, and holds at two
+// conditions alternate — so each keeps its parts rather than being joined
+// across the other condition's holds.
+function cmpPickSeries(sr) {
+  if (!sr || !sr.axes || !sr.axes.length) return [];
+  const t = CMP_TYPES[CMP_TYPE] || {};
+  const want = CMP_TYPE === 'fcdur_perf' && CMP_OPT.j06 ? /^j @ 0\.6/i : t.panel;
+  const ax = sr.axes.find(a => want && want.test(a.ylabel || ''));
+  if (!ax) return [];
+  const groups = [];
+  (ax.lines || []).filter(l => t.series(l.label || '')).forEach(l => {
+    const name = cmpSeriesName(l.label), pts = zip(l);
+    if (!pts.length) return;
+    let g = groups.find(x => x.name === name);
+    if (!g) groups.push(g = { name, parts: [] });
+    g.parts.push(pts);
+  });
+  return groups;
+}
+// Dash by series, from the names in the samples on the chart, in the order
+// they first appear: the same condition draws the same way for every sample.
+function cmpSeriesVocab() {
+  const seen = [];
+  cmpSelected().forEach(u => {
+    const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    cmpPickSeries(sr).forEach(s => { if (!seen.includes(s.name)) seen.push(s.name); });
+  });
+  return seen;
+}
+function cmpSeriesDash(name, vocab) {
+  const i = (vocab || cmpSeriesVocab()).indexOf(name);
+  return CMP_DASH[(i < 0 ? 0 : i) % CMP_DASH.length];
+}
 
 // ── chart ───────────────────────────────────────────────────────
 function cmpChart(series, cfg) {
@@ -5524,6 +5735,12 @@ function cmpChart(series, cfg) {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
     g += `<path class="ln${s.faint ? ' faint' : ''}" d="${d}" stroke="${s.color}"` +
          `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}><title>${escapeHtml(s.title)}</title></path>`;
+    // A path of one point draws nothing, so a curve measured once — a
+    // durability series with only its start-of-life point — gets a marker.
+    if (s.dots || s.pts.length === 1) {
+      s.pts.forEach(p => { g += `<circle class="dot" cx="${sx(p[0]).toFixed(1)}"`
+        + ` cy="${sy(p[1]).toFixed(1)}" r="2.8" fill="${s.color}"><title>${escapeHtml(s.title)}</title></circle>`; });
+    }
   });
   (cfg.stats || []).forEach(st => {
     const pts = st.data.avg.pts;
@@ -5661,11 +5878,17 @@ const cmpDashSvg = (color, d, w) =>
 // ── render ──────────────────────────────────────────────────────
 function cmpRender() {
   const t = CMP_TYPES[CMP_TYPE];
+  // A durability type draws every series of a sample's whole test.
+  const whole = cmpWholeType(CMP_TYPE);
+  const vocab = whole ? cmpSeriesVocab() : [];
+  // A saved view can open one with statistics picking still on, whose buttons
+  // these types do not show.
+  if (whole && CMP_PICKING) { CMP_PICKING = false; CMP_PICKED = new Set(); }
   document.getElementById('cmpTypes').innerHTML =
     Object.entries(CMP_TYPES).map(([k, v]) =>
       `<button class="cmp-type${k === CMP_TYPE ? ' on' : ''}"
         onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
-    + '<span class="cmp-hint">Colour is the sample, dash is the step.</span>';
+    + `<span class="cmp-hint">Colour is the sample, dash is the ${whole ? 'series' : 'step'}.</span>`;
 
   const box = (k, ph) => {
     const v = CMP_VIEW && CMP_VIEW[k] != null ? String(+(CMP_VIEW[k].toPrecision(4))) : '';
@@ -5810,16 +6033,22 @@ function cmpRender() {
         const sr = CMP_SERIES.get(cmpKey(k, CMP_TYPE + '::' + u.step));
         const nodata = sr === null;
         const mets = cmpUnitMetrics(u);
+        // A whole test draws several series, so its row is their legend.
+        const head = whole
+          ? `<span class="st">whole test</span>
+             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
+             <span class="cmp-series">${cmpPickSeries(sr).map(s =>
+               `<span class="ser">${cmpDashSvg(color, cmpSeriesDash(s.name, vocab), 18)}`
+               + `${escapeHtml(s.name)}</span>`).join('')}</span>`
+          : `${cmpDashSvg(color, cmpDashOf(u.step))}
+             <span class="st">${escapeHtml(u.step)}</span>
+             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>`;
         return `<div class="cmp-strow${off || nodata ? ' off' : ''}"
                   ${nodata ? 'title="No plot data stored for this step"' : ''}>
-          <span class="cmp-scol1">
-            ${cmpDashSvg(color, cmpDashOf(u.step))}
-            <span class="st">${escapeHtml(u.step)}</span>
-            <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
-          </span>
+          <span class="cmp-scol1">${head}</span>
           <span class="cmp-scol2">${mets.length
             ? mets.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.name)}</span>`
-                + `<span class="v">${escapeHtml(fmtNum(m.value))}</span></span>`).join('')
+                + `<span class="v">${m.censored ? '≥ ' : ''}${escapeHtml(fmtNum(m.value))}</span></span>`).join('')
             : '<span class="cmp-kv empty">—</span>'}</span>
           <span class="cmp-sacts">
             <span class="cmp-act" title="Show or hide"
@@ -5840,11 +6069,19 @@ function cmpRender() {
   let xlab = t.x || '', ylab = t.y || '';
   if (CMP_TYPE === 'polcurve' && CMP_OPT.power) ylab = 'Power density (mW/cm²)';
   else if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) ylab = 'iR-free voltage (V)';
+  if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j06) ylab = 'j @ 0.6 V (A/cm²)';
   const series = [];
   sel.forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     if (!sr) return;
+    if (whole) {
+      cmpPickSeries(sr).forEach(s => s.parts.forEach((pts, j) => series.push({
+        pts, color: cmpColorOf(u.key), dash: cmpSeriesDash(s.name, vocab), dots: !!t.dots,
+        id: cmpCurveId(u.key, u.step) + '::' + s.name + '::' + j,
+        title: `${sr.sample_name || ''} · ${s.name}` })));
+      return;
+    }
     const line = cmpPickLine(sr);
     if (!line || !line.pts.length) return;
     xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
@@ -6114,12 +6351,16 @@ function cmpRenderPick() {
   host.classList.toggle('show', chips.length > 0);
 
   const nsteps = rows.reduce((a, r) => a + cmpShownUnits(r).length, 0);
+  const unitWord = cmpWholeType(CMP_TYPE) ? 'test' : 'step';
   document.getElementById('cmpPickHint').textContent = CMP_PICKING
     ? `${CMP_PICKED.size} selected`
-    : `${rows.length} sample${rows.length === 1 ? '' : 's'} · ${nsteps} step${nsteps === 1 ? '' : 's'}`;
+    : `${rows.length} sample${rows.length === 1 ? '' : 's'} · ${nsteps} ${unitWord}${nsteps === 1 ? '' : 's'}`;
 
   // The button lives in this header, and turns it into the statistics bar.
-  document.getElementById('cmpStatBtns').innerHTML = CMP_PICKING
+  // A mean of durability trajectories would need them sampled at common hold
+  // hours, which characterizations are not; no statistical curve is offered.
+  document.getElementById('cmpStatBtns').innerHTML = cmpWholeType(CMP_TYPE) ? ''
+    : CMP_PICKING
     ? `<button class="btn btn-sm" onclick="cmpCancelPick()">Cancel</button>
        <button class="btn btn-sm btn-go" onclick="cmpRunStats()"
          ${CMP_PICKED.size < 2 ? 'disabled' : ''}>Run statistics${
@@ -6159,7 +6400,11 @@ function cmpRenderPick() {
 }
 
 // ── actions ─────────────────────────────────────────────────────
-function cmpSetType(k) { CMP_TYPE = k; CF.step = ''; cmpRender(); }
+function cmpSetType(k) {
+  CMP_TYPE = k; CF.step = '';
+  if (cmpWholeType(k)) { CMP_PICKING = false; CMP_PICKED = new Set(); }
+  cmpRender();
+}
 function cmpToggleStep(k, st) {
   const kk = cmpKey(k, st);
   CMP_HIDDEN.has(kk) ? CMP_HIDDEN.delete(kk) : CMP_HIDDEN.add(kk);
@@ -6675,6 +6920,10 @@ const TR_UNIT = {
   'Peak P': 'mW/cm²', 'Peak Power': 'mW/cm²', 'Tafel': 'mV/dec',
   '|j_xover|': 'mA/cm²', 'H₂ Flux': 'nmol/cm²/s',
   'Average ECSA': 'm²/g', 'Average RF': '',
+  // FC Durability, stored in these units (record.py KEY_VALUE_UNITS)
+  'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',
+  'OCV decay rate': 'μV/h', 'OCV loss': '%', 'j_xover initial': 'mA/cm²',
+  'j_xover final': 'mA/cm²', 'R_short final': 'Ω·cm²',
 };
 function trUnitOf(name) {
   if (TR_UNIT[name] != null) return TR_UNIT[name];
@@ -6686,6 +6935,7 @@ const TR_QUANTITY = {
   'V': 'Voltage', 'A/cm²': 'Current density', 'mΩ·cm²': 'Resistance',
   'mW/cm²': 'Power density', 'mV/dec': 'Tafel slope',
   'mA/cm²': 'Crossover current', 'nmol/cm²/s': 'H₂ flux', 'm²/g': 'ECSA',
+  'h': 'Lifetime', 'μV/h': 'Decay rate', '%': 'Loss', 'Ω·cm²': 'Resistance',
 };
 const TR_PAL = ['#47b5ff', '#f87171', '#4ade80', '#fbbf24', '#c084fc',
                 '#22d3ee', '#fb923c'];
@@ -6716,10 +6966,8 @@ function trCatalog() {
   (_viewRuns || []).forEach(r => (r.Data || []).forEach(d => {
     const a = String(d.Analysis || '');
     if (!a) return;
-    Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-      if (typeof v !== 'number' || !isFinite(v)) return;
-      const m = canonMetric(raw), u = trUnitOf(m);
-      const k = trKey(a, u);
+    unitValues(d).forEach(([m]) => {
+      const k = trKey(a, trUnitOf(m));
       const set = out[k] || (out[k] = new Set());
       set.add(m);
     });
@@ -6943,11 +7191,9 @@ function trPoints(k) {
       const cond = conditionSummary(d.Conditions || {}) || '(no conditions)';
       if (!picked.has(trUnitId(d.step, cond))) return;
       if (trHideFor(a).has(cond)) return;
-      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-        if (typeof v !== 'number' || !isFinite(v)) return;
-        const m = canonMetric(raw);
+      unitValues(d).forEach(([m, v, censored]) => {
         if (!ms.includes(m)) return;
-        out.push({ x: when, y: v, cond, ci: trCondIndex(cond), metric: m,
+        out.push({ x: when, y: v, cond, ci: trCondIndex(cond), metric: m, censored,
                    mi: trSeriesOf(k).indexOf(m), sample: r.sample_name || runKey(r),
                    stand: r.stand || '', step: String(d.step || '') });
       });
@@ -7088,10 +7334,11 @@ function trAvailable(k) {
       const c = conditionSummary(d.Conditions || {}) || '(no conditions)';
       if (!picked.has(trUnitId(d.step, c))) return;
       if (!conds.includes(c)) conds.push(c);
-      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-        if (typeof v === 'number' && isFinite(v) && all.includes(canonMetric(raw)))
-          series.add(canonMetric(raw));
-      });
+      // The unit's values as the chart draws them (unitValues): with every
+      // sample on the chart still alive, Hours to death exists only as their
+      // lower bounds, and read from the stored values it was left out of the
+      // legend while its points were drawn.
+      unitValues(d).forEach(([m]) => { if (all.includes(m)) series.add(m); });
     });
   });
   return { series: all.filter(m => series.has(m)), conds: conds.sort() };
@@ -7111,7 +7358,10 @@ function trRender() {
   // the operator added was then replaced by the default.
   if (!TR_SEEDED && keys.length && !TR_TABS.length) {
     TR_SEEDED = true;
-    const pref = keys.find(k => trParts(k).a === 'polcurve' && trParts(k).u === 'V');
+    // A durability-only index opens on lifetime, the number its tests are
+    // judged on, rather than on whichever unit sorts first (the loss in %).
+    const pref = keys.find(k => trParts(k).a === 'polcurve' && trParts(k).u === 'V')
+      || keys.find(k => trParts(k).a === 'fc_durability' && trParts(k).u === 'h');
     TR_TABS = [pref || keys[0]];
     TR_ACTIVE = TR_TABS[0];
   }
@@ -7214,14 +7464,15 @@ function trRender() {
       + (ms.length ? ms.map(m => {
           const on = trSeriesOn(TR_ACTIVE, m);
           const n = pts.filter(p => p.metric === m).length;
+          const alive = pts.filter(p => p.metric === m && p.censored).length;
           return `<div class="tr-srow${on ? '' : ' off'}"
                        onclick="trToggleSeries('${escapeAttr(TR_ACTIVE)}','${escapeAttr(m)}')">
             ${trMarkerSvg(TR_SHAPES[ms.indexOf(m) % TR_SHAPES.length],
                           on ? 'var(--text)' : 'var(--text-dim)')}
             <span class="nm"><div class="a">${escapeHtml(m)}</div>
-              <div class="b">${n} point(s)</div></span>
-            <span class="val"><div class="b">${(METRIC_DIR[m] || 1) > 0
-              ? 'higher better' : 'lower better'}</div></span></div>`;
+              <div class="b">${n} point(s)${alive ? `, ${alive} still alive (hollow)` : ''}</div></span>
+            <span class="val"><div class="b">${UNTINTED_METRICS.has(m) ? '—'
+              : (METRIC_DIR[m] || 1) > 0 ? 'higher better' : 'lower better'}</div></span></div>`;
         }).join('')
         : '<div class="cmp-empty" style="padding:10px 13px;font-size:11.5px">'
           + 'Nothing selected yet.</div>')
@@ -7246,12 +7497,13 @@ function trRender() {
                 const f = trFit(all);
                 if (!f) return `<span class="rate flat${off ? ' off' : ''}"
                   title="${escapeAttr(m)} — ${all.length} point(s), too few to fit">—</span>`;
-                const d = (METRIC_DIR[m] || 1);
+                const d = UNTINTED_METRICS.has(m) ? 0 : (METRIC_DIR[m] || 1);
                 const dir = f.perMonth * d > 0 ? 'up' : f.perMonth * d < 0 ? 'down' : 'flat';
                 const latest = all.slice().sort((x, y) => y.x - x.x)[0].y;
                 return `<span class="rate ${dir}${off ? ' off' : ''}" title="${escapeAttr(m)} — `
                   + `${all.length} point(s), latest ${escapeAttr(fmtNum(latest))}, `
-                  + `${dir === 'up' ? 'improving' : dir === 'down' ? 'getting worse' : 'flat'}">`
+                  + `${!d ? 'neither better nor worse' : dir === 'up' ? 'improving'
+                       : dir === 'down' ? 'getting worse' : 'flat'}">`
                   + (dir === 'up' ? '▲' : dir === 'down' ? '▼' : '·')
                   + (f.perMonth > 0 ? '+' : '') + escapeHtml(fmtNum(f.perMonth)) + '</span>';
               }).join('');
@@ -7324,7 +7576,8 @@ function trRender() {
 
 // Points of one condition and one index value, ignoring whether that condition
 // is hidden — the legend still reports where a hidden condition stands.
-function trPointsForCond(k, cond, metric) {
+// `withCensored` keeps live samples' lower bounds too, marked `censored`.
+function trPointsForCond(k, cond, metric, withCensored) {
   const { a } = trParts(k);
   const out = [];
   const sel = trSelFor(a);
@@ -7338,9 +7591,10 @@ function trPointsForCond(k, cond, metric) {
       const c = conditionSummary(d.Conditions || {}) || '(no conditions)';
       if (c !== cond) return;
       if (!picked.has(trUnitId(d.step, c))) return;
-      Object.entries(d.key_values || {}).forEach(([raw, v]) => {
-        if (canonMetric(raw) !== metric) return;
-        if (typeof v === 'number' && isFinite(v)) out.push({ x: when, y: v });
+      // A live sample's lifetime is a lower bound, not a result, so it does
+      // not enter a rate.
+      unitValues(d).forEach(([m, v, censored]) => {
+        if (m === metric && (withCensored || !censored)) out.push({ x: when, y: v, censored });
       });
     });
   });
@@ -7400,7 +7654,7 @@ function trChartSvg(pts, key, goal, shown, ms) {
     trConditions().forEach((c, ci) => {
       if (trHideFor(trParts(key).a).has(c)) return;
       shown.forEach(m => {
-        const f = trFit(pts.filter(p => p.cond === c && p.metric === m));
+        const f = trFit(pts.filter(p => p.cond === c && p.metric === m && !p.censored));
         if (!f) return;
         g += `<line class="fit" x1="${sx(x0).toFixed(1)}" y1="${sy(f.at(x0)).toFixed(1)}"`
            + ` x2="${sx(x1).toFixed(1)}" y2="${sy(f.at(x1)).toFixed(1)}"`
@@ -7409,9 +7663,19 @@ function trChartSvg(pts, key, goal, shown, ms) {
       });
     });
   }
-  pts.forEach((p, i) => {
-    g += trMarker(TR_SHAPES[p.mi % TR_SHAPES.length], sx(p.x.getTime()), sy(p.y),
-                  4.4, TR_PAL[p.ci % TR_PAL.length], 'pt', `data-i="${i}"`);
+  // A live sample's lifetime is drawn hollow: at least this long. It sits
+  // exactly on the same sample's Hours tested, so it is drawn last and a size
+  // up, a ring around that marker; at the same size, under or over it, the
+  // filled marker in the same colour hid it.
+  const order = pts.map((p, i) => i).sort((a, b) => pts[a].censored - pts[b].censored);
+  order.forEach(i => {
+    const p = pts[i];
+    const col = TR_PAL[p.ci % TR_PAL.length];
+    g += p.censored
+      ? trMarker(TR_SHAPES[p.mi % TR_SHAPES.length], sx(p.x.getTime()), sy(p.y), 6.6, 'none',
+                 'pt cens', `data-i="${i}" stroke="${col}" stroke-width="1.6"`)
+      : trMarker(TR_SHAPES[p.mi % TR_SHAPES.length], sx(p.x.getTime()), sy(p.y),
+                 4.4, col, 'pt', `data-i="${i}"`);
   });
   g += '</g>';
   g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">Run date</text>`
@@ -7430,7 +7694,8 @@ function trWireTips(pts) {
       if (!p) return;
       const { u } = trParts(TR_ACTIVE);
       tip.innerHTML = `<div class="nm">${escapeHtml(p.sample)}</div>`
-        + `<div class="kv"><span>${escapeHtml(p.metric)}</span><b>${escapeHtml(fmtNum(p.y))} ${escapeHtml(u)}</b></div>`
+        + `<div class="kv"><span>${escapeHtml(p.metric)}</span><b>${p.censored ? '≥ ' : ''}`
+        + `${escapeHtml(fmtNum(p.y))} ${escapeHtml(u)}${p.censored ? ' (still alive)' : ''}</b></div>`
         + `<div class="kv"><span>run date</span><b>${p.x.toISOString().slice(0, 10)}</b></div>`
         + (p.step ? `<div class="kv"><span>step</span><b>${escapeHtml(p.step)}</b></div>` : '')
         + (p.stand ? `<div class="kv"><span>stand</span><b>${escapeHtml(p.stand)}</b></div>` : '')
@@ -7558,17 +7823,20 @@ function trExportRows() {
   ms.forEach(m => {
     avail.conds.forEach(c => {
       if (trHideFor(a).has(c)) return;
-      const pts = trPointsForCond(TR_ACTIVE, c, m);
+      // Every point the chart draws, live samples' lower bounds included, as
+      // the on-screen legend counts them; the rate over the others alone.
+      const pts = trPointsForCond(TR_ACTIVE, c, m, true);
       if (!pts.length) return;
-      const f = trFit(pts);
+      const alive = pts.filter(q => q.censored).length;
+      const f = trFit(pts.filter(q => !q.censored));
       const latest = pts.slice().sort((x, y) => y.x - x.x)[0];
       rows.push({
         marker: TR_SHAPES[all.indexOf(m) % TR_SHAPES.length],
         color: TR_PAL[trCondIndex(c) % TR_PAL.length],
         name: m, note: c,
         kv: {
-          'points': String(pts.length),
-          'latest': fmtNum(latest.y),
+          'points': String(pts.length) + (alive ? ` (${alive} still alive)` : ''),
+          'latest': (latest.censored ? '≥ ' : '') + fmtNum(latest.y),
           'per month': f ? (f.perMonth > 0 ? '+' : '') + fmtNum(f.perMonth) : '—',
         },
       });
@@ -8949,7 +9217,25 @@ let allMatched = true;
 let editingSampleIdx = 0;
 
 // Scripts that process sequential folders as one analysis (not multi-sample)
-const SEQUENTIAL_FOLDER_SCRIPTS = ['Electrolyzer Durability'];
+const SEQUENTIAL_FOLDER_SCRIPTS = ['Electrolyzer Durability', 'FC Durability'];
+
+// FC Durability reads one CSV per protocol step, named like
+// c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv on both stands. With no order
+// sent, the script takes folders by the earliest step letter in each, then by
+// natural sort of the name (order_folders in fc_durability_analysis.py), so an
+// FCTS BOL folder (steps a, b) leads its 40 h folders and 40H_2 precedes
+// 40H_10. Identify Folders lists them in that same order, because whatever
+// the list shows is sent as an explicit folder_order.
+const FOLDER_ORDER_RULES = { 'FC Durability': stepLetterFolderOrder };
+// Both stands write these files the same way, so the stand cannot be told
+// from them and the mismatch warning would only ever be wrong.
+const STAND_FROM_FORM_ONLY = ['FC Durability'];
+// Each upload is a whole test, so the name follows the files chosen until
+// someone types one, and a name left over from the previous submit is
+// replaced too: under merge-by-sample a reused name would overwrite that
+// other sample's durability result (V3).
+const FRESH_NAME_SCRIPTS = ['FC Durability'];
+let sampleNameReplaceable = false;   // filled in from files, or kept from a submit
 
 const drop = document.getElementById('drop');
 const fi = document.getElementById('fi');
@@ -8991,8 +9277,11 @@ drop.addEventListener('drop', e => {
   if (items && items.length > 0) {
     const entry = items[0].webkitGetAsEntry && items[0].webkitGetAsEntry();
     if (entry && entry.isDirectory) {
-      setUploadMode('folder');
-      readDirectoryEntry(entry, entry.name);
+      // A parent of sample folders dropped in Multi-Sample mode stays there,
+      // rather than becoming one upload of every sample.
+      setUploadMode(uploadMode === 'multi' ? 'multi' : 'folder');
+      folderRead = { gen: folderRead.gen + 1, dirs: 0 };
+      readDirectoryEntry(entry, entry.name, folderRead.gen);
       return;
     }
   }
@@ -9014,36 +9303,52 @@ fiMulti.addEventListener('change', () => {
 });
 
 // ── Read dropped folder recursively via Entry API ──
-function readDirectoryEntry(dirEntry, basePath) {
+// The read is asynchronous, one directory at a time. The page is refreshed
+// once, when the last directory is in, so Run and Identify never act on part
+// of a folder; a later drop (a new gen) makes an earlier read's files go
+// nowhere instead of mixing with its own.
+let folderRead = { gen: 0, dirs: 0 };
+
+function readDirectoryEntry(dirEntry, basePath, gen) {
+  const current = () => gen === folderRead.gen;
+  const dirDone = () => {
+    if (current() && --folderRead.dirs === 0) {
+      autoPopulateSampleName(); renderChips(); checkReady(); updateIdentifyBtn();
+    }
+  };
+  folderRead.dirs++;
   const reader = dirEntry.createReader();
   const allEntries = [];
 
   function readBatch() {
     reader.readEntries(entries => {
+      if (!current()) return;
       if (entries.length === 0) {
-        // Done reading — process only data file entries
+        // Done reading. Subdirectories first: a folder with no data files of
+        // its own (an FCTS run holds only Start-up/ and 40H_n/) used to stop
+        // here and drop everything below it.
+        allEntries.filter(e => e.isDirectory).forEach(entry => {
+          readDirectoryEntry(entry, basePath, gen);
+        });
+        // Then this folder's data files only.
         const fileEntries = allEntries.filter(e => e.isFile &&
           DATA_EXTENSIONS.some(ext => e.name.toLowerCase().endsWith(ext)));
         let pending = fileEntries.length;
-        if (pending === 0) { autoPopulateSampleName(); renderChips(); checkReady(); return; }
+        if (pending === 0) { dirDone(); return; }
+        const fileDone = () => { if (--pending === 0) dirDone(); };
         fileEntries.forEach(entry => {
           entry.file(f => {
-            const path = basePath + '/' + entry.fullPath.split('/').slice(2).join('/');
+            if (!current()) return;
             const relPath = entry.fullPath.replace(/^\//, '');
             files.push({ file: f, path: relPath });
-            pending--;
-            if (pending === 0) { autoPopulateSampleName(); renderChips(); checkReady(); }
-          });
-        });
-        // Also recurse into subdirectories
-        allEntries.filter(e => e.isDirectory).forEach(entry => {
-          readDirectoryEntry(entry, basePath);
+            fileDone();
+          }, fileDone);              // an unreadable file is skipped, not awaited
         });
         return;
       }
       allEntries.push(...entries);
       readBatch();
-    });
+    }, dirDone);                     // so is an unreadable directory
   }
   readBatch();
 }
@@ -9062,6 +9367,10 @@ const DATA_EXTENSIONS = ['.csv', '.txt', '.tsv', '.fcd'];
 
 function addFolderFiles(list) {
   files = [];
+  clearFolderOrder();
+  // ... and the sample table Identify Samples made for the previous parent.
+  samples = [];
+  document.getElementById('sample-container').style.display = 'none';
   for (const f of list) {
     const path = f.webkitRelativePath || f.name;
     // Only include data files — skip images, tiffs, etc.
@@ -9074,7 +9383,10 @@ function addFolderFiles(list) {
 
 function autoPopulateSampleName() {
   const el = document.getElementById('param-sample_name');
-  if (!el || el.value.trim()) return; // don't overwrite user input
+  if (!el) return;
+  const replaceable = sampleNameReplaceable
+    && FRESH_NAME_SCRIPTS.includes(document.getElementById('sel').value);
+  if (el.value.trim() && !replaceable) return; // don't overwrite user input
   if (!files.length) return;
 
   let name = '';
@@ -9087,7 +9399,28 @@ function autoPopulateSampleName() {
     // Use first filename without extension
     name = files[0].file.name.replace(/\.[^.]+$/, '');
   }
-  el.value = name.slice(0, 18);
+  // A durability test's folder name is its own name. Cut to 18 characters,
+  // sibling tests (…_CT-001, …_CT-002) would become one sample, the second
+  // replacing the first under merge-by-sample (V4), so it is kept whole.
+  const whole = FRESH_NAME_SCRIPTS.includes(document.getElementById('sel').value);
+  el.value = whole ? name : name.slice(0, 18);
+  sampleNameReplaceable = true;
+}
+
+// After a submit the name belongs to that upload, unless it was retyped
+// while the upload was still going: that one is for the next upload.
+function markSubmittedName(submitted) {
+  const el = document.getElementById('param-sample_name');
+  if (!el || el.value === submitted) sampleNameReplaceable = true;
+}
+
+// A stand chosen for one upload replaces the stand of the sample it went to,
+// so it is not left set for the next upload, which may be another sample:
+// the form returns to "Keep stored stand" after every submit.
+function resetStandToKeep() {
+  const st = document.getElementById('param-stand');
+  if (st && [...st.options].some(o => o.value === 'keep')) st.value = 'keep';
+  checkStandMismatch();
 }
 
 function removeFile(i) { files.splice(i, 1); renderChips(); }
@@ -9106,7 +9439,7 @@ function renderChips() {
     container.innerHTML = `
       <div class="folder-summary">
         <strong>${esc(folderName)}/</strong> — ${files.length} files (${extSummary})
-        <button class="remove" onclick="files=[];samples=[];document.getElementById('sample-container').style.display='none';document.getElementById('identify-btn').style.display='none';renderChips();" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;vertical-align:middle;">&times;</button>
+        <button class="remove" onclick="files=[];samples=[];document.getElementById('sample-container').style.display='none';document.getElementById('identify-btn').style.display='none';clearFolderOrder();renderChips();" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;vertical-align:middle;">&times;</button>
       </div>`;
   } else {
     container.innerHTML = files.map((f, i) =>
@@ -9140,8 +9473,13 @@ function updateIdentifyBtn() {
   const script = document.getElementById('sel').value;
   const btn = document.getElementById('identify-btn');
   const isSeq = SEQUENTIAL_FOLDER_SCRIPTS.includes(script);
+  // A script with its own folder rule orders its folders by itself, so
+  // Identify is offered only when there are two or more to put in order
+  // (not for the one-folder Scribner layout).
+  const rule = FOLDER_ORDER_RULES[script];
+  const orderable = !rule || rule(files).length > 1;
 
-  if ((uploadMode === 'folder' && isSeq && files.length > 0) ||
+  if ((uploadMode === 'folder' && isSeq && files.length > 0 && orderable) ||
       (uploadMode === 'multi' && files.length > 0)) {
     btn.style.display = 'block';
     btn.textContent = isSeq && uploadMode === 'folder' ? 'Identify Folders' : 'Identify Samples';
@@ -9150,11 +9488,98 @@ function updateIdentifyBtn() {
   }
 }
 
+// The step letter of a station step file ('c' for c5_<sample>_OCV_95Cell-30RH_
+// 0.1WH2-0.2WA.csv), or null for anything the script would not read as one.
+// Mirrors build_timeline and parse_step_name: a .csv that is not a station
+// _FILTERDATA file, step token first, a {T}Cell-{RH}RH token from the fourth
+// token on.
+function stationStepLetter(path) {
+  const base = String(path).split('/').pop();
+  if (!/\.csv$/i.test(base) || /_FILTERDATA\.csv$/i.test(base)) return null;
+  const tokens = base.replace(/\.csv$/i, '').split('_');
+  if (tokens.length < 4) return null;
+  const m = /^([A-Za-z])\d+$/.exec(tokens[0]);
+  if (!m) return null;
+  const trh = /^\d+(?:\.\d+)?Cell-\d+(?:\.\d+)?RH$/i;
+  return tokens.slice(3).some(t => trh.test(t)) ? m[1].toLowerCase() : null;
+}
+
+// Natural sort, as natural_key: digit runs compare as numbers, the text
+// between them case-blind, so 40H_2 precedes 40H_10.
+function naturalCompare(a, b) {
+  const key = s => String(s).split(/(\d+)/)
+    .map((t, i) => i % 2 ? parseInt(t, 10) : t.toLowerCase());
+  const ka = key(a), kb = key(b);
+  for (let i = 0; i < Math.min(ka.length, kb.length); i++) {
+    if (ka[i] < kb[i]) return -1;
+    if (ka[i] > kb[i]) return 1;
+  }
+  return ka.length - kb.length;
+}
+
+// FC Durability's folders as the script sees them (see FOLDER_ORDER_RULES):
+// every folder that directly holds station step files, at any depth and the
+// top folder included, by its earliest step letter, then natural sort of its
+// path, ties in the order the script meets them (path order). Each entry's
+// `folder` is the path the script matches folder_order against.
+function stepLetterFolderOrder(fileList) {
+  const parts = f => f.path.split('/');
+  const byPath = (a, b) => {
+    const pa = parts(a), pb = parts(b);
+    for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+      if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+    }
+    return pa.length - pb.length;
+  };
+  const groups = new Map();
+  [...fileList].sort(byPath).forEach(f => {
+    const dir = parts(f).slice(0, -1).join('/');
+    const letter = stationStepLetter(f.path);
+    if (!groups.has(dir)) groups.set(dir, { folder: dir, letter: '~', files: [] });
+    const g = groups.get(dir);
+    g.files.push(f);
+    if (letter && letter < g.letter) g.letter = letter;
+  });
+  const root = fileList.length ? parts(fileList[0])[0] : '';
+  return [...groups.values()]
+    .filter(g => g.letter !== '~')
+    .sort((a, b) => (a.letter < b.letter ? -1 : a.letter > b.letter ? 1 : 0)
+                    || naturalCompare(a.folder, b.folder))
+    .map(g => ({ folder: g.folder, files: g.files,
+                 displayName: g.folder === root ? root : g.folder.slice(root.length + 1) }));
+}
+
+// A folder list made for another script, or for other files, must not go
+// out with this upload: it is dropped whenever either changes.
+function clearFolderOrder() {
+  orderedFolders = [];
+  const box = document.getElementById('folder-order-container');
+  if (box) box.style.display = 'none';
+}
+
 function identifySamples() {
   if (!files.length) return;
 
   const script = document.getElementById('sel').value;
   const isSeq = SEQUENTIAL_FOLDER_SCRIPTS.includes(script);
+
+  // A script with its own folder rule lists its own folders, in its order.
+  const rule = isSeq && uploadMode === 'folder' ? FOLDER_ORDER_RULES[script] : null;
+  if (rule) {
+    const ordered = rule(files);
+    if (!ordered.length) {
+      alert('No station step files (like c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv) '
+            + 'were found.');
+      return;
+    }
+    document.getElementById('identify-btn').style.display = 'none';
+    orderedFolders = ordered;
+    document.getElementById('folder-order-container').style.display = 'block';
+    document.getElementById('sample-container').style.display = 'none';
+    renderFolderOrder();
+    checkReady();
+    return;
+  }
 
   // Find the parent folder (first path component)
   const parentFolder = files[0].path.split('/')[0];
@@ -9170,7 +9595,8 @@ function identifySamples() {
       sampleMap[folderPrefix] = {
         folder: folderPrefix,
         displayName: subFolder,
-        sampleName: subFolder.slice(0, 18),
+        // Kept whole for a durability test, as in Folder mode (V4).
+        sampleName: FRESH_NAME_SCRIPTS.includes(script) ? subFolder : subFolder.slice(0, 18),
         files: [],
         params: {},
       };
@@ -9201,7 +9627,9 @@ function identifySamples() {
     // Multi-sample mode
     samples = detected;
     const shared = collectParams();
-    samples.forEach(s => { s.params = {...shared}; });
+    // Each copy is marked as the form's, so unticking "All samples use same
+    // parameters?" can tell it from one edited per sample (toggleAllMatched).
+    samples.forEach(s => { s.params = {...shared}; s.fromForm = paramsSig(s.params); });
     document.getElementById('sample-container').style.display = 'block';
     document.getElementById('folder-order-container').style.display = 'none';
     renderSampleTable();
@@ -9300,16 +9728,27 @@ function renderSampleTable() {
   ).join('');
 }
 
+// A sample's parameters as compared for "edited per sample". The name field
+// shows the sample's own name in the editor and is sent separately, so it
+// does not count as an edit.
+const paramsSig = p => JSON.stringify({ ...(p || {}), sample_name: undefined });
+
 function toggleAllMatched() {
   allMatched = document.getElementById('all-matched').checked;
   document.getElementById('sample-editor').style.display = allMatched ? 'none' : 'block';
 
   if (!allMatched) {
-    // Copy current shared params to all samples that haven't been customized
+    // Copy current shared params to all samples that haven't been customized.
+    // Identify gives every sample a copy of the form, so "not customized" is a
+    // copy still as it was made: a sample edited per sample keeps its values,
+    // the rest take the form's values now. Testing for an empty copy never
+    // matched, so an area or loading set after Identify silently went back to
+    // its value at Identify for every sample.
     const shared = collectParams();
     samples.forEach(s => {
-      if (Object.keys(s.params).length === 0) {
+      if (!Object.keys(s.params || {}).length || paramsSig(s.params) === s.fromForm) {
         s.params = {...shared};
+        s.fromForm = paramsSig(s.params);
       }
     });
     // Load first sample's params into the panel
@@ -9358,6 +9797,10 @@ function checkStandMismatch() {
   const host = document.getElementById('params-container');
   if (!host) return;
   let box = document.getElementById('standMismatch');
+  if (STAND_FROM_FORM_ONLY.includes(document.getElementById('sel').value)) {
+    if (box) box.remove();
+    return;
+  }
   const chosen = sel ? sel.value : '';
   const family = chosen.startsWith('Scribner') ? 'Scribner'
                : chosen.startsWith('FCTS') ? 'FCTS' : null;
@@ -9376,15 +9819,119 @@ function checkStandMismatch() {
     + `only the recorded stand would be wrong.`;
 }
 
+// "Keep stored stand" has nothing to keep for a sample the store has not seen,
+// so for a new sample the stand is asked for. Left to the server, ECSA and
+// Full Analysis would record only the family their file extensions imply,
+// dropping the stand number the form used to send, and FC Durability's files
+// imply nothing at all. An FC Durability sample stored without a stand is
+// asked about too, so a stand missed once (see below) is asked for next time
+// rather than never.
+//
+// Asked of the store just before the upload. If the store cannot be asked,
+// the upload goes ahead and the server records the family or nothing, never a
+// guessed number. Names are compared trimmed, as the server stores them; an
+// empty name is skipped, because the server derives that one from the files.
+// Returns [{name, stored}] for the samples that need a stand.
+//
+// The store is asked with a time limit, after which the upload goes ahead as
+// for a failed lookup: a slow JSONBin should not hold up every upload.
+let STAND_LOOKUP_MS = 10000;
+async function samplesNeedingStand(script, entries) {
+  const keep = entries
+    .filter(e => e.stand === 'keep')
+    .map(e => ({ name: String(e.name || '').trim() }))
+    .filter(e => e.name);
+  if (!keep.length) return [];
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), STAND_LOOKUP_MS);
+  try {
+    // Fresh, not from the server's 30 s cache: the sample may have been
+    // pushed a moment ago.
+    const r = await fetch('/api/view/runs?force=true', { signal: ctl.signal });
+    if (!r.ok) return [];
+    const runs = (await r.json()).runs || [];
+    const stored = new Set(), withStand = new Set();
+    runs.forEach(x => {
+      const n = String(x.sample_name || '').trim();
+      stored.add(n);
+      if (x.stand) withStand.add(n);
+    });
+    const declaredOnly = STAND_FROM_FORM_ONLY.includes(script);
+    const seen = new Set();
+    return keep.filter(e => {
+      if (seen.has(e.name)) return false;
+      seen.add(e.name);
+      return !stored.has(e.name) || (declaredOnly && !withStand.has(e.name));
+    }).map(e => ({ name: e.name, stored: stored.has(e.name) }));
+  } catch (e) {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// `shared` is a multi-sample upload whose samples all take the form's
+// parameters while some of them are already stored: a stand chosen here goes
+// to every sample and replaces the stored ones' stands too, which the person
+// choosing it to get the new ones through would not expect.
+function showStandRequired(needing, shared) {
+  const sel = document.getElementById('param-stand');
+  let box = document.getElementById('standRequired');
+  if (!needing.length) { if (box) box.remove(); return; }
+  if (!sel) return;
+  // With parameters set per sample the stand field is the sample being
+  // edited, which may be a stored one: a stand chosen there would relabel it
+  // and clear this question. Show the first sample that needs a stand.
+  let showing = '';
+  if (uploadMode === 'multi' && samples.length && !allMatched) {
+    const i = samples.findIndex(x => String(x.sampleName || '').trim() === needing[0].name);
+    if (i >= 0) {
+      if (i !== editingSampleIdx) {
+        document.getElementById('sample-select').value = String(i);
+        switchEditingSample();
+      }
+      showing = needing[0].name;
+    }
+  }
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'standRequired';
+    box.className = 'stand-warn';
+    sel.parentElement.appendChild(box);
+  }
+  const list = arr => arr.map(e => e.name).join(', ');
+  const verb = (arr, one, many) => arr.length === 1 ? one : many;
+  const fresh = needing.filter(e => !e.stored);
+  const bare = needing.filter(e => e.stored);
+  const why = [
+    fresh.length ? `${list(fresh)} ${verb(fresh, 'is', 'are')} not in the store yet` : '',
+    bare.length ? `${list(bare)} ${verb(bare, 'has', 'have')} no stand stored` : '',
+  ].filter(Boolean).join(' and ');
+  let text = `${why}, so there is no stand to keep. Choose the stand `
+    + `${verb(needing, 'it', 'they')} ran on.`;
+  if ([...sel.options].some(o => o.value === '')) {
+    text += ' Auto-detect records only Scribner or FCTS, from the file types.';
+  }
+  if (shared) {
+    text += ' With "All samples use same parameters?" ticked, the stand chosen here '
+      + 'goes to every sample in this upload and replaces the stand of those '
+      + 'already stored. To set it for the new ones only, untick it and choose '
+      + 'the stand on each of them.';
+  }
+  if (showing) text += ` The parameters shown are ${showing}'s.`;
+  box.textContent = text;
+  sel.focus();
+}
+
 function wireSampleNameField() {
   const el = document.querySelector('[data-param="sample_name"]');
   if (!el || el.dataset.nameWired) return;
   el.dataset.nameWired = '1';
-  el.addEventListener('input', () => validateAllSampleNames());
+  el.addEventListener('input', () => { sampleNameReplaceable = false; validateAllSampleNames(); });
   const st = document.getElementById('param-stand');
   if (st && !st.dataset.standWired) {
     st.dataset.standWired = '1';
-    st.addEventListener('change', checkStandMismatch);
+    st.addEventListener('change', () => { showStandRequired([]); checkStandMismatch(); });
   }
 }
 
@@ -9478,6 +10025,7 @@ function buildMultiManifest() {
 }
 
 document.getElementById('sel').addEventListener('change', () => {
+  clearFolderOrder();
   checkReady();
   renderParams();
   autoPopulateSampleName();
@@ -9574,8 +10122,27 @@ document.getElementById('go').addEventListener('click', async () => {
 
   const btn = document.getElementById('go');
   btn.disabled = true;
+  const submittedName = (document.getElementById('param-sample_name') || {}).value;
 
   try {
+    const multi = uploadMode === 'multi' && samples.length > 0;
+    const entries = multi
+      ? buildMultiManifest().map(m => ({ name: m.sample_name, stand: (m.params || {}).stand }))
+      : [{ name: String(submittedName || '').trim(), stand: collectParams().stand }];
+    // Only a form with a stand field can answer the question: parameters set
+    // per sample under another script's form may still say Keep.
+    let needing = [];
+    if (document.getElementById('param-stand')) {
+      if (entries.some(e => e.stand === 'keep')) btn.textContent = 'Checking…';
+      needing = await samplesNeedingStand(script, entries);
+    }
+    // Shared parameters with some samples already stored: the stand would
+    // replace theirs too (see showStandRequired).
+    const keepNames = new Set(entries.filter(e => e.stand === 'keep')
+      .map(e => String(e.name || '').trim()).filter(Boolean));
+    showStandRequired(needing, multi && allMatched && keepNames.size > needing.length);
+    if (needing.length) return;
+
     const isSeq = SEQUENTIAL_FOLDER_SCRIPTS.includes(script);
 
     // Determine if we should zip (folder/multi modes with many files)
@@ -9608,6 +10175,8 @@ document.getElementById('go').addEventListener('click', async () => {
         polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
       });
 
+      markSubmittedName(submittedName);
+      resetStandToKeep();
       files = []; samples = [];
       document.getElementById('sample-container').style.display = 'none';
       renderChips();
@@ -9641,6 +10210,8 @@ document.getElementById('go').addEventListener('click', async () => {
       renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
+      markSubmittedName(submittedName);
+      resetStandToKeep();
       files = []; orderedFolders = [];
       document.getElementById('folder-order-container').style.display = 'none';
       renderChips();
@@ -9672,6 +10243,8 @@ document.getElementById('go').addEventListener('click', async () => {
       renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
+      markSubmittedName(submittedName);
+      resetStandToKeep();
       files = [];
       renderChips();
     }

@@ -324,6 +324,13 @@ for pt, want in (('polcurve_down', 'polcurve'), ('ir_correction', 'polcurve'),
                  ('cleaning_diagnostics', 'cleaning'),
                  ('durability_hfr', 'durability'), ('CLR_analysis', 'CLR')):
     check(f'{pt}', plot_bucket(pt), want)
+# FC Durability: every plot in one bucket, ahead of the crossover rule, which
+# would otherwise take any type containing 'h2x'.
+for pt in ('fcdur_timeline', 'fcdur_ocv_vs_time', 'fcdur_xover_vs_time',
+           'fcdur_hfr_vs_time', 'fcdur_ecsa_vs_time', 'fcdur_perf_vs_time',
+           'fcdur_polcurve_evolution', 'fcdur_xover_evolution',
+           'fcdur_nyquist_evolution', 'fcdur_ecsa_evolution', 'fcdur_h2x_cv'):
+    check(f'{pt}', plot_bucket(pt), 'fc_durability')
 
 print("key_values sourcing")
 check('from parsed values',
@@ -379,6 +386,26 @@ check('ecsa from summary only',
 check('no ecsa without summary', build_key_values('ecsa', {'RF': 12.1}, {}), {})
 check('non-numeric rejected',
       build_key_values('crossover', {'|j_xover|': 'n/a'}, {}), {})
+# FC Durability: the plan's decision 7 keys, from the summary row; text
+# fields (Verdict, Death cause, Death bracket) never reach the index, and an
+# alive sample has no Hours to death.
+FCDUR_ROW = {'Analysis': 'fc_durability', 'Label': 'fcdur', 'Hours tested': 149.99940841500802,
+             'Hold files': 15, 'OCV initial': 0.92294, 'OCV final': 0.79275, 'OCV loss': 14.106,
+             'OCV decay rate': 495.9, 'OCV min': 0.79266, 'j_xover initial': 3.7118,
+             'j_xover final': 9.4221, 'R_short final': 9014.2, 'Verdict': 'alive'}
+check('fc_durability key values from the summary row',
+      build_key_values('fc_durability', {}, FCDUR_ROW),
+      {'Hours tested': 149.999, 'OCV initial': 0.92294, 'OCV decay rate': 495.9,
+       'OCV loss': 14.106, 'j_xover initial': 3.7118, 'j_xover final': 9.4221,
+       'R_short final': 9014.2})
+check('... Hours to death once dead',
+      build_key_values('fc_durability', {}, dict(FCDUR_ROW, **{'Hours to death': 12.0,
+                                                               'Verdict': 'dead'}))
+      .get('Hours to death'), 12.0)
+check('... units', [KEY_VALUE_UNITS.get(k) for k in (
+          'Hours tested', 'Hours to death', 'OCV initial', 'OCV decay rate', 'OCV loss',
+          'j_xover initial', 'j_xover final', 'R_short final')],
+      ['h', 'h', 'V', 'μV/h', '%', 'mA/cm²', 'mA/cm²', 'Ω·cm²'])
 
 print("detail record — single analysis")
 tmp = tempfile.mkdtemp()
@@ -888,6 +915,45 @@ check_true('stale size-omission marker cleared',
 solo = merge_detail_record(None, first)
 check('first write seeds provenance',
       [j['job_id'] for j in solo['jobs']], ['job-1'])
+
+# A row that names its analysis is matched to that analysis's plots. Here the
+# sample name holds 'fcdur', so the stepped pol-curve plot contains the FC
+# Durability label too; it must not lend that row its step, or the row
+# outlives every re-push (a dead verdict surviving an alive re-analysis).
+FD = lambda: ('260601_fcdur_MEA7-FCDurability-fcdur_timeline', 'fcdur_timeline', None)
+PCF = ('260601_fcdur_MEA7-FCAnalysis-polcurve_c03_80C', 'polcurve', 'OCV = 0.95 V')
+old = _mk([PCF, FD()], 'job-5', '2026-08-01T00:00:00Z', sample='260601_fcdur_MEA7')
+old['summary'] = [{'Analysis': 'polcurve', 'Label': 'polcurve_c03', 'OCV': 0.95},
+                  {'Analysis': 'fc_durability', 'Label': 'fcdur', 'Verdict': 'dead'}]
+new = _mk([FD()], 'job-6', '2026-08-02T00:00:00Z', sample='260601_fcdur_MEA7')
+new['summary'] = [{'Analysis': 'fc_durability', 'Label': 'fcdur', 'Verdict': 'alive'}]
+m3 = merge_detail_record(old, new)
+check('a re-push replaces its own row even when another plot holds its label',
+      [(r['Analysis'], r.get('Verdict')) for r in m3['summary']],
+      [('polcurve', None), ('fc_durability', 'alive')])
+
+# A stand declared on a re-push replaces the stored one (V5); the forms'
+# default, "Keep stored stand", declares none and keeps it. A record never
+# holds a derived stand, so an Auto-detect push keeps it too.
+s1 = dict(first, stand='FCTS 2')
+check('a stand declared on a re-push replaces the stored one (V5)',
+      merge_detail_record(s1, dict(second, stand='Scribner 1')).get('stand'), 'Scribner 1')
+check('... within a family too', merge_detail_record(s1, dict(second, stand='FCTS 4')).get('stand'),
+      'FCTS 4')
+check('... one declaring none keeps it', merge_detail_record(s1, second).get('stand'), 'FCTS 2')
+check('... and a first stand is taken', merge_detail_record(first, dict(second, stand='FCTS 3'))
+      .get('stand'), 'FCTS 3')
+
+# The index derives a family from the files only for scripts whose files can
+# tell the stands apart: FC Durability reads the same CSVs on both.
+undeclared = dict(second, input_files=['a1_S_OCV_80Cell-100RH_0.1WH2-0.2WA.csv'])
+check('an undeclared stand is derived from the files',
+      build_index_entry(dict(undeclared, script='Fuel Cell ECSA'), 'b').get('stand'), 'FCTS')
+check('... but never for FC Durability',
+      'stand' in build_index_entry(dict(undeclared, script='FC Durability'), 'b'), False)
+check('... whose declared stand is kept',
+      build_index_entry(dict(undeclared, script='FC Durability', stand='Scribner 2'), 'b')
+      .get('stand'), 'Scribner 2')
 
 print("merge — index entry")
 

@@ -37,6 +37,7 @@ fuelcell_run = _optional("fuelcell_analysis")
 ocv_run = _optional("ocv_analysis")
 activation_run = _optional("activation_analysis")
 cleaning_run = _optional("electrode_cleaning_analysis")
+fc_durability_run = _optional("fc_durability_analysis")
 polcurve_down_run = _optional("polcurve_analysis_down")
 polcurve_hfrcompare_run = _optional("polcurve_analysis_hfr_compare")
 plot_comparison_run = _optional("compare_polcurves")
@@ -51,6 +52,7 @@ SCRIPT_REGISTRY = {
     "OCV Analysis": ocv_run,
     "FC Activation": activation_run,
     "FC Electrode Cleaning": cleaning_run,
+    "FC Durability": fc_durability_run,
     "Electrolyzer Pol Curve": elx_polcurve_run,
     "Electrolyzer Durability": elx_durability_run,
     "Fuel Cell Full Analysis": fuelcell_run,
@@ -69,6 +71,7 @@ SCRIPT_SHORT = {
     "OCV Analysis": "OCV",
     "FC Activation": "Activation",
     "FC Electrode Cleaning": "Cleaning",
+    "FC Durability": "FCDurability",
     "Electrolyzer Pol Curve": "ElxPolCurve",
     "Electrolyzer Durability": "ElxDurability",
     "Fuel Cell Full Analysis": "FCAnalysis",
@@ -86,23 +89,38 @@ _IMAGE_FORMAT_FIELD = {"key": "image_format", "label": "Image Format", "type": "
                 {"value": "tiff", "label": "TIFF"},
                 {"value": "none", "label": "No Images"}]}
 
+# FC Durability is stored only through its plot sidecars, and "No Images"
+# writes none, so the run would never reach the store (V6). Its station CSVs
+# are the same on both stands, so the stand can't be told from the files and
+# is always declared: no Auto-detect.
+_IMAGE_FORMAT_STORED_FIELD = dict(
+    _IMAGE_FORMAT_FIELD,
+    options=[o for o in _IMAGE_FORMAT_FIELD["options"] if o["value"] != "none"])
+
+# The stand a run is recorded under. "Keep stored stand" comes first and is the
+# default: it declares nothing, so pushing a sample again keeps the stand it is
+# stored under, and only a stand someone picks replaces it. A new sample has
+# nothing to keep, so the page asks for its stand before uploading. Should one
+# arrive on Keep anyway (the page could not ask the store), the server records
+# the family the file extensions imply, as Auto-detect does — or, under FC
+# Durability, whose files are the same on every stand, nothing. The number
+# identifies the stand; it does not change how files are parsed. Auto-detect
+# records no number, so it sits last: the fallback for a run whose rig is not
+# known, not the normal choice.
+_STANDS = ("Scribner 1", "Scribner 2", "FCTS 1", "FCTS 2", "FCTS 3", "FCTS 4")
+_KEEP_STAND = {"value": "keep", "label": "Keep stored stand"}
+_STAND_FIELD = {
+    "key": "stand", "label": "Test Stand", "type": "select", "default": "keep",
+    "options": ([_KEEP_STAND] + [{"value": s, "label": s} for s in _STANDS]
+                + [{"value": "", "label": "Auto-detect"}])}
+_STAND_DECLARED_FIELD = dict(
+    _STAND_FIELD, options=[o for o in _STAND_FIELD["options"] if o["value"] != ""])
+
 SCRIPT_PARAMS = {
     "Fuel Cell ECSA": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select",
-         "default": "Scribner 1",
-         # The number identifies the stand; it does not change how files are
-         # parsed. Auto-detect infers only the family from the file extensions
-         # and records no number, so it sits last: it is the fallback for a run
-         # whose rig is not known, not the normal choice.
-         "options": [{"value": "Scribner 1", "label": "Scribner 1"},
-                     {"value": "Scribner 2", "label": "Scribner 2"},
-                     {"value": "FCTS 1", "label": "FCTS 1"},
-                     {"value": "FCTS 2", "label": "FCTS 2"},
-                     {"value": "FCTS 3", "label": "FCTS 3"},
-                     {"value": "FCTS 4", "label": "FCTS 4"},
-                     {"value": "", "label": "Auto-detect"}]},
+        _STAND_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "scan_rate", "label": "Scan Rate (V/s)", "type": "number",
@@ -203,6 +221,36 @@ SCRIPT_PARAMS = {
         {"key": "v_dl_high", "label": "DL high (V)", "type": "number",
          "default": 0.50, "step": 0.01, "min": 0},
     ],
+    # Defaults are fc_durability_analysis.PARAM_RANGES's, and the bounds sit
+    # inside its ranges on each field's step grid; run() re-checks every value
+    # against those ranges and notes any it replaces.
+    "FC Durability": [
+        _SAMPLE_FIELD,
+        _IMAGE_FORMAT_STORED_FIELD,
+        _STAND_DECLARED_FIELD,
+        {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
+         "default": 5.0, "step": 0.1, "min": 0.1, "max": 1000},
+        {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",
+         "default": 0.40, "step": 0.01, "min": 0.01, "max": 10},
+        {"key": "ocv_threshold", "label": "OCV Death Threshold (V)", "type": "number",
+         "default": 0.7, "step": 0.01, "min": 0, "max": 1.3},
+        {"key": "xover_threshold", "label": "Crossover Death Threshold (mA/cm²)",
+         "type": "number", "default": 15, "step": 0.5, "min": 0, "max": 1000},
+        {"key": "xover_window_lo", "label": "Crossover Window Low (V)", "type": "number",
+         "default": 0.35, "step": 0.01, "min": 0.15, "max": 0.75},
+        {"key": "xover_window_hi", "label": "Crossover Window High (V)", "type": "number",
+         "default": 0.50, "step": 0.01, "min": 0.20, "max": 0.80},
+        {"key": "hold_min_h", "label": "Shortest Hold (h)", "type": "number",
+         "default": 2, "step": 0.5, "min": 0, "max": 1000},
+        {"key": "settle_min", "label": "Settling Skipped per Hold (min)", "type": "number",
+         "default": 10, "step": 1, "min": 0, "max": 1440},
+        {"key": "ocv_window_min", "label": "OCV Median Window (min)", "type": "number",
+         "default": 10, "step": 1, "min": 1, "max": 1440},
+        {"key": "ocv_persist_min", "label": "OCV Below Threshold For (min)", "type": "number",
+         "default": 30, "step": 1, "min": 0, "max": 10080},
+        {"key": "rate_window_h", "label": "OCV Decay Rate Window (h)", "type": "number",
+         "default": 10, "step": 1, "min": 1, "max": 1000},
+    ],
     "Electrolyzer Pol Curve": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
@@ -232,19 +280,7 @@ SCRIPT_PARAMS = {
     "Fuel Cell Full Analysis": [
         _SAMPLE_FIELD,
         _IMAGE_FORMAT_FIELD,
-        {"key": "stand", "label": "Test Stand", "type": "select",
-         "default": "Scribner 1",
-         # The number identifies the stand; it does not change how files are
-         # parsed. Auto-detect infers only the family from the file extensions
-         # and records no number, so it sits last: it is the fallback for a run
-         # whose rig is not known, not the normal choice.
-         "options": [{"value": "Scribner 1", "label": "Scribner 1"},
-                     {"value": "Scribner 2", "label": "Scribner 2"},
-                     {"value": "FCTS 1", "label": "FCTS 1"},
-                     {"value": "FCTS 2", "label": "FCTS 2"},
-                     {"value": "FCTS 3", "label": "FCTS 3"},
-                     {"value": "FCTS 4", "label": "FCTS 4"},
-                     {"value": "", "label": "Auto-detect"}]},
+        _STAND_FIELD,
         {"key": "geo_area", "label": "Geometric Area (cm²)", "type": "number",
          "default": 5.0, "step": 0.1, "min": 0.1},
         {"key": "loading", "label": "Cathode Pt Loading (mg/cm²)", "type": "number",
