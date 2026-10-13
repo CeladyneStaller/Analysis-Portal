@@ -730,6 +730,11 @@
     font-family: var(--mono); }
   .cmp-act { opacity: .45; cursor: pointer; font-size: 12px; padding: 0 3px; }
   .cmp-act:hover { opacity: 1; color: var(--accent); }
+  /* A whole test's high–low toggle: its icon is the band, so it is full
+     strength when on, and faint, inert, when the test stores none. */
+  .cmp-act.band { display: inline-flex; align-items: center; }
+  .cmp-act.band.on { opacity: .95; }
+  .cmp-act.band.dis, .cmp-act.band.dis:hover { opacity: .2; cursor: default; }
   .cmp-handle {
     color: var(--text-dim); opacity: .4; cursor: grab; font-size: 12px;
     line-height: 1; flex: 0 0 auto; user-select: none;
@@ -5137,6 +5142,8 @@ const CMP_MAX = 20;
 // power twin, all of which this tab can draw from that same axis. Declaring
 // them also settles the spelling — the scripts write both 'mA/cm2' and
 // 'mA/cm²'.
+// The edges of a stored high–low band, as the plot labels them.
+const CMP_BAND_LOW = 'bin low', CMP_BAND_HIGH = 'bin high';
 const CMP_TYPES = {
   polcurve:  { label: 'Polarization curve',
                x: 'Current density (A/cm²)', y: 'Cell voltage (V)',
@@ -5155,11 +5162,14 @@ const CMP_TYPES = {
   // stored, so its position cannot be trusted. Characterizations are a handful
   // of points, drawn with markers; the OCV trace is dense and is not. It can
   // be drawn coarser than stored instead: `bins` are the smoothing widths
-  // offered, in hours (cmpRebin).
+  // offered, in hours (cmpRebin). Its plot also stores each bin's lowest and
+  // highest sample, as two edge lines on the trace's x that are not series:
+  // `bands` lets each sample shade between them (CMP_BAND). Plots stored
+  // before the band carry a bin-minimum line instead, not a series either.
   fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability',
                  plotType: 'fcdur_ocv_vs_time', x: 'Hold time (h)', y: 'Hold OCV (V)',
-                 panel: /^Hold OCV/i, series: l => !!l && l !== 'bin minimum', opts: [],
-                 bins: [0.25, 0.5, 1, 2, 5, 10] },
+                 panel: /^Hold OCV/i, opts: [], bins: [0.25, 0.5, 1, 2, 5, 10], bands: true,
+                 series: l => !!l && l !== 'bin minimum' && l !== CMP_BAND_LOW && l !== CMP_BAND_HIGH },
   fcdur_xover: { label: 'Durability — H₂ crossover', analysis: 'fc_durability',
                  plotType: 'fcdur_xover_vs_time', x: 'Hold time (h)', dots: true,
                  y: 'H₂ crossover (mA/cm²)', panel: /crossover/i,
@@ -5187,6 +5197,7 @@ const cmpSeriesName = l => String(l || '')
 let CMP_TYPE = 'polcurve';
 let CMP_SEL = new Map();            // sample key -> Set of step codes
 let CMP_HIDDEN = new Set();         // "key::step"
+let CMP_BAND = new Set();           // curve ids whose high–low band is shaded
 let CMP_OPT = { irfree: false, power: false, j06: false, bin_h: 0 };
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
@@ -5709,6 +5720,10 @@ const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
 // Worked out once per series fetched and panel, not on every redraw: a pan or
 // a wheel zoom redraws on each event, and a durability test stored at a fine
 // OCV bin is thousands of points. Callers read the groups, never change them.
+//
+// On a type with bands each part also keeps its band, [[x, low, high]], or
+// null: the low and high edges stored on exactly its x. A part the store sent
+// thinned has none, its edges having been thinned apart.
 const CMP_PICK_MEMO = new WeakMap(); // series payload -> Map(type|panel -> groups)
 function cmpPickSeries(sr) {
   if (!sr || !sr.axes || !sr.axes.length) return [];
@@ -5722,17 +5737,33 @@ function cmpPickSeries(sr) {
   memo.set(key, groups);
   const ax = sr.axes.find(a => want && want.test(a.ylabel || ''));
   if (!ax) return groups;
+  const edges = t.bands ? (ax.lines || []).filter(l =>
+    (l.label === CMP_BAND_LOW || l.label === CMP_BAND_HIGH) && !l.decimated) : [];
+  const taken = new Set();
+  const sameX = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const edgeOn = (label, x) => edges.find(e => !taken.has(e) && e.label === label && sameX(e.x || [], x));
   (ax.lines || []).filter(l => t.series(l.label || '')).forEach(l => {
     const name = cmpSeriesName(l.label), pts = zip(l);
     if (!pts.length) return;
     let g = groups.find(x => x.name === name);
-    if (!g) groups.push(g = { name, parts: [], thin: [] });
+    if (!g) groups.push(g = { name, parts: [], thin: [], bands: [] });
     g.parts.push(pts);
     // A part the store thinned (decimated) is drawn, never smoothed or measured.
     g.thin.push(!!l.decimated);
+    const lo = !l.decimated && edgeOn(CMP_BAND_LOW, l.x || []);
+    const hi = lo && edgeOn(CMP_BAND_HIGH, l.x || []);
+    let band = null;
+    if (lo && hi) {
+      taken.add(lo); taken.add(hi);
+      band = (l.x || []).map((x, i) => [x, lo.y[i], hi.y[i]])
+        .filter(p => typeof p[1] === 'number' && typeof p[2] === 'number');
+    }
+    g.bands.push(band && band.length ? band : null);
   });
   return groups;
 }
+// Whether a sample's series carry a band to shade.
+const cmpHasBand = sr => cmpPickSeries(sr).some(g => g.bands.some(b => b));
 
 // ── smoothing (Durability — OCV) ────────────────────────────────
 // A long test's stored OCV points are minutes apart, denser than a chart of
@@ -5785,18 +5816,41 @@ function cmpDrawnParts(groups, w) {
   }
   return memo.get(w);
 }
-function cmpRebin(pts, w, spacing) {
-  if (!(w > 0) || !(spacing < w * (1 - 1e-9))) return pts;
+// Points in bins of hold time on multiples of the width, bin by bin in order.
+function cmpBinned(pts, w) {
   const bins = new Map();
   pts.forEach(p => {
     const k = Math.floor(p[0] / w + 1e-9);
     if (!bins.has(k)) bins.set(k, []);
     bins.get(k).push(p);
   });
-  return [...bins.keys()].sort((a, b) => a - b).map(k => {
-    const ps = bins.get(k);
-    return [ps.reduce((a, p) => a + p[0], 0) / ps.length, cmpMedian(ps.map(p => p[1]))];
-  });
+  return [...bins.keys()].sort((a, b) => a - b).map(k => bins.get(k));
+}
+function cmpRebin(pts, w, spacing) {
+  if (!(w > 0) || !(spacing < w * (1 - 1e-9))) return pts;
+  return cmpBinned(pts, w).map(ps =>
+    [ps.reduce((a, p) => a + p[0], 0) / ps.length, cmpMedian(ps.map(p => p[1]))]);
+}
+// A band drawn coarser with its trace, in the same bins: each from the lowest
+// low to the highest high of the stored bins in it, which are the lowest and
+// highest samples in that span, at the same mean time as the trace's bin.
+function cmpRebinBand(band, w, spacing) {
+  if (!(w > 0) || !(spacing < w * (1 - 1e-9))) return band;
+  return cmpBinned(band, w).map(ps => [ps.reduce((a, p) => a + p[0], 0) / ps.length,
+    ps.reduce((m, p) => Math.min(m, p[1]), Infinity),
+    ps.reduce((m, p) => Math.max(m, p[2]), -Infinity)]);
+}
+// A sample's bands as its chart draws them at a width, beside cmpDrawnParts.
+const CMP_DRAWN_BANDS = new WeakMap(); // groups -> Map(width -> bands per group)
+function cmpDrawnBands(groups, w) {
+  const memo = CMP_DRAWN_BANDS.get(groups) || new Map();
+  CMP_DRAWN_BANDS.set(groups, memo);
+  if (memo.has(w)) return memo.get(w);
+  const spacing = cmpGroupSpacing(groups);
+  const bands = groups.map(g => g.bands.map((b, j) =>
+    b && (w && !g.thin[j] ? cmpRebinBand(b, w, spacing) : b)));
+  memo.set(w, bands);
+  return bands;
 }
 // Hours as the control and the hint say them: minutes under an hour.
 const cmpFmtHours = h => h < 1 ? `${+(h * 60).toPrecision(2)} min` : `${+h.toPrecision(2)} h`;
@@ -5875,6 +5929,8 @@ function cmpChart(series, cfg) {
   let H = CMP_SIZE.h, ih = H - T - B;
   const xs = series.flatMap(s => s.pts.map(p => p[0]));
   const ys = series.flatMap(s => s.pts.map(p => p[1]));
+  // A shaded high–low band reaches past its trace.
+  series.forEach(s => (s.band || []).forEach(p => ys.push(p[1], p[2])));
   (cfg.stats || []).forEach(st => st.data.avg.pts.forEach(p => {
     if (st.data.avg.axis === 'param') { xs.push(p.xlo, p.xhi); ys.push(p.ylo, p.yhi); }
     else if (st.axis === 'x') { xs.push(p.lo, p.hi); ys.push(p.y); }
@@ -5885,8 +5941,12 @@ function cmpChart(series, cfg) {
     return `<div class="cmp-empty">${CMP_LOADING ? 'Loading curves…'
       : 'No curves selected — add one below.'}</div>`;
   }
-  let x0 = 0, x1 = Math.max(...xs) * 1.04;
-  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  // Folded rather than spread into Math.max: a few samples' whole tests with
+  // their bands are tens of thousands of values, past what a call takes.
+  const most = a => a.reduce((m, v) => (v > m ? v : m), -Infinity);
+  const least = a => a.reduce((m, v) => (v < m ? v : m), Infinity);
+  let x0 = 0, x1 = most(xs) * 1.04;
+  let y0 = least(ys), y1 = most(ys);
   const pad = (y1 - y0) * 0.08 || 0.05; y0 -= pad; y1 += pad;
   if (cfg.zeroY) y0 = 0;
   // An explicit window — set by the wheel, by dragging, or by typing a range —
@@ -5940,6 +6000,18 @@ function cmpChart(series, cfg) {
   // clipped to the plot box — without this the lines run across the labels.
   g += `<defs><clipPath id="cmpClip"><rect x="${L}" y="${T}" width="${iw}"
         height="${ih}"/></clipPath></defs><g clip-path="url(#cmpClip)">`;
+  // High–low bands first, under every line: along a part's highs and back
+  // along its lows, in its sample's colour. A part drawn as one point (one
+  // bin, stored or smoothed) has its band as a short bar across the point.
+  series.forEach(s => {
+    if (!s.band || !s.band.length) return;
+    const at = s.band.length > 1 ? s.band.map(p => [sx(p[0]), p])
+      : [[sx(s.band[0][0]) - 3, s.band[0]], [sx(s.band[0][0]) + 3, s.band[0]]];
+    const up = at.map(([X, p], i) => `${i ? 'L' : 'M'}${X.toFixed(1)},${sy(p[2]).toFixed(1)}`).join(' ');
+    const dn = at.slice().reverse().map(([X, p]) => `L${X.toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
+    g += `<path class="band hl" d="${up} ${dn} Z" fill="${s.color}">`
+       + `<title>${escapeHtml(s.title)} · high–low of each bin</title></path>`;
+  });
   series.forEach(s => {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
     g += `<path class="ln${s.faint ? ' faint' : ''}" d="${d}" stroke="${s.color}"` +
@@ -6087,6 +6159,11 @@ const cmpDashSvg = (color, d, w) =>
 // ── render ──────────────────────────────────────────────────────
 function cmpRender() {
   const t = CMP_TYPES[CMP_TYPE];
+  // A curve taken off the chart forgets its band: put back, it starts unshaded.
+  CMP_BAND.forEach(id => {
+    const i = id.lastIndexOf('::'), steps = CMP_SEL.get(id.slice(0, i));
+    if (!steps || !steps.has(id.slice(i + 2))) CMP_BAND.delete(id);
+  });
   // A durability type draws every series of a sample's whole test.
   const whole = cmpWholeType(CMP_TYPE);
   const vocab = whole ? cmpSeriesVocab() : [];
@@ -6271,6 +6348,7 @@ function cmpRender() {
                 + `<span class="v">${m.censored ? '≥ ' : ''}${escapeHtml(fmtNum(m.value))}</span></span>`).join('')
             : '<span class="cmp-kv empty">—</span>'}</span>
           <span class="cmp-sacts">
+            ${whole && t.bands ? cmpBandAct(k, u.step, color, sr) : ''}
             <span class="cmp-act" title="Show or hide"
                   onclick="cmpToggleStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">${off ? '○' : '●'}</span>
             <span class="cmp-act" title="Remove"
@@ -6298,8 +6376,12 @@ function cmpRender() {
     if (whole) {
       const groups = cmpPickSeries(sr);
       const drawn = cmpDrawnParts(groups, bin);
+      // Each part's high–low band, when this sample has it turned on.
+      const bands = t.bands && CMP_BAND.has(cmpCurveId(u.key, u.step))
+        ? cmpDrawnBands(groups, bin) : null;
       groups.forEach((s, gi) => drawn[gi].forEach((pts, j) => series.push({
         pts, color: cmpColorOf(u.key), dash: cmpSeriesDash(s.name, vocab), dots: !!t.dots,
+        band: bands && bands[gi][j],
         id: cmpCurveId(u.key, u.step) + '::' + s.name + '::' + j,
         title: `${sr.sample_name || ''} · ${s.name}` })));
       return;
@@ -6635,6 +6717,34 @@ function cmpToggleStep(k, st) {
   CMP_HIDDEN.has(kk) ? CMP_HIDDEN.delete(kk) : CMP_HIDDEN.add(kk);
   cmpRender();
 }
+// The high–low band of one sample, turned on and off from its row: shown as
+// the band it draws, shaded in the sample's colour when on. A test stored
+// before the band has none, so its control is dimmed and says why.
+const cmpBandSvg = (color, on) => `<svg width="18" height="10" viewBox="0 0 18 10">`
+  + `<rect x="0.5" y="1.5" width="17" height="7" rx="1.5" fill="${on ? color : 'none'}"`
+  + ` fill-opacity="0.35" stroke="${color}" stroke-width="1"${on ? '' : ' stroke-dasharray="2 1.5"'}/>`
+  + `<line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="1.6"/></svg>`;
+function cmpBandAct(k, st, color, sr) {
+  if (!sr) return '';                 // not fetched yet, or nothing stored
+  if (!cmpHasBand(sr)) {
+    return `<span class="cmp-act band dis" title="No high–low stored with this test: `
+      + `analysed before the band was added. Run it again to store one.">${cmpBandSvg(color, false)}</span>`;
+  }
+  const on = CMP_BAND.has(cmpCurveId(k, st));
+  return `<span class="cmp-act band${on ? ' on' : ''}" role="button" aria-pressed="${on}"
+    title="${on ? 'Hide' : 'Shade'} the high–low of each bin, its lowest to its highest sample"
+    onclick="cmpToggleBand('${escapeAttr(k)}','${escapeAttr(st)}')">${cmpBandSvg(color, on)}</span>`;
+}
+function cmpToggleBand(k, st) {
+  const id = cmpCurveId(k, st);
+  CMP_BAND.has(id) ? CMP_BAND.delete(id) : CMP_BAND.add(id);
+  cmpRender();
+}
+// Whether a selected curve is drawn with its band: turned on, and stored.
+function cmpBanded(u) {
+  if (!(CMP_TYPES[CMP_TYPE] || {}).bands || !CMP_BAND.has(cmpCurveId(u.key, u.step))) return false;
+  return cmpHasBand(CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step)));
+}
 function cmpDropStep(k, st) {
   const set = CMP_SEL.get(k); if (!set) return;
   set.delete(st); if (!set.size) CMP_SEL.delete(k);
@@ -6642,7 +6752,7 @@ function cmpDropStep(k, st) {
 }
 function cmpDropSample(k) { CMP_SEL.delete(k); cmpRender(); }
 function cmpClear() {
-  CMP_SEL = new Map(); CMP_HIDDEN = new Set(); CMP_STATS = [];
+  CMP_SEL = new Map(); CMP_HIDDEN = new Set(); CMP_BAND = new Set(); CMP_STATS = [];
   cmpRender();
 }
 function cmpToggleAdd(k, st) {
@@ -8257,6 +8367,8 @@ function cmpSaveView() {
     // Plain objects and arrays: a Map and a Set do not survive JSON.
     sel: Object.fromEntries([...CMP_SEL].map(([k, v]) => [k, [...v]])),
     hidden: [...CMP_HIDDEN],
+    // The curves whose high–low band is shaded (only curves on the chart).
+    band: [...CMP_BAND],
     opt: { ...CMP_OPT },
     // A view saved while zoomed should reopen zoomed: the window is part of
     // what was being looked at, not incidental to it.
@@ -8283,6 +8395,8 @@ function cmpLoadView(name) {
   CMP_OPT.bin_h = Object.values(CMP_TYPES).some(x => (x.bins || []).includes(+CMP_OPT.bin_h))
     ? +CMP_OPT.bin_h : 0;
   CMP_HIDDEN = new Set(v.hidden || []);
+  // A view saved before the band has none shaded.
+  CMP_BAND = new Set((Array.isArray(v.band) ? v.band : []).filter(id => typeof id === 'string'));
   CMP_VIEW = v.view ? { ...v.view } : null;
   CMP_STATS = (v.stats || []).map(st => ({ ...st }));
 
@@ -8389,7 +8503,8 @@ function cmpExportRows() {
     });
     rows.push({ color: cmpColorOf(u.key), dash: cmpDashOf(u.step), weight: 2,
                 name: (run && run.sample_name) || u.key,
-                note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`, kv });
+                note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`
+                      + (cmpBanded(u) ? ' · high–low shaded' : ''), kv });
   });
   return rows;
 }
@@ -8568,10 +8683,14 @@ async function cmpDownloadPng(name, spec) {
 
 async function exportComparison() {
   const sels = [];
+  const bands = !!(CMP_TYPES[CMP_TYPE] || {}).bands;
   cmpSelected().forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
-    if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}` });
+    // The server draws a stored band unless told otherwise, so a type with
+    // bands says for every sample whether it is shaded here.
+    if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}`,
+                        ...(bands ? { band: CMP_BAND.has(cmpCurveId(u.key, u.step)) } : {}) });
   });
   const btn = document.getElementById('cmpExport');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';

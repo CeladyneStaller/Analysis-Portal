@@ -355,13 +355,100 @@ def load_sidecar(sidecar_path):
         return None
 
 
+# ── High–low bands ──────────────────────────────────────────────────
+# A plot can shade a band around a line, from each bin's lowest to its highest
+# sample (the FC Durability OCV plot does). The sidecar keeps lines and
+# scatters but not fills, so such a plot also draws the band's two edges,
+# labelled BAND_LOW and BAND_HIGH. The redraw pairs each low with a high of the
+# same x and shades between them in the sample's colour. An item with
+# 'band': False leaves its bands out, edges included.
+BAND_LOW, BAND_HIGH = 'bin low', 'bin high'
+BAND_ALPHA = 0.2
+
+
+def is_band_edge(trace):
+    """True for a stored line or scatter that is one edge of a band."""
+    return trace.get('label') in (BAND_LOW, BAND_HIGH)
+
+
+def band_pairs(traces):
+    """The bands among stored traces: ([(low, high)], unpaired edges).
+
+    A low pairs with the first high not yet taken whose x is identical to its
+    own, point for point; a band whose edges disagree in x has no shape to
+    shade, so its edges come back unpaired.
+    """
+    lows = [t for t in traces if t.get('label') == BAND_LOW]
+    highs = [t for t in traces if t.get('label') == BAND_HIGH]
+    pairs, taken = [], set()
+    for lo in lows:
+        x = lo.get('x') or []
+        if len(lo.get('y') or []) != len(x):
+            continue
+        for j, hi in enumerate(highs):
+            if (j not in taken and x and hi.get('x') == x
+                    and len(hi.get('y') or []) == len(x)):
+                pairs.append((lo, hi))
+                taken.add(j)
+                break
+    paired = {id(t) for pair in pairs for t in pair}
+    return pairs, [t for t in lows + highs if id(t) not in paired]
+
+
+def _floats(values):
+    return np.array([np.nan if v is None else v for v in values], dtype=float)
+
+
+def _axis_bands(ad):
+    """band_pairs over one stored axis' lines and scatters."""
+    return band_pairs(list(ad.get('lines', [])) + list(ad.get('scatters', [])))
+
+
+def _shades_band(item, n_axes):
+    """True when an item's redraw shades a band on one of its first n_axes
+    primary axes (the ones the overlay draws)."""
+    if item.get('band') is False:
+        return False
+    axes = [a for a in item['sidecar'].get('data', {}).get('axes', [])
+            if not a.get('is_twin', False)][:n_axes]
+    return any(_axis_bands(a)[0] for a in axes)
+
+
+def _draw_bands(ax, pairs, loose, scatters, color):
+    """Shade an axis' bands, and draw their edges faintly over the shading,
+    as the source plot does. Both go under everything else the redraw draws:
+    its scatters (markers such as settled values) sit at zorder 1, lines at 2."""
+    for lo, hi in pairs:
+        ax.fill_between(_floats(lo['x']), _floats(lo['y']), _floats(hi['y']),
+                        color=color, alpha=BAND_ALPHA, lw=0, zorder=0.8)
+    as_points = {id(sc) for sc in scatters}
+    for edge in [t for pair in pairs for t in pair] + loose:
+        if id(edge) in as_points:
+            ax.scatter(_floats(edge['x']), _floats(edge['y']), color=color, s=10,
+                       alpha=0.3, lw=0, zorder=0.9)
+            continue
+        marker = edge.get('marker')
+        ax.plot(_floats(edge['x']), _floats(edge['y']), color=color, linestyle='-',
+                linewidth=edge.get('linewidth', 0.4), alpha=edge.get('alpha', 0.3),
+                marker=None if marker in (None, 'None', 'none', '') else marker,
+                markersize=edge.get('markersize', 3), zorder=0.9)
+
+
+# Height of one line of the readout box under a comparison, in inches: 7-pt
+# monospace at the default 1.2 line spacing is 8.4 pt, about 0.117 in. Sized
+# at 0.10 in, a tall readout (two FC Durability samples, about 22 lines) ran
+# into the legend below it.
+READOUT_LINE_IN = 0.12
+
+
 def render_overlay_comparison(items, save_path=None, title=None,
                                subtitle=None, sample_label_in_legend=True):
     """
     Generic comparison renderer that overlays N samples' axis data on a
     same-shape figure.
 
-    items : list of {'label': str, 'sidecar': dict}
+    items : list of {'label': str, 'sidecar': dict, 'band': bool (optional)}
+            — a sample's high–low bands are shaded unless its 'band' is False
     title : str — main figure title (rendered as suptitle)
     subtitle : str | None — optional secondary title (smaller, below main)
     """
@@ -407,14 +494,17 @@ def render_overlay_comparison(items, save_path=None, title=None,
     # Pre-scan items: count max readout lines per axis to size figure
     # and pre-compute legend rows so we can grow the figure to accommodate
     n_samples = len(items)
+    # A shaded band gets one key in the legend, after the samples.
+    shaded = any(_shades_band(item, n_primary) for item in items)
+    n_entries = n_samples + (1 if shaded else 0)
     max_label_len = max(len(item['label']) for item in items)
     if max_label_len > 30:
         ncol = 1
     elif max_label_len > 18:
-        ncol = min(2, n_samples)
+        ncol = min(2, n_entries)
     else:
-        ncol = min(4, n_samples)
-    n_legend_rows = (n_samples + ncol - 1) // ncol
+        ncol = min(4, n_entries)
+    n_legend_rows = (n_entries + ncol - 1) // ncol
 
     # Estimate max readout lines across all axes
     max_readout_lines = 0
@@ -446,7 +536,7 @@ def render_overlay_comparison(items, save_path=None, title=None,
     title_in = 0.35 if title else 0
     subtitle_in = 0.25 if subtitle else 0
     top_extra = title_in + subtitle_in + (0.10 if (title or subtitle) else 0)
-    bottom_extra = (max_readout_lines * 0.10 + n_legend_rows * 0.22 + 0.3)
+    bottom_extra = (max_readout_lines * READOUT_LINE_IN + n_legend_rows * 0.22 + 0.3)
     figsize = [figsize[0], figsize[1] + top_extra + bottom_extra]
 
     fig, axes = plt.subplots(n_rows_eff, n_cols_eff, figsize=tuple(figsize),
@@ -490,7 +580,24 @@ def render_overlay_comparison(items, save_path=None, title=None,
             s_ad = s_axes[ai]
             color = sample_colors[sample_idx]
 
-            visible_lines = list(s_ad.get('lines', []))
+            # A band's edges are drawn as its shading, not styled as series,
+            # and a line a band surrounds (one with the band's x) is drawn
+            # solid at its own alpha, band shown or not: dashed or faded, it
+            # breaks up across the shading.
+            pairs, loose = _axis_bands(s_ad)
+            if item.get('band') is not False:
+                _draw_bands(ax_target, pairs, loose, s_ad.get('scatters', []), color)
+            band_x = [lo['x'] for lo, _ in pairs]
+            for ln in s_ad.get('lines', []):
+                if not is_band_edge(ln) and ln.get('x') in band_x:
+                    marker = ln.get('marker')
+                    ax_target.plot(_floats(ln['x']), _floats(ln['y']), color=color,
+                                   linestyle='-', linewidth=ln.get('linewidth', 1.5) * 0.9,
+                                   marker=None if marker in (None, 'None', 'none', '') else marker,
+                                   markersize=ln.get('markersize', 5),
+                                   alpha=ln.get('alpha', 1.0))
+            visible_lines = [ln for ln in s_ad.get('lines', [])
+                             if not is_band_edge(ln) and ln.get('x') not in band_x]
 
             # Detect if axis has many lines of same kind (e.g. cycles overlay).
             # If >5 unlabeled lines, treat as "many cycles" — show one label
@@ -536,7 +643,8 @@ def render_overlay_comparison(items, save_path=None, title=None,
                 )
 
             # Scatters
-            for sci, sc in enumerate(s_ad.get('scatters', [])):
+            plain = [sc for sc in s_ad.get('scatters', []) if not is_band_edge(sc)]
+            for sci, sc in enumerate(plain):
                 ax_target.scatter(sc['x'], sc['y'], color=color,
                                   s=20, alpha=0.7,
                                   label=s_label if (ai == 0 and sci == 0
@@ -633,16 +741,21 @@ def render_overlay_comparison(items, save_path=None, title=None,
                label=item['label'])
         for i, item in enumerate(items)
     ]
+    if shaded:
+        # One neutral key for the bands, which take each sample's colour.
+        from matplotlib.patches import Patch
+        legend_handles.append(Patch(facecolor='0.6', alpha=0.35, edgecolor='0.6',
+                                    lw=0.4, label='high–low of each bin'))
     n_samples = len(items)
     # Calculate columns: aim for at most 4 per row, fewer if names are long
     max_label_len = max(len(item['label']) for item in items)
     if max_label_len > 30:
         ncol = 1
     elif max_label_len > 18:
-        ncol = min(2, n_samples)
+        ncol = min(2, n_entries)
     else:
-        ncol = min(4, n_samples)
-    n_legend_rows = (n_samples + ncol - 1) // ncol
+        ncol = min(4, n_entries)
+    n_legend_rows = (n_entries + ncol - 1) // ncol
 
     # Compute readout box height needs (approx 0.025 fig fraction per line, per axis)
     readouts = getattr(fig, '_axis_readouts', {})
@@ -660,7 +773,7 @@ def render_overlay_comparison(items, save_path=None, title=None,
     #   1 figure fraction = figsize[1] inches
     fig_h_in = figsize[1]
     xlabel_in = 0.5  # x-label area
-    readout_in = max_readout_lines * 0.10 + (0.15 if max_readout_lines else 0)
+    readout_in = max_readout_lines * READOUT_LINE_IN + (0.15 if max_readout_lines else 0)
     legend_in = n_legend_rows * 0.22 + 0.10
     bottom_margin = (xlabel_in + readout_in + legend_in + 0.15) / fig_h_in
     bottom_margin = min(0.6, max(0.10, bottom_margin))

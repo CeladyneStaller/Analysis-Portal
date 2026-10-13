@@ -247,6 +247,20 @@ def _readouts(sidecar: Dict[str, Any]) -> List[Tuple[str, str]]:
     return vals
 
 
+def _columns(xlabel, lines):
+    """A panel's columns: an x column, then each line's y. A line on other x
+    than the column before it starts its own x column, so every value sits
+    beside its own x: an FC Durability plot draws each hold on its own hours,
+    where most plots' lines share one x and keep the single column."""
+    cols, cur = [], None
+    for label, xs, ys in lines:
+        if cur is None or xs != cur:
+            cols.append((xlabel, xs))
+            cur = xs
+        cols.append((label, ys))
+    return cols
+
+
 def _data_blocks(detail, sidecars, bucket):
     """One block per plot in a bucket: its first panel's series."""
     blocks = []
@@ -258,15 +272,14 @@ def _data_blocks(detail, sidecars, bucket):
         if not panels:
             continue
         title, xlabel, lines = panels[0]
-        cols = [(xlabel, lines[0][1])]
-        for label, _x, ys in lines:
-            cols.append((label, ys))
-        # Later panels sharing this x get appended as extra columns.
+        # Later panels on the same x label and length join the block, each of
+        # their lines still beside its own x: the evolution plots' panels (one
+        # per RH) are of one length on different x.
         for ptitle, pxlabel, plines in panels[1:]:
             if pxlabel == xlabel and len(plines[0][2]) == len(lines[0][1]):
-                for label, _x, ys in plines:
-                    cols.append((f'{ptitle} · {label}' if label != 'series'
-                                 else ptitle, ys))
+                lines = lines + [(f'{ptitle} · {label}' if label != 'series' else ptitle, xs, ys)
+                                 for label, xs, ys in plines]
+        cols = _columns(xlabel, lines)
         step = str((entry.get('conditions') or {}).get('step') or '')
         blocks.append((f'{name}' if not step else f'{step} · {name}', cols))
     return blocks
@@ -381,10 +394,7 @@ def build_plot_workbook(detail: Dict[str, Any], plot: str) -> bytes:
                      [[k, v] for k, v in ro], used)
 
     for title, xlabel, lines in panels:
-        cols = [(xlabel, lines[0][1])]
-        for label, _x, ys in lines:
-            cols.append((label, ys))
-        _block_sheet(wb, title, [(title, cols)], used)
+        _block_sheet(wb, title, [(title, _columns(xlabel, lines))], used)
 
     if not wb.sheetnames:
         wb.create_sheet('No Data')

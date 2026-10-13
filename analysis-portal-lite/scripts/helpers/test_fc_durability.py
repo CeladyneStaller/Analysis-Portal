@@ -65,7 +65,7 @@ with contextlib.redirect_stdout(io.StringIO()):
         parse_step_name, natural_key, build_timeline, order_folders, run,
         analyze_ocv, load_hold_trace, below_runs, rolling_decay, OcvSettings,
         PLOT_MAX_BINS, PLOT_BINS_CAP, ocv_plot_bin, analyze_characterizations, decide,
-        CharSettings, _pick_curves, analyze_crossover_file, _series_labels)
+        CharSettings, _pick_curves, analyze_crossover_file, _series_labels, BAND_LOW, BAND_HIGH)
     from scripts.ecsa_analysis import compute_ecsa_hupd, generate_synthetic_cv
     from scripts.eis_analysis import extract_hfr, MODELS
 
@@ -831,7 +831,7 @@ def ocv_plot_points(out_dir):
     sc = json.loads((Path(out_dir) / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
                     parse_constant=_no_nan)
     n = sum(len(ln['x']) for ln in sc['data']['axes'][0]['lines']
-            if ln.get('label') and ln['label'] != 'bin minimum')
+            if ln.get('label') and ln['label'] not in (BAND_LOW, BAND_HIGH))
     return n, extract_values(sc).get('OCV plot bin')
 
 
@@ -881,6 +881,188 @@ day_lines = json.loads((out_day / '_plot_data' / 'fcdur_ocv_vs_time.json').read_
 check('... a hold left one bin is drawn as a marker, so the plot is not empty',
       sorted({(len(ln['x']), ln.get('marker')) for ln in day_lines}), [(1, 'o')])
 
+# The high–low band: each plot bin's lowest and highest judged sample, shaded
+# around the median. One 10-s sample 50 mV high, one 40 mV low, in a flat hold:
+# the band's edges keep both whole, the median does not move, and neither
+# reaches the rule (shorter than the 10-min median window).
+import pandas as pd
+from scripts.fc_durability_analysis import plot_ocv
+spike = tmp / 'spike'
+write_ocv(spike / HOLD.format('c2'), 14400, 10, 0.0,
+          lambda H: np.where(H == 7200, 0.95, np.where(H == 10800, 0.86, 0.90)))
+gas_step(spike, 'c3')
+write_ocv(spike / HOLD.format('c4'), 14400, 10, 14400.0, flat(0.89))
+tl_s = build_timeline(str(spike))
+res_s = analyze_ocv(tl_s)
+p1 = res_s.holds[0].plot
+at = lambda h: int(np.argmin(np.abs(p1['t_h'].to_numpy() - h)))  # noqa: E731
+check('band: a one-sample spike and dip are the bin\'s high and low, the median flat',
+      [(round(p1['max'][at(h)], 5), round(p1['median'][at(h)], 5), round(p1['min'][at(h)], 5))
+       for h in (2.0, 3.0)],
+      [(0.95, 0.9, 0.9), (0.9, 0.9, 0.86)])
+check('... every other bin is flat, and the rule sees neither', (
+    sorted({round(v, 5) for v in p1['max'].drop(at(2.0))}),
+    sorted({round(v, 5) for v in p1['min'].drop(at(3.0))}), res_s.death, res_s.runs),
+    ([0.9], [0.9], None, []))
+# Against the samples themselves, bin by bin: the death run's dying hold.
+tr4 = load_hold_trace(build_timeline(str(death)).segments[3], OcvSettings())
+res_d = analyze_ocv(build_timeline(str(death)))
+k = np.floor((tr4.t_s[tr4.valid] - tr4.segment.H_start_h * 3600.0) / res_d.plot_bin_s)
+want = pd.Series(tr4.v[tr4.valid]).groupby(k).agg(['min', 'max'])
+got = res_d.holds[3].plot
+check('band: each bin\'s low and high are its judged samples\' min and max',
+      (np.allclose(got['min'].to_numpy(), want['min'].to_numpy()),
+       np.allclose(got['max'].to_numpy(), want['max'].to_numpy()), len(got) == len(want)),
+      (True, True, True))
+fig_s = plot_ocv(tl_s, res_s)
+ax_s = fig_s.axes[0]
+from matplotlib.collections import PolyCollection
+legend_s = [t.get_text() for t in ax_s.get_legend().get_texts()]
+check('... drawn as one shaded band per hold, with one key and no edge entries in the legend',
+      (sum(isinstance(c, PolyCollection) for c in ax_s.collections),
+       [t for t in legend_s if t.startswith('high–low')],
+       [t for t in legend_s if t in (BAND_LOW, BAND_HIGH, 'bin minimum')]),
+      (2, ['high–low of the samples in each 1-min bin'], []))
+ylo, yhi = ax_s.get_ylim()
+true('... the y range takes the whole band in', ylo < 0.86 and yhi > 0.95, (ylo, yhi))
+_plt.close(fig_s)
+# The stored copy keeps the band as its two edges, labelled, on every hold's
+# x, so the portal can shade between them.
+out_s = tmp / 'out_spike'
+quiet(run, str(spike), str(out_s), {'image_format': 'png'})
+lines_s = json.loads((out_s / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                     parse_constant=_no_nan)['data']['axes'][0]['lines']
+meds = [ln for ln in lines_s if ln.get('label') and ln['label'] not in (BAND_LOW, BAND_HIGH)]
+lows = [ln for ln in lines_s if ln.get('label') == BAND_LOW]
+highs = [ln for ln in lines_s if ln.get('label') == BAND_HIGH]
+check('stored: a low and a high edge per hold, on its median\'s x, around it',
+      (len(meds), len(lows), len(highs),
+       all(lo['x'] == m['x'] == hi['x'] for lo, m, hi in zip(lows, meds, highs)),
+       all(a <= b <= c for lo, m, hi in zip(lows, meds, highs)
+           for a, b, c in zip(lo['y'], m['y'], hi['y'])),
+       max(max(hi['y']) for hi in highs), min(min(lo['y']) for lo in lows)),
+      (2, 2, 2, True, True, 0.95, 0.86))
+
+# The portal's redraw (Recall's run detail, and the comparison Export renders)
+# pairs each low edge with the high on the same x and shades between them.
+from scripts.helpers.plot_compare import band_pairs, render_overlay_comparison
+from scripts.compare_polcurves import export_comparison_excel
+pairs, loose = band_pairs(lines_s)
+check('band_pairs: each hold\'s low with its high, none left over',
+      (len(pairs), [lo is a and hi is b for (lo, hi), a, b in zip(pairs, lows, highs)], loose),
+      (2, [True, True], []))
+lo1 = {'label': BAND_LOW, 'x': [0, 1], 'y': [1, 1]}
+lo2 = {'label': BAND_LOW, 'x': [0, 1], 'y': [0, 0]}
+hi_off = {'label': BAND_HIGH, 'x': [0, 1.5], 'y': [2, 2]}
+hi_short = {'label': BAND_HIGH, 'x': [0, 1], 'y': [2]}
+hi1 = {'label': BAND_HIGH, 'x': [0, 1], 'y': [2, 2]}
+pairs, loose = band_pairs([lo1, hi_off, hi_short, hi1, lo2])
+check('... a high on other x or short of points pairs with nothing, and a second low waits '
+      'for a high of its own',
+      ([(lo is lo1, hi is hi1) for lo, hi in pairs], [id(t) for t in loose]),
+      ([(True, True)], [id(lo2), id(hi_off), id(hi_short)]))
+sc_s = json.loads((out_s / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(), parse_constant=_no_nan)
+
+
+def redrawn(band):
+    """What the redraw of the stored spike plot draws on its OCV axes."""
+    item = {'label': 'spike', 'sidecar': sc_s}
+    if band != 'unsaid':
+        item['band'] = band
+    with contextlib.redirect_stdout(io.StringIO()):
+        fig = render_overlay_comparison([item])
+    ax = fig.axes[0]
+    fills = [c for c in ax.collections if isinstance(c, PolyCollection)]
+    ys = [v for f in fills for p in f.get_paths() for v in p.vertices[:, 1]]
+    edges = [ln for ln in ax.get_lines() if ln.get_alpha() == 0.3]
+    medians = [ln for ln in ax.get_lines() if abs(ln.get_linewidth() - 1.4 * 0.9) < 1e-9]
+    got = (len(fills), (round(min(ys), 5), round(max(ys), 5)) if ys else None,
+           len(edges), all(any(ln.get_ydata().tolist() == e['y'] for e in lows + highs)
+                           for ln in edges),
+           len(medians), sorted({(ln.get_linestyle(), ln.get_alpha()) for ln in medians}),
+           [t.get_text() for t in fig.legends[0].get_texts()])
+    _plt.close(fig)
+    return got
+
+
+check('redraw: each hold\'s band shaded from its stored edges, the edges faint over it, the '
+      'medians solid, one key for the band',
+      redrawn('unsaid'), (2, (0.86, 0.95), 4, True, 2, [('-', 1.0)], ['spike', 'high–low of each bin']))
+check('... the same with the band asked for', redrawn(True), redrawn('unsaid'))
+check('... and with it turned off, no shading, no edges and no key, the medians as before',
+      redrawn(False), (0, None, 0, True, 2, [('-', 1.0)], ['spike']))
+# An edge left without a partner (here the first hold's high taken out) has
+# no shape to shade: it is drawn faint like any edge, never as a series, and
+# not at all with the band off; its hold's line is styled as any line.
+loose_sc = json.loads(json.dumps(sc_s))
+loose_ax = loose_sc['data']['axes'][0]
+loose_ax['lines'].remove(next(ln for ln in loose_ax['lines'] if ln.get('label') == BAND_HIGH))
+loose_y = next(ln for ln in loose_ax['lines'] if ln.get('label') == BAND_LOW)['y']
+
+
+def loose_drawn(band):
+    with contextlib.redirect_stdout(io.StringIO()):
+        fig = render_overlay_comparison([{'label': 'loose', 'sidecar': loose_sc, 'band': band}])
+    ax = fig.axes[0]
+    got = (sum(isinstance(c, PolyCollection) for c in ax.collections),
+           sorted(ln.get_alpha() for ln in ax.get_lines()
+                  if np.asarray(ln.get_ydata(), float).tolist() == loose_y))
+    _plt.close(fig)
+    return got
+
+
+check('redraw: an edge without a partner drawn faint, once, and not at all with the band off',
+      (loose_drawn(True), loose_drawn(False)), ((1, [0.3]), (0, [])))
+# The shading goes under the markers it surrounds (the settled start and end
+# values are scatters, which the redraw draws at zorder 1).
+with contextlib.redirect_stdout(io.StringIO()):
+    fig3 = render_overlay_comparison([{'label': 'spike', 'sidecar': sc_s}])
+fills3 = [c.get_zorder() for c in fig3.axes[0].collections if isinstance(c, PolyCollection)]
+marks3 = [c.get_zorder() for c in fig3.axes[0].collections if type(c).__name__ == 'PathCollection']
+true('redraw: the shading drawn under the markers', fills3 and marks3 and max(fills3) < min(marks3),
+     (fills3, marks3))
+_plt.close(fig3)
+# Two durability tests compared stack both readouts under the plot, about
+# twenty lines: the box must clear the legend below it.
+with contextlib.redirect_stdout(io.StringIO()):
+    fig2 = render_overlay_comparison([{'label': 'one', 'sidecar': sc_s},
+                                      {'label': 'two', 'sidecar': sc_s}], title='OCV')
+fig2.canvas.draw()
+rdr = fig2.canvas.get_renderer()
+boxes = [t.get_bbox_patch().get_window_extent(rdr) for t in fig2.texts if t.get_bbox_patch()]
+leg = fig2.legends[0].get_window_extent(rdr)
+true('comparison: two tests\' readouts clear the legend under them',
+     len(boxes) == 1 and boxes[0].y0 > leg.y1, (boxes and boxes[0].y0, leg.y1))
+_plt.close(fig2)
+
+
+def trace_labels(path):
+    """The comparison workbook's first trace sheet: {sample: [trace labels]}."""
+    wb = openpyxl.load_workbook(path)
+    ws = next(w for w in wb.worksheets if w.title != 'Metrics')
+    got, cur = {}, None
+    for c in range(1, ws.max_column + 1):
+        if ws.cell(1, c).value is not None:
+            cur = ws.cell(1, c).value
+            got[cur] = []
+        if ws.cell(2, c).value is not None and cur is not None:
+            got[cur].append(ws.cell(2, c).value)
+    wb.close()
+    return got
+
+
+with contextlib.redirect_stdout(io.StringIO()):
+    export_comparison_excel([{'label': 'on', 'sidecar': sc_s, 'band': True},
+                             {'label': 'off', 'sidecar': sc_s, 'band': False}],
+                            'fcdur_ocv_vs_time', str(tmp / 'band_cmp.xlsx'))
+wl = trace_labels(tmp / 'band_cmp.xlsx')
+edge = lambda labs: [t for t in labs if t in (BAND_LOW, BAND_HIGH)]  # noqa: E731
+check('comparison workbook: a sample with its band keeps the edges as traces, one without '
+      'leaves them out, the other traces alike',
+      (sorted(wl), edge(wl.get('on', [])), edge(wl.get('off', [])),
+       [t for t in wl.get('on', []) if t not in (BAND_LOW, BAND_HIGH)] == wl.get('off')),
+      (['off', 'on'], [BAND_LOW, BAND_HIGH] * 2, [], True))
+
 out = tmp / 'out_dips'
 res = quiet(run, str(dips), str(out), {'image_format': 'png'})
 row = res['summary'][0]
@@ -890,7 +1072,9 @@ check('summary carries the OCV numbers', sorted(k for k in row if k.startswith('
 sc = json.loads((out / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(), parse_constant=_no_nan)
 check('readout says no death', extract_values(sc).get('OCV death'), 'none')
 pts = sum(len(ln['x']) for ln in sc['data']['axes'][0]['lines'])
-true('plot within its point budget', pts <= 2 * (PLOT_MAX_BINS + 5) + 50, pts)
+# Three lines a hold (median, and the band's low and high edges), each of
+# about PLOT_MAX_BINS bins over the test, plus one bin a hold at most.
+true('plot within its point budget', pts <= 3 * (PLOT_MAX_BINS + 5) + 50, pts)
 true('dip notes reach run()', any('not a death' in n for n in res['notes']), res['notes'])
 res = quiet(run, str(dips), str(tmp / 'out_dips_p'), {'image_format': 'none', 'ocv_persist_min': '15'})
 close('ocv_persist_min reaches the rule: the 20-min dip is now a death', res['ocv_death_h'],
@@ -918,7 +1102,7 @@ true('settled markers are kept as points', len(sc['data']['axes'][0]['scatters']
 # Each hold's median line names its conditions, so a stored copy can be read
 # per condition (Comparisons): six FCTS holds, two conditions alternating.
 named_lines = [ln.get('label') for ln in sc['data']['axes'][0]['lines']
-               if ln.get('label') and ln.get('label') != 'bin minimum']
+               if ln.get('label') and ln.get('label') not in (BAND_LOW, BAND_HIGH)]
 check('fcts: every hold\'s OCV line labelled with its conditions',
       (len(named_lines), sorted(set(named_lines))),
       (6, ['90 °C, 0% RH, H2/dry Air 0.1/0.1 slpm', '90 °C, 30% RH, H2/Air 0.1/0.1 slpm']))
@@ -1731,6 +1915,159 @@ with contextlib.redirect_stdout(io.StringIO()):
 check('... whole only for the OCV plot: another type asked for whole is still thinned',
       [(len(ln['x']), ln.get('decimated', False)) for ln in hfr['series'][0]['axes'][0]['lines']],
       [shape[0][0]])
+
+# The OCV band through the portal, from stored records: Comparisons' Export
+# with the band on for one sample and off for another, and Recall's redraw.
+import scripts.compare_polcurves as compare_mod
+from scripts.helpers import plot_compare
+from scripts.helpers.record import decode_sidecars
+k1, k2 = (next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == s)
+          for s in (SAMPLE, '260603_DUR-NEW'))
+with contextlib.redirect_stdout(io.StringIO()):
+    ocv = {s['key']: s['plot'] for s in viewstore.plot_series_batch(
+        [{'key': k, 'analysis': 'fc_durability', 'step': '', 'plot_type': 'fcdur_ocv_vs_time'}
+         for k in (k1, k2)])['series']}
+stored_ocv = decode_sidecars(store.bins[k1])[ocv[k1]]['data']['axes'][0]
+holds = sum(1 for ln in stored_ocv['lines'] if ln.get('label') == BAND_LOW)
+true('stored record: the OCV plot keeps its band edges', holds >= 2, holds)
+with contextlib.redirect_stdout(io.StringIO()):
+    sources = viewstore.materialize_for_compare(
+        [{'key': k1, 'plot': ocv[k1], 'label': 'with band', 'band': True},
+         {'key': k2, 'plot': ocv[k2], 'label': 'without', 'band': False},
+         {'key': k2, 'plot': ocv[k2], 'label': 'unsaid', 'band': 'yes'}], tmp / 'cmp_in')
+check('staging for Export: a literal band flag is passed on, anything else left out',
+      [s.get('band', 'absent') for s in sources], [True, False, 'absent'])
+seen = []
+real_render = compare_mod.render_overlay_comparison
+
+
+def spy_render(items, **kw):
+    fig = real_render(items, **kw)
+    seen.append(([(it['label'], it.get('band')) for it in items],
+                 sum(isinstance(c, PolyCollection) for c in fig.axes[0].collections)))
+    return fig
+
+
+compare_mod.render_overlay_comparison = spy_render
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        got = compare_mod.run(str(tmp / 'cmp_in'), str(tmp / 'cmp_out'),
+                              {'sources': json.dumps(sources), 'image_format': 'png'})
+finally:
+    compare_mod.render_overlay_comparison = real_render
+check('Export: each sample\'s choice reaches the figure, unsaid drawn as stored; only the '
+      'two banded samples are shaded',
+      seen, [([('with band', True), ('without', False), ('unsaid', True)], 2 * holds)])
+wl = trace_labels(next((tmp / 'cmp_out').rglob('*.xlsx')))
+check('... and the workbook: the band\'s edges for those two only',
+      {k: len(edge(v)) for k, v in wl.items()}, {'with band': 2 * holds, 'without': 0, 'unsaid': 2 * holds})
+true('... the figure written', any(f.endswith('.png') for f in got['files_produced']), got)
+# Recall's run detail redraws one stored plot through the same renderer.
+redraws = []
+real_overlay = plot_compare.render_overlay_comparison
+
+
+def spy_overlay(items, **kw):
+    fig = real_overlay(items, **kw)
+    redraws.append(sum(isinstance(c, PolyCollection) for c in fig.axes[0].collections))
+    return fig
+
+
+plot_compare.render_overlay_comparison = spy_overlay
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        resp = portal.view_render({'key': k1, 'plot': ocv[k1]})
+        if inspect.iscoroutine(resp):
+            resp = asyncio.run(resp)
+finally:
+    plot_compare.render_overlay_comparison = real_overlay
+check('Recall\'s redraw of the stored OCV plot shades every hold\'s band',
+      (redraws, Path(resp.path).exists()), ([holds], True))
+
+# A band edge level across a hold's two bins is stored as two points (a level
+# two-point line would read back as a reference line). The redraw pairs it
+# all the same, and the series sent to a chart carry it as a line, so the
+# Comparisons chart pairs it too; other points are not sent.
+LEVEL = '260605_DUR-LEVEL'
+lv = tmp / 'level_out' / '_plot_data'
+lv.mkdir(parents=True)
+level_sc = {'plot_type': 'fcdur_ocv_vs_time',
+            'data': {'axes': [{'ylabel': 'Hold OCV (V)', 'texts': [], 'axhlines': [], 'axvlines': [],
+                               'lines': [{'x': [0.5, 1.5], 'y': [0.95, 0.96], 'label': BAND_HIGH},
+                                         {'x': [0.5, 1.5], 'y': [0.91, 0.92], 'label': '30% RH'}],
+                               'scatters': [{'x': [0.5, 1.5], 'y': [0.9, 0.9], 'sizes': [10.0],
+                                             'label': BAND_LOW},
+                                            {'x': [0.2, 1.8], 'y': [0.93, 0.92], 'sizes': [34.0],
+                                             'label': 'settled start and end (30-min medians)'}]}]}}
+(lv / f'{LEVEL}-FCDurability-fcdur_ocv_vs_time.json').write_text(json.dumps(level_sc))
+quiet(jsonbin.push_job_metrics, job_id='job-level', sample_name=LEVEL, script='FC Durability',
+      output_dir=tmp / 'level_out', input_files=['c2.csv'], script_short='FCDurability',
+      summary=[{'Analysis': 'fc_durability', 'Label': 'fcdur', 'Hours tested': 2.0}])
+key = next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == LEVEL)
+with contextlib.redirect_stdout(io.StringIO()):
+    got = viewstore.plot_series_batch([{'key': key, 'analysis': 'fc_durability', 'step': '',
+                                        'plot_type': 'fcdur_ocv_vs_time', 'full': True}])
+    fig4 = plot_compare.render_overlay_comparison([{'label': 'level', 'sidecar': level_sc}])
+check('a band edge stored as two level points: sent to the chart as a line, other points not',
+      sorted((ln['label'], ln['x'], ln['y']) for ln in got['series'][0]['axes'][0]['lines']),
+      sorted([(BAND_HIGH, [0.5, 1.5], [0.95, 0.96]), ('30% RH', [0.5, 1.5], [0.91, 0.92]),
+              (BAND_LOW, [0.5, 1.5], [0.9, 0.9])]))
+check('... and shaded by the redraw', sum(isinstance(c, PolyCollection) for c in fig4.axes[0].collections), 1)
+_plt.close(fig4)
+
+# Recall's workbook export lists each line beside its own x: an FC Durability
+# plot draws each hold on its own hours, where most plots share one x column.
+from scripts.helpers import xlsx_export
+
+
+def expected_columns(ax):
+    cols, cur = [], None
+    for ln in ax['lines']:
+        if not ln.get('x'):
+            continue
+        if ln['x'] != cur:
+            cols.append((ax.get('xlabel') or 'x', ln['x']))
+            cur = ln['x']
+        cols.append((ln.get('label') or 'series', ln['y']))
+    return cols
+
+
+rec1 = store.bins[k1]
+want_cols = expected_columns(stored_ocv)
+block = next(c for lab, c in xlsx_export._data_blocks(rec1, decode_sidecars(rec1), 'fc_durability')
+             if lab.endswith('fcdur_ocv_vs_time'))
+check('analysis workbook: each hold\'s columns beside its own hours, one x column a hold',
+      (block == want_cols, sum(1 for h, _ in want_cols if h == (stored_ocv.get('xlabel') or 'x'))),
+      (True, holds))
+wbx = openpyxl.load_workbook(io.BytesIO(xlsx_export.build_plot_workbook(rec1, ocv[k1])))
+wsx = next(w for w in wbx.worksheets if w.cell(2, 2).value == BAND_LOW)
+n_rows = max(len(v) for _, v in want_cols)
+sheet_cols = [(wsx.cell(2, c).value, [wsx.cell(r, c).value for r in range(3, 3 + n_rows)])
+              for c in range(1, len(want_cols) + 1)]
+check('... and the plot workbook alike',
+      sheet_cols, [(h, v + [None] * (n_rows - len(v))) for h, v in want_cols])
+check('... while lines on one x keep a single x column',
+      xlsx_export._columns('j', [('V', [1, 2], [3, 4]), ('P', [1, 2], [5, 6])]),
+      [('j', [1, 2]), ('V', [3, 4]), ('P', [5, 6])])
+# A later panel on the same x label and length joins the analysis block, each
+# line still beside its own x (the evolution plots: a panel per RH, one
+# length, different x).
+two_panel = {'p': {'plot_type': 'x', 'data': {'axes': [
+    {'xlabel': 'h', 'lines': [{'x': [0, 1], 'y': [5, 6], 'label': 'a'},
+                              {'x': [0, 1], 'y': [7, 8], 'label': 'b'}]},
+    {'xlabel': 'h', 'title': 'rate', 'lines': [{'x': [0, 1], 'y': [9, 9.5], 'label': 'r'}]}]}}}
+detail2 = {'metrics': {'b': {'p': {'conditions': {}}}}}
+heads = []
+for bx, rx in (([0, 1], [0, 1]), ([0, 1], [5, 6]), ([2, 3], [5, 6])):
+    two_panel['p']['data']['axes'][0]['lines'][1]['x'] = bx
+    two_panel['p']['data']['axes'][1]['lines'][0]['x'] = rx
+    heads.append(xlsx_export._data_blocks(detail2, two_panel, 'b')[0][1])
+check('... a later panel joins the block, each line beside its own x',
+      heads,
+      [[('h', [0, 1]), ('a', [5, 6]), ('b', [7, 8]), ('rate · r', [9, 9.5])],
+       [('h', [0, 1]), ('a', [5, 6]), ('b', [7, 8]), ('h', [5, 6]), ('rate · r', [9, 9.5])],
+       [('h', [0, 1]), ('a', [5, 6]), ('h', [2, 3]), ('b', [7, 8]), ('h', [5, 6]),
+        ('rate · r', [9, 9.5])]])
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{passed} passed, {failed} failed')

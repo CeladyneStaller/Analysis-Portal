@@ -311,6 +311,9 @@ MAX_SERIES_POINTS = 400
 # OCV line holds (about 3,000 bins per test).
 MAX_FULL_SERIES_POINTS = 20_000
 FULL_SERIES_PLOT_TYPES = {'fcdur_ocv_vs_time'}
+# The labels of a high–low band's edges (plot_compare.BAND_LOW and BAND_HIGH,
+# not imported, which would load matplotlib here).
+BAND_EDGE_LABELS = ('bin low', 'bin high')
 
 
 def _decimate(xs: List[Any], ys: List[Any], limit: int = MAX_SERIES_POINTS) -> Dict[str, List[Any]]:
@@ -405,6 +408,13 @@ def plot_series(key: str, analysis: str = '', step: str = '',
         lines = [{'label': ln.get('label') or '',
                   **_decimate(ln.get('x') or [], ln.get('y') or [], limit)}
                  for ln in ax.get('lines', []) if ln.get('x')]
+        # A band edge level across a hold's two bins is stored as two points,
+        # not a line (the sidecar writer reads a level two-point line as a
+        # reference line). It is sent as a line all the same, so a chart pairs
+        # it with its trace as the server-side redraw does.
+        lines += [{'label': pts['label'], **_decimate(pts.get('x') or [], pts.get('y') or [], limit)}
+                  for pts in ax.get('scatters', [])
+                  if pts.get('label') in BAND_EDGE_LABELS and pts.get('x')]
         if lines:
             axes.append({'title': ax.get('title') or '',
                          'xlabel': ax.get('xlabel') or '',
@@ -506,13 +516,13 @@ def materialize_for_compare(selections: List[Dict[str, str]],
         dirs[key] = run_dir
         available[key] = set(materialize_sidecars(key, run_dir, plots))
 
-    sources: List[Dict[str, str]] = []
+    sources: List[Dict[str, Any]] = []
     for sel in selections:
         key, plot = _key(sel), sel['plot']
         if plot not in available.get(key, set()):
             continue
         detail = fetch_detail(key)
-        sources.append({
+        source: Dict[str, Any] = {
             'job_id': detail.get('job_id', key),
             'label': sel.get('label', ''),
             # The comparison script strips the extension to find the sidecar,
@@ -525,7 +535,13 @@ def materialize_for_compare(selections: List[Dict[str, str]],
             # ignores keys it does not use.
             'plot_type': str((decode_sidecars(detail).get(plot) or {})
                              .get('plot_type', '')),
-        })
+        }
+        # Whether the plot's high–low band is drawn, chosen per sample on the
+        # Comparisons chart; only a literal true or false is passed on, and
+        # without one the comparison draws the band as stored.
+        if isinstance(sel.get('band'), bool):
+            source['band'] = sel['band']
+        sources.append(source)
     return sources
 
 

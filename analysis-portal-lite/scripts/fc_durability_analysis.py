@@ -60,7 +60,10 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from scripts.helpers.plot_compare import save_with_sidecar
+from matplotlib.patches import Patch
+# The OCV plot's high–low band is labelled by its edges as the portal's redraw
+# and Comparisons know them, and shaded alike.
+from scripts.helpers.plot_compare import save_with_sidecar, BAND_LOW, BAND_HIGH, BAND_ALPHA
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -879,7 +882,8 @@ def analyze_hold(tr: HoldTrace, settings: Optional[OcvSettings] = None,
     def binned(width_s: float) -> pd.DataFrame:
         k = np.floor((tv - origin) / width_s).astype(np.int64)
         return (pd.DataFrame({'k': k, 't': tv, 'v': vv}).groupby('k', sort=True)
-                .agg(t=('t', 'mean'), median=('v', 'median'), min=('v', 'min')))
+                .agg(t=('t', 'mean'), median=('v', 'median'), min=('v', 'min'),
+                     max=('v', 'max')))
 
     per_min = binned(TRACE_BIN_S)
     h.rates = rolling_decay(per_min['t'].to_numpy() / 3600.0, per_min['median'].to_numpy(),
@@ -887,7 +891,8 @@ def analyze_hold(tr: HoldTrace, settings: Optional[OcvSettings] = None,
     plot = binned(plot_bin_s)
     h.plot = pd.DataFrame({'t_h': plot['t'].to_numpy() / 3600.0,
                            'median': plot['median'].to_numpy(),
-                           'min': plot['min'].to_numpy()})
+                           'min': plot['min'].to_numpy(),
+                           'max': plot['max'].to_numpy()})
     return h
 
 
@@ -1839,7 +1844,8 @@ def _series(ax, x, y, **style):
     drawn as two markers instead. A single point gets a marker, or nothing
     would show (an OCV plot bin as long as a hold leaves it one)."""
     if len(x) == 2 and (x[0] == x[1] or y[0] == y[1]):
-        ax.scatter(x, y, s=10, color=style.get('color'), label=style.get('label'), zorder=3)
+        ax.scatter(x, y, s=10, color=style.get('color'), label=style.get('label'),
+                   alpha=style.get('alpha'), zorder=3)
     else:
         if len(x) == 1:
             style = {'marker': 'o', 'ms': 3, **style}
@@ -1849,12 +1855,15 @@ def _series(ax, x, y, **style):
 def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, title: str = ''):
     """Hold OCV against hold hours, holds joined, over its rolling decay rate.
 
-    Each hold is drawn from bins of its judged samples: the bin median, and
-    the bin minimum as a faint line so short dips survive the binning. Settled
-    start and end values and dips are markers (scatters, so a pair of them
-    never reads back as a reference line), and the threshold,
-    characterization hours and the death trip are reference lines. Every
-    plotted array is finite, since the sidecar writer refuses NaN.
+    Each hold is drawn from bins of its judged samples: the bin median, over a
+    band shaded from each bin's lowest to its highest sample, so short dips
+    and spikes survive the binning. The sidecar writer keeps lines but not
+    fills, so the band's edges are also drawn, as faint lines labelled
+    BAND_LOW and BAND_HIGH, which the portal shades between. Settled start and
+    end values and dips are markers (scatters, so a pair of them never reads
+    back as a reference line), and the threshold, characterization hours and
+    the death trip are reference lines. Every plotted array is finite, since
+    the sidecar writer refuses NaN.
     """
     s = res.settings
     fig, (ax, axr) = plt.subplots(2, 1, figsize=(12, 7.5), dpi=120, sharex=True,
@@ -1864,22 +1873,26 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
         colors.setdefault(h.conditions_key, _COND_COLORS[len(colors) % len(_COND_COLORS)])
 
     ys: List[float] = [s.threshold_v]
-    named: set = set()
+    banded = False
     for h in res.holds:
         if h.plot is None or h.plot.empty:
             continue
         c = colors[h.conditions_key]
         x = h.plot['t_h'].round(4).to_numpy()
         low = h.plot['min'].round(5).to_numpy()
+        high = h.plot['max'].round(5).to_numpy()
         mid = h.plot['median'].round(5).to_numpy()
-        _series(ax, x, low, color=c, lw=0.6, alpha=0.4,
-                label='bin minimum' if not named else '_nolegend_')
+        ax.fill_between(x, low, high, color=c, alpha=BAND_ALPHA, lw=0, zorder=1.2)
+        # Every hold's edges carry their labels, so the stored copy pairs
+        # them hold by hold; the legend below shows one key for the band.
+        _series(ax, x, low, color=c, lw=0.4, alpha=0.3, label=BAND_LOW, zorder=1.3)
+        _series(ax, x, high, color=c, lw=0.4, alpha=0.3, label=BAND_HIGH, zorder=1.3)
         # Every hold's median carries its conditions, not only the first: a
         # stored copy is read line by line (Comparisons draws each condition
         # as one series), and the legend below names each condition once.
         _series(ax, x, mid, color=c, lw=1.4, label=h.segment.conditions)
-        named.add(h.conditions_key)
-        ys += [float(low.min()), float(mid.max())]
+        banded = True
+        ys += [float(low.min()), float(high.max())]
 
     marked = False
     for key, c in colors.items():
@@ -1918,7 +1931,12 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
     ax.set_title(title or 'Hold OCV', fontsize=11, fontweight='bold', loc='left')
     first: Dict[str, Any] = {}
     for handle, label in zip(*ax.get_legend_handles_labels()):
-        first.setdefault(label, handle)
+        if label not in (BAND_LOW, BAND_HIGH):
+            first.setdefault(label, handle)
+    if banded:
+        # One neutral key for the bands, which take each condition's colour.
+        first[f'high–low of the samples in each {res.plot_bin_s / 60:.4g}-min bin'] = Patch(
+            facecolor='0.6', alpha=0.35, edgecolor='0.6', lw=0.4)
     ax.legend(list(first.values()), list(first), loc='best', fontsize=8, framealpha=0.9)
     lines = [_kv('OCV initial', res.initial_v, '.4f', 'V'),
              _kv('OCV final', res.final_v, '.4f', 'V'),
@@ -2366,7 +2384,8 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
             ('OCV trace sheet', f'{TRACE_BIN_S:g} s bins of every open-circuit sample; '
                                 f'the 10-min median is blank where nothing was judged'),
             ('OCV plot bin (min)', f'{ocv.plot_bin_s / 60:.4g} ({ocv.plot_bin_rule}); '
-                                   f'each bin is drawn as its median and minimum'),
+                                   f'each bin is drawn as its median, shaded from its lowest '
+                                   f'to its highest sample'),
         ]
     if ca is not None:
         summary += char_summary_rows(ca, ocv)

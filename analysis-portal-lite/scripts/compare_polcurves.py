@@ -24,7 +24,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 from scripts.helpers.plot_compare import (
-    find_sidecar, load_sidecar, render_overlay_comparison
+    find_sidecar, load_sidecar, render_overlay_comparison, is_band_edge
 )
 
 
@@ -387,6 +387,10 @@ def export_comparison_excel(items, plot_type, filepath):
                 continue
             s_ad = s_axes[ax_idx]
             traces = s_ad.get('lines', []) + s_ad.get('scatters', [])
+            # A sample drawn without its high–low band leaves the band's
+            # edges out here too.
+            if item.get('band') is False:
+                traces = [t for t in traces if not is_band_edge(t)]
             if not traces:
                 continue
 
@@ -486,6 +490,7 @@ def _compare_generic(items, output_dir, params):
             'filename': filename,
             'sidecar': it['sidecar'],
             'sample_name': sample_name,
+            'band': it.get('band') is not False,
         })
 
     # Group outputs by plot_type into subfolders so the portal UI can
@@ -627,6 +632,9 @@ def run(input_dir, output_dir, params=None):
             'filename': filename,
             'sidecar': sidecar,
             'sample_name': src.get('sample_name', ''),
+            # False leaves this sample's high–low bands out of the figure and
+            # the workbook; anything else draws them as stored.
+            'band': src.get('band') is not False,
         })
 
     if not by_group:
