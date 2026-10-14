@@ -404,8 +404,19 @@ check('... Hours to death once dead',
       .get('Hours to death'), 12.0)
 check('... units', [KEY_VALUE_UNITS.get(k) for k in (
           'Hours tested', 'Hours to death', 'OCV initial', 'OCV decay rate', 'OCV loss',
-          'j_xover initial', 'j_xover final', 'R_short final')],
-      ['h', 'h', 'V', 'μV/h', '%', 'mA/cm²', 'mA/cm²', 'Ω·cm²'])
+          'j_xover initial', 'j_xover final', 'R_short final', 'RH cycles tested',
+          'RH cycles to death')],
+      ['h', 'h', 'V', 'μV/h', '%', 'mA/cm²', 'mA/cm²', 'Ω·cm²', 'cycles', 'cycles'])
+# A test that cycles RH also counts its lifetime in cycles: tested always,
+# to death once dead; the cycle length and its rule stay in the record.
+check('... RH cycles tested, and to death once dead, for a test that cycles RH',
+      [build_key_values('fc_durability', {}, dict(FCDUR_ROW, **extra)) for extra in (
+          {'RH cycles tested': 2000, 'RH cycle (s)': 75.0},
+          {'RH cycles tested': 2000, 'RH cycles to death': 1234, 'Hours to death': 25.7,
+           'Verdict': 'dead'})],
+      [dict(build_key_values('fc_durability', {}, FCDUR_ROW), **{'RH cycles tested': 2000}),
+       dict(build_key_values('fc_durability', {}, FCDUR_ROW),
+            **{'RH cycles tested': 2000, 'RH cycles to death': 1234, 'Hours to death': 25.7})])
 
 print("detail record — single analysis")
 tmp = tempfile.mkdtemp()

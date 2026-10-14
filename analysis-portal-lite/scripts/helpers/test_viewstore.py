@@ -307,5 +307,127 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("RH cycles axis")
+# FC Durability stores, with a test that cycles RH, its hold hours against RH
+# cycles completed; Comparisons' Export can stage a durability plot against
+# cycles off it. Here a first hold cycles RH for 2 h (50 an hour) and a second
+# holds it steady for 1 h.
+MAP = {'plot_type': 'fcdur_rh_cycles', 'data': {'axes': [{
+    'xlabel': 'Hold hours (h)', 'ylabel': 'RH cycles', 'texts': [], 'axhlines': [],
+    'axvlines': [{'x': 2.0}],
+    'lines': [{'x': [0.0, 1.0, 2.0, 3.0], 'y': [0, 50, 100, 100],
+               'label': 'RH cycles completed'}]}]}}
+
+
+def ocv_plot():
+    return {'plot_type': 'fcdur_ocv_vs_time', 'data': {'axes': [{
+        'xlabel': 'Hold time (h)', 'ylabel': 'Hold OCV (V)', 'xlim': [-0.15, 3.15],
+        'texts': [{'text': 'OCV loss = 1 %', 'x': 0.02, 'y': 0.9, 'in_axes_fraction': True},
+                  {'text': 'death', 'x': 2.75, 'y': 0.7, 'in_axes_fraction': False}],
+        'axhlines': [{'y': 0.7}], 'axvlines': [{'x': 2.0}, {'x': 2.75}],
+        'lines': [{'x': [0.5, 1.5], 'y': [0.95, 0.94], 'label': '100↔0% RH cycling'},
+                  {'x': [2.5], 'y': [0.93], 'label': '30% RH'}],
+        'scatters': [{'x': [0.5, 1.5], 'y': [0.9, 0.9], 'label': 'bin low'}]}]}}
+
+
+check('the map: hours and cycles, in order',
+      viewstore.rh_cycle_map({'m': MAP, 'o': ocv_plot()}), ([0.0, 1.0, 2.0, 3.0], [0.0, 50.0, 100.0, 100.0]))
+stepped = json.loads(json.dumps(MAP))
+stepped['data']['axes'][0]['lines'][0].update(x=[0.0, 1.0, 0.5, 2.0, None], y=[0, 50, 25, 100, 120])
+check('... a point stepping back in hours, or missing a number, left out',
+      viewstore.rh_cycle_map({'m': stepped}), ([0.0, 1.0, 2.0], [0.0, 50.0, 100.0]))
+short = json.loads(json.dumps(MAP))
+short['data']['axes'][0]['lines'][0].update(x=[0.0], y=[0])
+renamed = json.loads(json.dumps(MAP))
+renamed['data']['axes'][0]['lines'][0]['label'] = 'cycles'
+check('... none from one point, another line, or a test without the plot',
+      [viewstore.rh_cycle_map(s) for s in ({'m': short}, {'m': renamed}, {'o': ocv_plot()}, {})],
+      [None, None, None, None])
+H, C = viewstore.rh_cycle_map({'m': MAP})
+check('cycles at an hour: straight between points, held at the ends, a gap passed through',
+      [viewstore.cycles_at(H, C, h) for h in (-1, 0, 0.5, 1.0, 1.25, 2.5, 3.0, 9.0, None)],
+      [0.0, 0.0, 25.0, 50.0, 62.5, 100.0, 100.0, 100.0, None])
+moved = viewstore.sidecar_on_cycles(ocv_plot(), H, C)['data']['axes'][0]
+check('a plot against cycles: lines, points, vertical lines, text placed by data, range, label',
+      ([ln['x'] for ln in moved['lines']], moved['scatters'][0]['x'],
+       [v['x'] for v in moved['axvlines']], [t['x'] for t in moved['texts']],
+       moved['xlim'], moved['xlabel'], moved['ylabel'], moved['axhlines']),
+      ([[25.0, 75.0], [100.0]], [25.0, 75.0], [100.0, 100.0], [0.02, 100.0],
+       [0.0, 100.0], 'RH cycles', 'Hold OCV (V)', [{'y': 0.7}]))
+
+_orig = INDEX['runs']
+INDEX['runs'] = _orig + [
+    {'job_id': 'job-C', 'sample_name': '261001_CYC', 'script': 'FC Durability',
+     'timestamp': '2026-10-01T10:00:00Z', 'bin_id': 'BIN-C',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]},
+    {'job_id': 'job-D', 'sample_name': '261002_STEADY', 'script': 'FC Durability',
+     'timestamp': '2026-10-02T10:00:00Z', 'bin_id': 'BIN-D',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]}]
+BIN_TO_JOB.update({'BIN-C': 'job-C', 'BIN-D': 'job-D'})
+long_map = json.loads(json.dumps(MAP))
+long_map['data']['axes'][0]['lines'][0].update(x=[k / 100 for k in range(901)],
+                                               y=[min(k, 450) for k in range(901)])
+for job, sample, plots in (('job-C', '261001_CYC', {'ocv': ocv_plot(), 'cyc': MAP}),
+                           ('job-D', '261002_STEADY', {'ocv': ocv_plot()}),
+                           ('job-L', '261003_LONG', {'cyc': long_map})):
+    DETAILS[job] = {
+        'schema': 2, 'job_id': job, 'sample_name': sample, 'script': 'FC Durability',
+        'metrics': {'fc_durability': {f'{sample}-FCDurability-{k}': {
+            'conditions': {'step': ''}, 'values': {}} for k in plots}},
+        'sidecars': encode_sidecars({f'{sample}-FCDurability-{k}': v for k, v in plots.items()})}
+INDEX['runs'].append({'job_id': 'job-L', 'sample_name': '261003_LONG', 'script': 'FC Durability',
+                      'timestamp': '2026-10-03T10:00:00Z', 'bin_id': 'BIN-L',
+                      'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]})
+BIN_TO_JOB['BIN-L'] = 'job-L'
+reset()
+tmp = tempfile.mkdtemp()
+try:
+    ask = {'analysis': 'fc_durability', 'step': '', 'plot_type': 'fcdur_rh_cycles', 'full': True}
+    got = viewstore.plot_series_batch([dict(ask, key='BIN-L'), dict(ask, key='BIN-D')])
+    line = got['series'][0]['axes'][0]['lines'][0]
+    check('the map sent whole to the chart, 901 points not thinned; a test without one missing',
+          (len(line['x']), line.get('decimated', False), [m['key'] for m in got['missing']]),
+          (901, False, ['BIN-D']))
+    OCV_C, OCV_D = '261001_CYC-FCDurability-ocv', '261002_STEADY-FCDurability-ocv'
+    sources = viewstore.materialize_for_compare([
+        {'key': 'BIN-C', 'plot': OCV_C, 'label': 'cycled', 'x': 'cycles'},
+        {'key': 'BIN-C', 'plot': OCV_C, 'label': 'again', 'x': 'cycles'},
+        {'key': 'BIN-D', 'plot': OCV_D, 'label': 'steady', 'x': 'cycles'},
+        {'key': 'BIN-A', 'plot': 'polcurve_b14_80C_100RH', 'label': 'polcurve', 'x': 'cycles'},
+    ], Path(tmp))
+    check('staged against cycles: the cycling test (once for both), not the steady one; '
+          'not a durability plot, as stored',
+          [(s['label'], s['plot_type']) for s in sources],
+          [('cycled', 'fcdur_ocv_vs_time'), ('again', 'fcdur_ocv_vs_time'), ('polcurve', 'polcurve')])
+    from scripts.helpers.plot_compare import find_sidecar, load_sidecar
+    staged = [load_sidecar(find_sidecar(s['output_dir'], s['filename']))['data']['axes'][0]
+              for s in sources]
+    check('... its x read off its own map, converted once',
+          ([ln['x'] for ln in staged[0]['lines']], [v['x'] for v in staged[0]['axvlines']],
+           staged[0]['xlabel'], staged[1]['lines'][0]['x']),
+          ([[25.0, 75.0], [100.0]], [100.0, 100.0], 'RH cycles', [25.0, 75.0]))
+    check('... the polcurve staged as stored', (staged[2]['lines'][0]['x'], staged[2].get('xlabel')),
+          ([0, 1], None))
+    plain = viewstore.materialize_for_compare([
+        {'key': 'BIN-C', 'plot': OCV_C}, {'key': 'BIN-D', 'plot': OCV_D, 'x': 'hours'}], Path(tmp) / 'h')
+    check('... and on hold hours, every test as stored',
+          [load_sidecar(find_sidecar(s['output_dir'], s['filename']))['data']['axes'][0]['lines'][0]['x']
+           for s in plain], [[0.5, 1.5], [0.5, 1.5]])
+    both = viewstore.materialize_for_compare([
+        {'key': 'BIN-C', 'plot': OCV_C, 'x': 'cycles'}, {'key': 'BIN-C', 'plot': OCV_C},
+        {'key': 'BIN-C', 'plot': '261001_CYC-FCDurability-cyc', 'x': 'cycles'}], Path(tmp) / 'b')
+    check('... the same plot asked for on both axes staged both ways; a plot not against hold '
+          'hours (the map itself) as stored',
+          [(lambda a: (a['lines'][0]['x'][:2], a.get('xlabel')))(
+              load_sidecar(find_sidecar(s['output_dir'], s['filename']))['data']['axes'][0]) for s in both],
+          [([25.0, 75.0], 'RH cycles'), ([0.5, 1.5], 'Hold time (h)'), ([0.0, 1.0], 'Hold hours (h)')])
+finally:
+    shutil.rmtree(tmp)
+    INDEX['runs'] = _orig
+    for b, j in (('BIN-C', 'job-C'), ('BIN-D', 'job-D'), ('BIN-L', 'job-L')):
+        BIN_TO_JOB.pop(b)
+        DETAILS.pop(j)
+    reset()
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

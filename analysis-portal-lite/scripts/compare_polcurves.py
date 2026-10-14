@@ -443,6 +443,47 @@ def export_comparison_excel(items, plot_type, filepath):
     print(f"  Excel exported: {filepath}")
 
 
+def _panels_by_label(items):
+    """Each item's panels in the first item's order, paired by y label.
+
+    The overlay pairs the n-th panel of every sample with the n-th of the
+    first. An FC Durability plot stores only the panels that have lines, and
+    a panel's quantity has changed between versions (j @ 0.6 V became
+    j @ 0.65 V), so the n-th panels of two stored tests need not be the same
+    quantity. Paired by label, a sample without one of the first's panels
+    draws nothing on it. A label's first line names the quantity; a second
+    says how it was worked out (the decay panel's rate window, set on the
+    form), and two samples worked out differently still share the panel.
+    Returns copies; the sidecars are left as they are.
+    """
+    def panels(sc):
+        return [a for a in (sc.get('data') or {}).get('axes', []) if not a.get('is_twin')]
+
+    def has_data(a):
+        return bool(a.get('lines') or a.get('scatters') or a.get('bars'))
+
+    def quantity(a):
+        return str(a.get('ylabel') or '').split('\n')[0].strip()
+
+    ref = [a for a in panels(items[0]['sidecar']) if has_data(a)]
+    out = []
+    for it in items:
+        own, used, aligned = panels(it['sidecar']), set(), []
+        for ra in ref:
+            i = next((i for i, a in enumerate(own) if i not in used and has_data(a)
+                      and quantity(a) == quantity(ra)), None)
+            if i is None:
+                aligned.append({k: ra.get(k) for k in ('subplot_pos', 'title', 'xlabel', 'ylabel')}
+                               | {'lines': [], 'scatters': [], 'bars': [], 'axhlines': [],
+                                  'axvlines': [], 'texts': []})
+            else:
+                used.add(i)
+                aligned.append(own[i])
+        sc = dict(it['sidecar'], data=dict(it['sidecar'].get('data') or {}, axes=aligned))
+        out.append(dict(it, sidecar=sc))
+    return out
+
+
 def _compare_generic(items, output_dir, params):
     """Default generator: overlay + Excel. Writes outputs into a
     subfolder named after the plot_type so the portal UI auto-groups them."""
@@ -492,6 +533,8 @@ def _compare_generic(items, output_dir, params):
             'sample_name': sample_name,
             'band': it.get('band') is not False,
         })
+    if str(plot_type).startswith('fcdur'):
+        clean_items = _panels_by_label(clean_items)
 
     # Group outputs by plot_type into subfolders so the portal UI can
     # display "Activation", "Polarization Curve", "EIS", etc. as separate

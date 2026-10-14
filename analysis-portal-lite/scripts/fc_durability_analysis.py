@@ -22,11 +22,28 @@ death is measured on. File names carry everything the timeline needs:
   * The hold-hour clock. Each hold file adds its last time stamp plus the
     30 s that every station step runs past the end of its log.
 
+The Scribner stand's own software (FuelCell) writes a .fcd file per step
+instead, all in one folder, with no sample in the name and 'o' for the
+decimal point:
+
+    {step}_{kind}[_{range}]_{T}C-{RH}RH_{anode}-{cathode}_{P}kPa.fcd
+    c4_OCV-RHC-1000cyc_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd
+
+CVs are named by scan rate (CV-2mVs crossover, CV-50mVs ECSA, CV-500mVs
+cleaning), the pol curve is IV and EIS is GEIS. A .fcd header runs to its
+column line and 'End Comments'. Its Time (Sec) runs on from the start of the
+station session, so a step's own clock starts one interval before its first
+sample and the step ends with its last: no tail is added. Its columns are
+read under the station CSV names, so everything below reads both formats.
+
 The hold OCV is then judged on that clock. A hold's files are stitched end
 to end; samples drawing current, and the first 10 min of each hold while the
 OCV settles, are not judged. Death on OCV is the start of the first stretch
 in which the centred 10-min rolling median of the judged samples stays below
-0.7 V for 30 min. Each hold also gives a settled start and end OCV (30-min
+0.7 V for 30 min. A .fcd hold whose header carries its own voltage limit
+(Term:E<0.7) also dies when the station acts on it, however briefly: when
+it ends the step, or cuts a wet half of the RH-cycling loop short and the
+loop runs on. Each hold also gives a settled start and end OCV (30-min
 medians) and a rolling 10 h decay rate; the test's OCV loss runs from the
 first hold's settled start to the last hold's end at the first hold's
 conditions.
@@ -41,9 +58,9 @@ The verdict takes the earlier of the two rules ("both" when the OCV trip
 falls inside the crossover bracket); a sample neither rule kills is alive at
 the hours tested. DOE AST targets are reported beside it, never judged.
 
-This is milestones M1 to M3 of the plan. Registration in the portal comes in
-M4; until then the module is not in SCRIPT_REGISTRY, so the portal cannot
-run it half-built.
+Only OCV hold time counts: hours tested, hours to death, RH cycles and the
+x axis of every plot, the timeline's included, leave out characterizations
+and every other step between holds. The portal runs this as "FC Durability".
 """
 
 import contextlib
@@ -60,6 +77,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 # The OCV plot's high–low band is labelled by its edges as the portal's redraw
 # and Comparisons know them, and shaded alike.
@@ -170,13 +188,421 @@ def natural_key(text: str) -> List[Any]:
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', text)]
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  Scribner FuelCell (.fcd) step files
+# ═══════════════════════════════════════════════════════════════════
+
+# As the KM8-S6 run (October 2026) names them:
+#   b20_CV-2mVs_0o12to0o8V_80C-100RH_0o4H2-0o4N2_0kPa.fcd
+# The block is one or two letters (the shut-down steps are zz1, zz2).
+_FCD_STEP_RE = re.compile(r'^(?P<letter>[A-Za-z]{1,2})(?P<number>\d+)$')
+_ONUM = r'\d+(?:[o.]\d+)?'
+# 80C-100RH; 90C-100RH(90C)-0RH, RH cycled between the two; 93C-(90C)RH, a
+# dew point; 25C-Dry; or the temperature alone (a0_T-cell-ramp-up_83C_0kPa).
+_FCD_TRH_RE = re.compile(
+    rf'^(?P<T>{_ONUM})C(?:-(?:(?P<RH>{_ONUM})RH(?:\((?P<dp_wet>{_ONUM})C\)-(?P<RH2>{_ONUM})RH)?'
+    rf'|\((?P<dp>{_ONUM})C\)RH|(?P<dry>Dry)))?$', re.IGNORECASE)
+_FCD_FLOW_RE = re.compile(
+    rf'^(?P<fa>{_ONUM})(?P<ga>H2|N2|O2|Air)-(?P<fc>{_ONUM})(?P<gc>H2|N2|O2|Air)$', re.IGNORECASE)
+_FCD_P_RE = re.compile(rf'^(?P<P>{_ONUM})kPa$', re.IGNORECASE)
+_FCD_CV_RE = re.compile(rf'^CV-(?P<rate>{_ONUM})mVs(?:-.*)?$', re.IGNORECASE)
+# CVs are named by scan rate: 2 mV/s crossover, 50 mV/s ECSA, 500 mV/s cleaning.
+FCD_CV_XOVER_MAX_MVS = 10.0
+FCD_CV_ECSA_MAX_MVS = 200.0
+# The step's own end condition, as the header's Description gives it:
+# 'Open Circuit; 30 Seconds; Fixed 1 Sec/Pt; Term:E<0.7 NextStep; ...'. A
+# hold the station ends on it is a hold however short, and an OCV death; so
+# is a wet half of an RH-cycling loop it cuts short (KM8-S6's limit is on the
+# loop's 30 s wet sub-step), the loop running on (station_runs).
+_FCD_TERM_RE = re.compile(r'Term:\s*E\s*<\s*(?P<v>\d+(?:\.\d+)?)', re.IGNORECASE)
+# How long that (sub-)step runs, the Description's second field: '30 Seconds'.
+_FCD_DURATION_RE = re.compile(r'(?:^|;)\s*(?P<n>\d+(?:\.\d+)?)\s*(?P<u>second|minute|hour)s?\s*(?=;|$)',
+                              re.IGNORECASE)
+_FCD_UNIT_S = {'second': 1.0, 'minute': 60.0, 'hour': 3600.0}
+# A step named for a change of gas ('N2-to-Air', KM8-S6's c3 and d3).
+_GAS_CHANGE_RE = re.compile(r'(?:^|[_-])[A-Za-z0-9]+-to-[A-Za-z0-9]+(?:$|[_-])', re.IGNORECASE)
+# Rows Full Analysis's Scribner presets leave out of crossover and pol-curve
+# files (Ctrl_Mode, mode_exclude).
+FCD_SKIP_MODES = (5,)
+FCD_HEADER_MAX_LINES = 500
+FCD_TIME = 'Time (Sec)'
+FCD_MODE = 'Ctrl_Mode'
+# Where each station CSV column comes from in a .fcd file.
+_FCD_SOURCE = {
+    'Time Stamp': FCD_TIME, 's': FCD_TIME,
+    'Working Electrode Voltage': 'E_Stack (V)', 'Current': 'I (A)',
+    'mV': 'E_Stack (V)', 'mA': 'I (A)',
+    'Frequency': 'Z_Freq (Hz)', 'Real Impedance': 'Z_Real (Ohm)',
+    'Imaginary Impedance': 'Z_Imag (Ohm)',
+}
+
+
+def _onum(text: str) -> float:
+    return float(text.replace('o', '.').replace('O', '.'))
+
+
+def _rh_from_dew_point(T_C: float, dew_C: float) -> float:
+    """RH (%) of gas at T_C with the given dew point (Magnus, over water)."""
+    def ps(t: float) -> float:
+        return 6.112 * math.exp(17.62 * t / (243.12 + t))
+    return 100.0 * ps(dew_C) / ps(T_C)
+
+
+def _fcd_kind(token: str) -> str:
+    """The kind a .fcd step token names: a CV by its scan rate, the rest by
+    the token's first word (GEIS-150mAcm2 is EIS, IV-H2Air and IV-OCV-0o3V
+    pol curves, OCV-RHC-1000cyc and Purge OCV-type steps). Only a token whose
+    first word names nothing is an OCV-type step for 'OCV' among its later
+    words (RHC-OCV-1000cyc)."""
+    m = _FCD_CV_RE.match(token)
+    if m:
+        rate = _onum(m['rate'])
+        return ('crossover' if rate <= FCD_CV_XOVER_MAX_MVS
+                else 'ecsa' if rate <= FCD_CV_ECSA_MAX_MVS else 'eclean')
+    words = token.lower().split('-')
+    first = words[0]
+    if first.startswith(('ocv', 'purge')):
+        return 'ocv'
+    if first.startswith(('geis', 'peis', 'eis')):
+        return 'eis'
+    if first == 'iv' or first.startswith(('polarization', 'polcurve')):
+        return 'polcurve'
+    if first.startswith('activation') or token.lower().replace('-', '').startswith('breakin'):
+        return 'breakin'
+    if 'ocv' in words:
+        return 'ocv'
+    return 'other'
+
+
+def parse_fcd_step_name(filename: str) -> Optional[Dict[str, Any]]:
+    """Fields encoded in a Scribner .fcd step-file name, or None if it is not one.
+
+    The kind is the token after the step (OCV-RHC-1000cyc, CV-2mVs, IV, Purge,
+    ...); the temperature/RH token is found by its form, and the flows and the
+    back pressure by theirs, wherever they stand after the kind. Other tokens,
+    such as a CV's range (0o12to0o8V) or an IV's (OCV-0o3V), are kept as
+    `suffix`.
+    """
+    stem = re.sub(r'\.fcd$', '', os.path.basename(filename), flags=re.IGNORECASE)
+    tokens = stem.split('_')
+    m = _FCD_STEP_RE.match(tokens[0])
+    if not m or len(tokens) < 2:
+        return None
+    trh_i = next((i for i in range(1, len(tokens)) if _FCD_TRH_RE.match(tokens[i])), None)
+    if trh_i is None:
+        return None
+    trh = _FCD_TRH_RE.match(tokens[trh_i])
+    T = _onum(trh['T'])
+    rh_text, humid = '', ''
+    if trh['RH'] is not None:
+        RH = _onum(trh['RH'])
+        if trh['RH2'] is not None:
+            rh_text = f"{RH:g}↔{_onum(trh['RH2']):g}% RH cycling"
+    elif trh['dp'] is not None:
+        RH = round(_rh_from_dew_point(T, _onum(trh['dp'])), 1)
+        rh_text = f"dew point {_onum(trh['dp']):g} °C"
+    elif trh['dry'] is not None:
+        RH, humid = 0.0, 'dry'
+    else:
+        RH = math.nan
+    kind_i = 1 if trh_i > 1 else None
+    extra: List[str] = []
+    flows = press = None
+    for i, t in enumerate(tokens[1:], 1):
+        if i in (kind_i, trh_i):
+            continue
+        if flows is None and _FCD_FLOW_RE.match(t):
+            flows = _FCD_FLOW_RE.match(t)
+        elif press is None and _FCD_P_RE.match(t):
+            press = _FCD_P_RE.match(t)
+        else:
+            extra.append(t)
+    kind_token = tokens[1] if kind_i else ''
+    rec: Dict[str, Any] = {
+        'step': f"{m['letter'].lower()}{int(m['number'])}",
+        'letter': m['letter'].lower(),
+        'number': int(m['number']),
+        'sample': '',
+        'kind': _fcd_kind(kind_token),
+        'kind_token': kind_token,
+        'T_C': T,
+        'RH_pct': RH,
+        'anode_gas': None, 'anode_slpm': None, 'anode_humid': humid,
+        'cathode_gas': None, 'cathode_slpm': None, 'cathode_humid': humid,
+        'suffix': '_'.join(extra),
+        'source': 'fcd',
+        'rh_text': rh_text,
+        'P_kPa': _onum(press['P']) if press else None,
+    }
+    if flows:
+        rec.update(anode_gas=_GAS[flows['ga'].lower()], anode_slpm=_onum(flows['fa']),
+                   cathode_gas=_GAS[flows['gc'].lower()], cathode_slpm=_onum(flows['fc']))
+    return rec
+
+
+def is_fcd(path: str) -> bool:
+    return str(path).lower().endswith('.fcd')
+
+
+def fcd_layout(path: str) -> Tuple[Dict[str, str], List[str], int]:
+    """A .fcd file's header fields, its column names, and how many lines come
+    before its data. The header ends with the column line, then 'End
+    Comments'; its other lines are 'Key: value'."""
+    head: Dict[str, str] = {}
+    prev: Optional[str] = None
+    with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+        for n, line in enumerate(fh):
+            if line.strip() == 'End Comments':
+                if prev is None:
+                    break
+                return head, [c.strip() for c in prev.rstrip('\r\n').split('\t')], n + 1
+            if prev is not None:
+                key, sep, value = prev.partition(':')
+                if sep:
+                    head.setdefault(key.strip(), value.strip().strip('"'))
+            prev = line
+            if n >= FCD_HEADER_MAX_LINES:
+                break
+    raise ValueError("no 'End Comments' line, so not a FuelCell data file")
+
+
+def read_fcd(path: str, names: Tuple[str, ...]) -> pd.DataFrame:
+    """The named columns of a .fcd file, as numbers; names it lacks are left out."""
+    _, cols, skip = fcd_layout(path)
+    seen: Dict[str, int] = {}
+    unique = []
+    for c in cols:                        # read_csv refuses repeated names
+        k = seen.get(c, 0)
+        seen[c] = k + 1
+        unique.append(c if k == 0 else f'{c}.{k}')
+    want = [c for c in dict.fromkeys(names) if c in unique]
+    if not want:
+        return pd.DataFrame()
+    # index_col=False: a row ending in a tab has one field more than the
+    # column line, which read_csv would otherwise take for an index.
+    df = pd.read_csv(path, sep='\t', header=None, names=unique, usecols=want, skiprows=skip,
+                     index_col=False, encoding='utf-8', encoding_errors='replace',
+                     on_bad_lines='skip', dtype=str)
+    return df.apply(pd.to_numeric, errors='coerce')
+
+
+def fcd_elapsed(t: np.ndarray) -> np.ndarray:
+    """A .fcd step's own clock. Time (Sec) runs on from the start of the
+    station session, so the step is timed from one sampling interval before
+    its first sample: the station CSVs' convention, whose first stamp is one
+    interval in, and the step's length is its last value.
+
+    FuelCell appends a step run again after a restart to the same file, its
+    Time (Sec) starting over; each run after the first is joined on one
+    interval after the last sample of the one before, so the step's length
+    is the time it logged."""
+    t = np.asarray(t, float)
+    out = np.full(len(t), np.nan)
+    idx = np.flatnonzero(np.isfinite(t))
+    if not len(idx):
+        return out
+    ok = t[idx]
+    dt, starts = _fcd_runs(ok)
+    bounds = np.r_[0, starts, len(ok)]
+    end = 0.0
+    for a, b in zip(bounds[:-1], bounds[1:]):
+        out[idx[a:b]] = end + dt + ok[a:b] - ok[a]
+        end = out[idx[b - 1]]
+    return out
+
+
+def _fcd_runs(ok: np.ndarray) -> Tuple[float, np.ndarray]:
+    """The sampling interval of finite Time (Sec) values, and where each run
+    after the first starts: wherever the time falls back by more than an
+    interval (a stamp a hair out of order is not a restart)."""
+    d = np.diff(ok)
+    dt = float(np.median(d[d > 0])) if (d > 0).any() else 0.0
+    return dt, np.flatnonzero(d < (-dt if dt > 0 else 0.0)) + 1
+
+
+def fcd_run_index(t: np.ndarray) -> np.ndarray:
+    """Each row's run of a .fcd file: 0 in the first, one more after each
+    restart (fcd_elapsed); a row with no time is in the run of the row
+    before it."""
+    t = np.asarray(t, float)
+    idx = np.flatnonzero(np.isfinite(t))
+    out = np.full(len(t), -1)
+    if len(idx):
+        run_at = np.zeros(len(idx), dtype=int)
+        for start in _fcd_runs(t[idx])[1]:
+            run_at[start:] += 1
+        out[idx] = run_at
+    return np.maximum(np.maximum.accumulate(out), 0) if len(out) else out
+
+
+def fcd_restarts(t: np.ndarray) -> int:
+    """How many times a .fcd file's Time (Sec) starts over: the runs of the
+    step appended to it after the first."""
+    t = np.asarray(t, float)
+    return len(_fcd_runs(t[np.isfinite(t)])[1])
+
+
+def fcd_columns(path: str, names: Tuple[str, ...],
+                skip_modes: Tuple[int, ...] = ()) -> pd.DataFrame:
+    """Station CSV columns, by their station names, from a .fcd file: time
+    on the step's own clock, E_Stack as the cell voltage, I (A) as the
+    current, mV and mA for a pol curve, Z_* for EIS. A .fcd EIS file logs a
+    row or two at 0 Hz before its sweep; those rows have no impedance. Rows
+    in a control mode of `skip_modes` are blanked. Two names are no station
+    column: 'Run', each row's run of the step (fcd_run_index), and 'Wet', the
+    Wet flag RH cycles are read from (_rh_flag)."""
+    want = tuple(_FCD_SOURCE[n] for n in names if n in _FCD_SOURCE)
+    if 'Run' in names or 'Wet' in names:   # each row's run (fcd_run_index), from the time
+        want += (FCD_TIME,)
+    if 'Wet' in names:                 # the Wet flag RH cycles are read from (_rh_flag)
+        want += FCD_WET
+    df = read_fcd(path, want + ((FCD_MODE,) if skip_modes else ()))
+    out: Dict[str, np.ndarray] = {}
+    for n in names:
+        src = _FCD_SOURCE.get(n)
+        if src is None or src not in df.columns:
+            continue
+        a = df[src].to_numpy(float)
+        if src == FCD_TIME:
+            a = fcd_elapsed(a)
+        elif n in ('mV', 'mA'):
+            a = a * 1000.0
+        out[n] = a
+    if 'Z_Freq (Hz)' in df.columns:
+        off = ~(df['Z_Freq (Hz)'].to_numpy(float) > 0)
+        for n in ('Frequency', 'Real Impedance', 'Imaginary Impedance'):
+            if n in out:
+                out[n] = np.where(off, np.nan, out[n])
+    if skip_modes and FCD_MODE in df.columns:
+        off = np.isin(df[FCD_MODE].to_numpy(float), skip_modes)
+        out = {n: np.where(off, np.nan, a) for n, a in out.items()}
+    if 'Run' in names and FCD_TIME in df.columns:
+        out['Run'] = fcd_run_index(df[FCD_TIME].to_numpy(float))
+    if 'Wet' in names and FCD_TIME in df.columns:
+        flag = _rh_flag(df, fcd_elapsed(df[FCD_TIME].to_numpy(float)))[0]
+        out['Wet'] = df[flag].to_numpy(float) if flag else np.full(len(df), np.nan)
+    return pd.DataFrame(out)
+
+
+def fcd_time_info(path: str) -> Tuple[int, float, float, int]:
+    """Row count and first and last time (s) of a .fcd file on the step's
+    own clock, and how many times its Time (Sec) starts over."""
+    df = read_fcd(path, (FCD_TIME,))
+    if FCD_TIME not in df.columns:
+        raise ValueError(f"no '{FCD_TIME}' column")
+    raw = df[FCD_TIME].to_numpy(float)
+    raw = raw[np.isfinite(raw)]
+    if len(raw) == 0:
+        return 0, math.nan, math.nan, 0
+    t = fcd_elapsed(raw)
+    return len(t), float(t[0]), float(t[-1]), fcd_restarts(raw)
+
+
+def fcd_run_end_v(path: str) -> List[float]:
+    """The last voltage of each run a .fcd file logged (its re-runs after
+    restarts, fcd_run_index), for the runs that logged one."""
+    df = fcd_columns(path, ('Working Electrode Voltage', 'Run'))
+    if 'Working Electrode Voltage' not in df.columns or 'Run' not in df.columns:
+        return []
+    v, run = df['Working Electrode Voltage'].to_numpy(float), df['Run'].to_numpy(int)
+    ok = np.isfinite(v)
+    return [float(v[ok & (run == r)][-1]) for r in np.unique(run[ok])]
+
+
+# The station's humidifier flags, 1 wet and 0 dry: under RH cycling they
+# switch every half cycle (KM8-S6: 30 s wet, 45 s dry). Every fall from wet
+# to dry in a hold is an RH cycle, whatever the hold is named and however
+# few: the stations never switch the flag at a steady RH, and if one did,
+# that would count as a cycle (Corey, 13 Oct).
+FCD_WET = ('Wet_Cathode', 'Wet_Anode')
+# The OCV plot bin follows the RH cycle only when the cycles come at a steady
+# pace: this share of the gaps between them within this fraction of their
+# median. A median of irregular gaps is no cycle to bin by.
+RH_PACE_SHARE = 0.8
+RH_PACE_TOL = 0.25
+
+
+def _steady_pace(gaps: np.ndarray) -> bool:
+    """Whether gaps between RH cycle ends (s) keep a steady pace."""
+    gaps = np.asarray(gaps, float)
+    gaps = gaps[gaps > 0]
+    if not len(gaps):
+        return False
+    med = float(np.median(gaps))
+    return float(np.mean(np.abs(gaps - med) <= RH_PACE_TOL * med)) >= RH_PACE_SHARE
+
+
+def _wet_falls(t: np.ndarray, w: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """When a Wet flag falls -- the time of the first dry sample after each
+    wet stretch, over the rows with both a time and a flag -- and how long
+    each of those wet stretches was flagged wet (s)."""
+    ok = np.isfinite(t) & np.isfinite(w)
+    tt, wet = t[ok], w[ok] > 0.5
+    falls = np.flatnonzero(wet[:-1] & ~wet[1:]) + 1
+    rises = np.flatnonzero(np.r_[wet[:1], ~wet[:-1] & wet[1:]])
+    began = rises[np.searchsorted(rises, falls, side='right') - 1] if len(falls) else falls
+    return tt[falls], tt[falls] - tt[began]
+
+
+def _rh_flag(df: pd.DataFrame, t: np.ndarray) -> Tuple[Optional[str], np.ndarray, np.ndarray]:
+    """The Wet flag RH cycles are read from -- the one that falls most, the
+    cathode's on a tie -- its falls and its wet stretches' lengths
+    (_wet_falls); (None, none, none) without a flag."""
+    name: Optional[str] = None
+    ends = wet_s = np.empty(0)
+    for col in FCD_WET:
+        if col in df.columns:
+            e, w = _wet_falls(t, df[col].to_numpy(float))
+            if name is None or len(e) > len(ends):
+                name, ends, wet_s = col, e, w
+    return name, ends, wet_s
+
+
+def fcd_rh_cycle_ends(path: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """When each RH cycle of a .fcd hold ended, on the step's own clock --
+    each fall of its Wet flag (_rh_flag), so a cycle counts once its wet half
+    is over -- and how long each cycle's wet half was; (None, None) when the
+    flag never falls."""
+    df = read_fcd(path, (FCD_TIME,) + FCD_WET)
+    if FCD_TIME not in df.columns:
+        return None, None
+    _, ends, wet_s = _rh_flag(df, fcd_elapsed(df[FCD_TIME].to_numpy(float)))
+    return (ends, wet_s) if len(ends) else (None, None)
+
+
+def fcd_loop(path: str, sf: 'StepFile') -> Tuple[bool, float]:
+    """Whether a .fcd OCV step is an RH loop -- named for RH cycling, or its
+    Wet flag falling at a steady pace -- and the time its wet halves fell
+    short of the header's sub-step (s), where that sub-step is the wet one:
+    the halves its own limit tripped in, which a loop counts as a hold by.
+    The header's time is taken for the wet half's when it fits inside a
+    cycle and the dry halves do not last it (KM8-S6: 30 s, against 45 s dry
+    and a 75 s cycle); a header giving the whole step's time is not."""
+    ends, wet_s = fcd_rh_cycle_ends(path)
+    named = '↔' in sf.rh_text
+    if ends is None:
+        return named, 0.0
+    gaps = np.diff(ends)
+    loop = named or (len(ends) >= 3 and _steady_pace(gaps))
+    lost = 0.0
+    if loop and sf.sub_s and len(ends) > 1:
+        dry = gaps - wet_s[1:]
+        if (sf.sub_s < float(np.median(gaps))
+                and abs(float(np.median(dry)) - sf.sub_s) > 0.1 * sf.sub_s):
+            lost = float(np.sum(np.clip(sf.sub_s - wet_s, 0.0, None)))
+    return loop, lost
+
+
 def read_time_bounds(path: str) -> Tuple[int, float, float]:
     """Row count and first and last time stamp (s) of a step file.
 
     Every station layout keeps elapsed seconds in its first column ('Time
     Stamp', or 's' for polarization curves and break-in), so only that column
-    is read: a 10 h hold logged at 1 s costs 36,000 floats, not 144,000.
+    is read: a 10 h hold logged at 1 s costs 36,000 floats, not 144,000. A
+    .fcd file's Time (Sec) is read alone too, on the step's own clock.
     """
+    if is_fcd(path):
+        return fcd_time_info(path)[:3]
     col = pd.read_csv(path, usecols=[0]).iloc[:, 0]
     t = pd.to_numeric(col, errors='coerce').dropna().to_numpy(float)
     if len(t) == 0:
@@ -236,6 +662,59 @@ class StepFile:
     H_start_h: float = 0.0       # hold hours completed before this file
     H_end_h: float = 0.0         # hold hours completed after it
     clock_s: float = 0.0         # seconds this file adds to the hold clock
+    source: str = 'csv'          # 'csv' (station CSV) or 'fcd' (Scribner FuelCell)
+    rh_text: str = ''            # RH that one number does not say: cycling, a dew point
+    P_kPa: Optional[float] = None    # back pressure, where the name gives it (.fcd)
+    desc: str = ''               # a .fcd header's step description
+    area_cm2: Optional[float] = None  # a .fcd header's SurfaceArea
+    term_v: Optional[float] = None    # a .fcd step's own end-on-voltage limit (Term:E<...)
+    sub_s: Optional[float] = None     # how long the header's (sub-)step runs: KM8-S6's '30 Seconds'
+    # The last voltage of each of its runs (re-runs appended after restarts),
+    # read where that limit could end a hold.
+    run_end_v: Optional[List[float]] = None
+    restarts: int = 0            # times a .fcd file's Time (Sec) starts over (appended re-runs)
+    # A .fcd hold's RH cycles: when each ended (s, on the step's own clock),
+    # None at a steady RH; and the cycles completed before and after it.
+    rh_ends_s: Optional[np.ndarray] = field(default=None, repr=False)
+    rh_wet_s: Optional[np.ndarray] = field(default=None, repr=False)   # each cycle's wet half (s)
+    # An RH loop (read with run_end_v): named for RH cycling, or its Wet flag
+    # cycling at a steady pace. Its limit is on one half of the loop, so the
+    # station never ends the step on it.
+    loop: bool = False
+    # The time an RH loop's wet halves fell short of the header's sub-step
+    # (s): the halves its limit tripped in. A loop counts as a hold on the
+    # length it was programmed to run.
+    lost_s: float = 0.0
+    C_start: int = 0
+    C_end: int = 0
+
+    @property
+    def gas_change(self) -> bool:
+        """A step named for a change of gas ('N2-to-Air'): its OCV is still
+        coming up, so under its limit it has not failed."""
+        return bool(_GAS_CHANGE_RE.search(f'{self.kind_token}_{self.suffix}'))
+
+    @property
+    def stop_v(self) -> Optional[float]:
+        """Where the station ended a run of this step on its own voltage
+        limit: the run's last voltage, under the Term:E limit. None when no
+        run ended that way."""
+        if self.term_v is None:
+            return None
+        return next((v for v in self.run_end_v or [] if v < self.term_v), None)
+
+    @property
+    def cut_short(self) -> bool:
+        """A .fcd OCV step the station ended on its own voltage limit (a run
+        whose last sample is under the Term:E limit: the station moves on as
+        soon as the OCV falls under it), unless it is a gas change, or an RH
+        loop (StepFile.loop), which the limit never ends: it trips in one
+        half and the loop runs on."""
+        return self.stop_v is not None and not self.gas_change and not self.loop
+
+    @property
+    def rh_cycles(self) -> int:
+        return 0 if self.rh_ends_s is None else len(self.rh_ends_s)
 
     @property
     def logged_h(self) -> float:
@@ -246,7 +725,14 @@ class StepFile:
     @property
     def conditions_key(self) -> Tuple[Any, ...]:
         return (self.T_C, self.RH_pct, self.anode_gas, self.anode_slpm, self.anode_humid,
-                self.cathode_gas, self.cathode_slpm, self.cathode_humid)
+                self.cathode_gas, self.cathode_slpm, self.cathode_humid, self.rh_text,
+                self.P_kPa)
+
+    @property
+    def rh_label(self) -> str:
+        if self.rh_text:
+            return self.rh_text
+        return f'{self.RH_pct:g}% RH' if math.isfinite(self.RH_pct) else 'RH not given'
 
     @property
     def gases(self) -> str:
@@ -269,8 +755,11 @@ class HoldSegment:
 
     @property
     def conditions(self) -> str:
+        """The hold's conditions as its name gives them; the back pressure
+        too where the name has one (.fcd), since it tells conditions apart."""
         f = self.files[0]
-        return f'{f.T_C:g} °C, {f.RH_pct:g}% RH, {f.gases}'
+        text = f'{f.T_C:g} °C, {f.rh_label}, {f.gases}'
+        return text if f.P_kPa is None else f'{text}, {f.P_kPa:g} kPa'
 
 
 @dataclass
@@ -296,13 +785,67 @@ class Timeline:
     def holds(self) -> List[StepFile]:
         return [f for f in self.files if f.role == 'hold']
 
+    @property
+    def cycles_tested(self) -> int:
+        """RH cycles completed in the holds: 0 for a test at steady RH, or
+        one whose files carry no Wet flag (the station CSVs)."""
+        return sum(f.rh_cycles for f in self.holds)
+
+    def _rh_gaps(self) -> np.ndarray:
+        """Times (s) between RH cycle ends within each hold. In holds named
+        for RH cycling, only cycles whose wet half ran its programmed time
+        count: a half the station's limit tripped in comes short
+        (station_runs), and so does its cycle. Programmed is within 10% of
+        the 90th percentile of those holds' wet halves."""
+        cyc = [f for f in self.holds if f.rh_ends_s is not None and len(f.rh_ends_s) > 1]
+        loops = [f for f in cyc if '↔' in f.rh_text and f.rh_wet_s is not None]
+        gaps = [np.diff(f.rh_ends_s) for f in cyc if f not in loops]
+        if loops:
+            wet = np.concatenate([f.rh_wet_s[1:] for f in loops])
+            whole = wet >= 0.9 * np.percentile(wet, 90)
+            gaps.append(np.concatenate([np.diff(f.rh_ends_s) for f in loops])[whole])
+        gaps = np.concatenate(gaps) if gaps else np.empty(0)
+        return gaps[gaps > 0]
+
+    @property
+    def rh_period_s(self) -> Optional[float]:
+        """The RH cycle (s): the median time between cycle ends within any
+        hold, or None when no hold has two."""
+        gaps = self._rh_gaps()
+        return float(np.median(gaps)) if len(gaps) else None
+
+    @property
+    def rh_steady(self) -> bool:
+        """Whether there is an RH cycle for the OCV plot bin to follow: the
+        cycles keep a steady pace (_steady_pace), those a hold named for RH
+        cycling ran in full (_rh_gaps: cycles its limit tripped in come
+        short)."""
+        return _steady_pace(self._rh_gaps())
+
+    def cycles_at(self, H_h: float) -> int:
+        """RH cycles completed by hold hour H_h: within a hold, those that
+        ended by then; between holds, those of every hold before."""
+        for f in self.holds:
+            if f.H_start_h <= H_h <= f.H_end_h:
+                if f.rh_ends_s is None:
+                    return f.C_start
+                done = int(np.searchsorted(f.rh_ends_s, (H_h - f.H_start_h) * 3600.0 + 1e-6,
+                                           side='right'))
+                return f.C_start + done
+        before = [f for f in self.holds if f.H_end_h <= H_h]
+        return before[-1].C_end if before else 0
+
 
 def step_length_s(sf: StepFile, step_tail_s: float = STEP_TAIL_S) -> float:
     """How long a step ran: its last stamp plus the tail the log misses.
 
     A log that starts late did not start with its step, so only its own span
-    is known; the late start is the caller's to note.
+    is known; the late start is the caller's to note. A .fcd step is on its
+    own clock and ends with its last sample, so its length is that sample's
+    time.
     """
+    if sf.source == 'fcd':
+        return sf.t_last_s
     span = sf.t_last_s if sf.t_first_s <= FIRST_SAMPLE_MAX_S else sf.t_last_s - sf.t_first_s
     return span + step_tail_s
 
@@ -312,14 +855,20 @@ def classify(sf: StepFile, hold_min_h: float = HOLD_MIN_H) -> str:
 
     Length is the step's run length (`length_s`), the same quantity the hold
     clock adds, so a hold programmed for exactly `hold_min_h` qualifies
-    whatever its logging interval.
+    whatever its logging interval. A .fcd OCV step that its own voltage
+    limit ended (`cut_short`) is a hold however short: a hold whose OCV
+    fails ends that way, and that is an OCV death (station_runs), at hours
+    the clock has to count. An RH loop is never ended by its limit, which
+    trips in its wet halves instead, each falling short of its time: the
+    loop is a hold by the time it was programmed to run (`lost_s` added).
     """
     if sf.kind != 'ocv':
         return sf.kind
     if sf.cathode_gas is None:
         return 'ocv-unread'
     if sf.cathode_gas in OXIDANTS:
-        return 'hold' if sf.length_s / 3600.0 >= hold_min_h else 'air-step'
+        held = (sf.length_s + sf.lost_s) / 3600.0 >= hold_min_h or sf.cut_short
+        return 'hold' if held else 'air-step'
     return 'n2n2' if sf.anode_gas == 'N2' else 'h2n2'
 
 
@@ -387,20 +936,42 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
         if any(part == '__MACOSX' for part in rel.parts) or p.name.startswith('._'):
             ignored['macOS metadata'] = ignored.get('macOS metadata', 0) + 1
             continue
-        if p.suffix.lower() != '.csv':
-            ext = p.suffix.lower() or '(no extension)'
+        ext = p.suffix.lower()
+        if ext not in ('.csv', '.fcd'):
+            ext = ext or '(no extension)'
             ignored[ext] = ignored.get(ext, 0) + 1
             continue
-        if re.search(r'_FILTERDATA$', p.stem, re.IGNORECASE):
+        if ext == '.csv' and re.search(r'_FILTERDATA$', p.stem, re.IGNORECASE):
             skipped.append((rel.as_posix(), 'station pol-curve summary (FILTERDATA)'))
             continue
-        rec = parse_step_name(p.name)
+        rec = parse_step_name(p.name) if ext == '.csv' else parse_fcd_step_name(p.name)
         if rec is None:
-            skipped.append((rel.as_posix(), 'name does not follow the step-file pattern'))
+            skipped.append((rel.as_posix(), 'name does not follow the step-file pattern'
+                            + (' for .fcd files' if ext == '.fcd' else '')))
             continue
         sf = StepFile(path=str(p), folder=rel.parent.as_posix(), name=p.name, **rec)
         try:
-            sf.n_rows, sf.t_first_s, sf.t_last_s = read_time_bounds(str(p))
+            if ext == '.fcd':
+                head, _, _ = fcd_layout(str(p))
+                sf.desc = head.get('Description', '')
+                try:
+                    sf.area_cm2 = float(head.get('SurfaceArea', ''))
+                except ValueError:
+                    sf.area_cm2 = None
+                term = _FCD_TERM_RE.search(sf.desc)
+                sf.term_v = float(term['v']) if term else None
+                runs_for = _FCD_DURATION_RE.search(sf.desc)
+                sf.sub_s = (float(runs_for['n']) * _FCD_UNIT_S[runs_for['u'].lower()]
+                            if runs_for else None)
+                sf.n_rows, sf.t_first_s, sf.t_last_s, sf.restarts = fcd_time_info(str(p))
+                if sf.term_v is not None and sf.kind == 'ocv' and sf.cathode_gas in OXIDANTS:
+                    sf.run_end_v = fcd_run_end_v(str(p))
+                    try:
+                        sf.loop, sf.lost_s = fcd_loop(str(p), sf)
+                    except Exception:                 # noqa: BLE001  (said when the hold is read)
+                        sf.loop, sf.lost_s = '↔' in sf.rh_text, 0.0
+            else:
+                sf.n_rows, sf.t_first_s, sf.t_last_s = read_time_bounds(str(p))
         except Exception as e:                       # noqa: BLE001
             skipped.append((rel.as_posix(), f'unreadable: {type(e).__name__}: {e}'))
             continue
@@ -426,20 +997,56 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
     notes.extend(_missing_steps(files))
 
     H = 0.0
+    C = 0                          # RH cycles completed, as H counts hold hours
     segments: List[HoldSegment] = []
     current: Optional[HoldSegment] = None
     for i, f in enumerate(files, 1):
         f.seq = i
         f.length_s = step_length_s(f, step_tail_s)
-        if f.t_first_s > FIRST_SAMPLE_MAX_S:
+        if f.source != 'fcd' and f.t_first_s > FIRST_SAMPLE_MAX_S:
             f.note = (f'log starts at {f.t_first_s:.0f} s, so only its logged '
                       f'span is counted')
+        if f.restarts:
+            f.note = (f'Time (Sec) starts over {f.restarts} time(s): runs of the step appended '
+                      f'to the file, joined end to end')
+            notes.append(f'{f.step}: {f.note}')
         f.role = classify(f, hold_min_h)
+        if (f.role == 'hold' and f.lost_s and not f.cut_short
+                and f.length_s / 3600.0 < hold_min_h):
+            notes.append(f'{f.step}: counted as a hold though it ran {f.length_s / 3600.0:.2f} h, '
+                         f'short of the {hold_min_h:g} h hold rule: its wet halves fell '
+                         f'{f.lost_s / 60.0:.1f} min short of the header\'s {f.sub_s:g} s, as they do '
+                         f'when its own limit (Term:E<{f.term_v:g}) trips in them')
+        elif (f.role == 'hold' and f.cut_short and f.cathode_gas in OXIDANTS
+                and f.length_s / 3600.0 < hold_min_h):
+            notes.append(f'{f.step}: counted as a hold though it ran {f.length_s / 3600.0:.2f} h, '
+                         f'short of the {hold_min_h:g} h hold rule: the station ended it on its '
+                         f'own limit (Term:E<{f.term_v:g}) at {f.stop_v:.3f} V')
+        elif f.role != 'hold' and f.gas_change and f.stop_v is not None:
+            notes.append(f'{f.step}: the station ended it on its own limit (Term:E<{f.term_v:g}) '
+                         f'at {f.stop_v:.3f} V, but it is named for a gas change, so it is '
+                         f'neither a hold nor an OCV death')
         if f.role != 'hold':
             current = None
             f.interval = len(segments)
             f.H_start_h = f.H_end_h = H
+            f.C_start = f.C_end = C
             continue
+        if f.source == 'fcd':
+            try:
+                f.rh_ends_s, f.rh_wet_s = fcd_rh_cycle_ends(f.path)
+            except Exception as e:                   # noqa: BLE001
+                notes.append(f'{f.step}: its Wet flags could not be read ({type(e).__name__}: '
+                             f'{e}), so its RH cycles are not counted')
+            else:
+                if f.rh_ends_s is None and '↔' in f.rh_text:
+                    notes.append(f'{f.step}: named for RH cycling, but its Wet flags never switch '
+                                 f'from wet to dry, so no RH cycles are counted for it'
+                                 + (', nor is its own voltage limit judged' if f.term_v is not None
+                                    else ''))
+        f.C_start = C
+        C += f.rh_cycles
+        f.C_end = C
         f.clock_s = f.length_s
         # A hold continues across file rollovers (Gore-A's 15 x 10 h files),
         # but not across folders -- each FCTS folder is a separate program run
@@ -476,7 +1083,7 @@ def manifest_rows(tl: Timeline) -> List[Dict[str, Any]]:
             'Kind': f.kind_token,
             'Role': ROLE_LABELS.get(f.role, f.role),
             'T (°C)': f.T_C,
-            'RH (%)': f.RH_pct,
+            'RH (%)': f.rh_text or (f.RH_pct if math.isfinite(f.RH_pct) else ''),
             'Gases': f.gases,
             'Rows': f.n_rows,
             'Logged (h)': round(f.logged_h, 4),
@@ -487,6 +1094,8 @@ def manifest_rows(tl: Timeline) -> List[Dict[str, Any]]:
             'Note': f.note,
             'File': f.name,
         })
+        if f.rh_ends_s is not None:
+            rows[-1]['RH cycles'] = f.rh_cycles
     for path, reason in tl.skipped:
         folder, _, name = path.rpartition('/')
         rows.append({'Order': '', 'Folder': folder or '.', 'Step': '', 'Kind': '',
@@ -498,7 +1107,7 @@ def manifest_rows(tl: Timeline) -> List[Dict[str, Any]]:
 
 
 def segment_rows(tl: Timeline) -> List[Dict[str, Any]]:
-    return [{'Segment': s.number,
+    rows = [{'Segment': s.number,
              'Folder': s.folder,
              'Files': f'{s.files[0].step}–{s.files[-1].step}' if len(s.files) > 1 else s.files[0].step,
              'File count': len(s.files),
@@ -507,6 +1116,11 @@ def segment_rows(tl: Timeline) -> List[Dict[str, Any]]:
              'End (h)': round(s.H_end_h, 4),
              'Length (h)': round(s.H_end_h - s.H_start_h, 4)}
             for s in tl.segments]
+    if tl.cycles_tested:
+        for row, s in zip(rows, tl.segments):
+            row['RH cycles'] = sum(f.rh_cycles for f in s.files)
+            row['RH cycles before'] = s.files[0].C_start
+    return rows
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -536,18 +1150,22 @@ RATE_WINDOW_H = 10.0
 RATE_STEP_H = 1.0
 RATE_MIN_COVERAGE = 0.8
 TRACE_BIN_S = 60.0       # resolution of the OCV trace sheet and the rate fits
-# OCV plot bins over the whole test, each drawn as its median and minimum
-# (plan: at most 3,000 points). 600 keeps the plot's sidecar near 60 KB of
-# the ~150 KB the plan allows all plots; 1,500 took 149 KB on its own.
-PLOT_MAX_BINS = 600
-# A bin width set on the form (ocv_plot_bin_min) replaces that automatic one,
-# but is never finer than 1 min, nor so fine that the test takes more than
-# about this many bins: the plot is also the copy the portal stores and
-# redraws. Each hold starts a bin of its own, so a test of n holds can have up
-# to n more. Asked for, the plot goes past the plan's 3,000 points: at the cap
-# Gore-A's 150 h hold is 6,000 points, and its stored record 52 KB of the
-# 900 KB a push may send (22 KB at the automatic bin).
+# The OCV plot's bins: never finer than 1 min, nor so fine that the test
+# takes more than about this many (the plot is also the copy the portal
+# stores and redraws). The automatic bin is the finest that allows, in whole
+# RH cycles when the holds cycle RH at a steady pace, so every bin holds as
+# much wet as dry time and the median does not beat against the cycle
+# (Corey, 13 Oct: match RH cycles if possible, else the bin limit). A
+# width set on the form (ocv_plot_bin_min) is used as set, within the same
+# limits. Each hold starts a bin of its own, so a test of n holds can have up
+# to n more. At the cap Gore-A's 150 h hold is 3-min bins, 6,000 points (median
+# and band edges), and its stored record 52 KB of the 900 KB a push may send.
 PLOT_BINS_CAP = 3000
+# Whole RH cycles only while a cycle is no longer than this many of the
+# finest bins; a slower cycle is cut into equal bins at least that fine, so
+# the plot follows the cycle, rather than averaging it into bins hours wide or
+# beating against it.
+RH_BIN_MAX_FINEST = 2.0
 
 
 @dataclass
@@ -578,11 +1196,23 @@ def read_ocv_columns(path: str) -> Tuple[pd.DataFrame, bool]:
     ones. The cell voltage is the station's 'Working Electrode Voltage', the
     column Corey's Gore-A workbook stitches. A file without a current column
     is read as at open circuit; within a current column, a blank reading
-    stays blank, and the sample is not judged.
+    stays blank, and the sample is not judged. A .fcd file's E_Stack and
+    I (A) stand in for the two, and it gives each sample's run (re-runs
+    appended after restarts) and Wet flag (the station's limit cuts wet
+    halves short, station_runs); a station CSV has neither.
     """
-    df = pd.read_csv(path, usecols=lambda c: str(c).strip() in _OCV_COLUMNS)
-    df.columns = [str(c).strip() for c in df.columns]
-    df = df.loc[:, ~df.columns.duplicated()]
+    if is_fcd(path):
+        try:
+            df = fcd_columns(path, _OCV_COLUMNS + ('Run', 'Wet'))
+        except Exception:                             # noqa: BLE001
+            # The OCV is not lost to a Wet flag that cannot be read: the
+            # file's RH cycles say so (build_timeline), and its halves go
+            # unjudged by the station's limit.
+            df = fcd_columns(path, _OCV_COLUMNS + ('Run',))
+    else:
+        df = pd.read_csv(path, usecols=lambda c: str(c).strip() in _OCV_COLUMNS)
+        df.columns = [str(c).strip() for c in df.columns]
+        df = df.loc[:, ~df.columns.duplicated()]
     for col in _OCV_COLUMNS[:2]:
         if col not in df.columns:
             raise ValueError(f"no '{col}' column")
@@ -592,7 +1222,10 @@ def read_ocv_columns(path: str) -> Tuple[pd.DataFrame, bool]:
 
     has_current = 'Current' in df.columns
     return (pd.DataFrame({'t': num('Time Stamp'), 'v': num('Working Electrode Voltage'),
-                          'i': num('Current') if has_current else np.zeros(len(df))}),
+                          'i': num('Current') if has_current else np.zeros(len(df)),
+                          'run': (df['Run'].to_numpy(int) if 'Run' in df.columns
+                                  else np.zeros(len(df), dtype=int)),
+                          'wet': num('Wet') if 'Wet' in df.columns else np.full(len(df), np.nan)}),
             has_current)
 
 
@@ -611,6 +1244,8 @@ class HoldTrace:
     median: np.ndarray         # centred rolling median of the judged samples; NaN elsewhere
     unread: List[Tuple[str, str]] = field(default_factory=list)
     no_current: List[str] = field(default_factory=list)   # files read as at open circuit
+    run_idx: Optional[np.ndarray] = None   # each sample's run of its file (re-runs of a .fcd)
+    wet: Optional[np.ndarray] = None       # each sample's Wet flag (1 wet, 0 dry; NaN unread)
 
 
 def load_hold_trace(seg: HoldSegment, settings: Optional[OcvSettings] = None) -> HoldTrace:
@@ -618,13 +1253,14 @@ def load_hold_trace(seg: HoldSegment, settings: Optional[OcvSettings] = None) ->
 
     A sample sits at its file's hold hours before plus its own time stamp, so
     each file's log ends one step tail (30 s) before the next file starts, as
-    on the clock; a log that started late is placed by its own span, as the
+    on the clock (a .fcd log has no tail, and its stamps are on the step's own
+    clock already); a log that started late is placed by its own span, as the
     clock counts it. Settling is timed from the start of the hold, not of each
     file: Gore-A's rollovers are seamless, each file starting at the previous
     file's last voltage. The rolling median is taken over judged samples only.
     """
     s = settings or OcvSettings()
-    ts, vs, cs, ks, unread, no_current = [], [], [], [], [], []
+    ts, vs, cs, ks, rs, ws, unread, no_current = [], [], [], [], [], [], [], []
     for k, f in enumerate(seg.files):
         try:
             d, has_current = read_ocv_columns(f.path)
@@ -633,18 +1269,20 @@ def load_hold_trace(seg: HoldSegment, settings: Optional[OcvSettings] = None) ->
             continue
         if not has_current:
             no_current.append(f.name)
-        zero = f.t_first_s if f.t_first_s > FIRST_SAMPLE_MAX_S else 0.0
+        zero = f.t_first_s if f.source != 'fcd' and f.t_first_s > FIRST_SAMPLE_MAX_S else 0.0
         ts.append(f.H_start_h * 3600.0 + d['t'].to_numpy() - zero)
         vs.append(d['v'].to_numpy())
         cs.append(d['i'].to_numpy())
         ks.append(np.full(len(d), k))
+        rs.append(d['run'].to_numpy())
+        ws.append(d['wet'].to_numpy())
     if ts:
-        t, v, i, k = (np.concatenate(a) for a in (ts, vs, cs, ks))
+        t, v, i, k, r, w = (np.concatenate(a) for a in (ts, vs, cs, ks, rs, ws))
         order = np.argsort(t, kind='stable')
-        t, v, i, k = t[order], v[order], i[order], k[order]
+        t, v, i, k, r, w = t[order], v[order], i[order], k[order], r[order], w[order]
     else:
-        t = v = i = np.empty(0)
-        k = np.empty(0, dtype=int)
+        t = v = i = w = np.empty(0)
+        k = r = np.empty(0, dtype=int)
     finite = np.isfinite(t) & np.isfinite(v) & np.isfinite(i)
     on_load = finite & (np.abs(np.nan_to_num(i)) > s.current_tol_a)
     settling = finite & ~on_load & (t < seg.H_start_h * 3600.0 + s.settle_min * 60.0)
@@ -655,7 +1293,7 @@ def load_hold_trace(seg: HoldSegment, settings: Optional[OcvSettings] = None) ->
         median[valid] = series.rolling(pd.Timedelta(seconds=s.window_min * 60.0),
                                        center=True).median().to_numpy()
     return HoldTrace(seg, t, v, i, k, finite, on_load, settling, valid, median, unread,
-                     no_current)
+                     no_current, run_idx=r, wet=w)
 
 
 def below_runs(t_s: np.ndarray, median: np.ndarray, threshold_v: float,
@@ -722,6 +1360,29 @@ class OcvRun:
     lowest_v: float
     recovered_h: Optional[float] = None   # median back at or above the threshold, same hold
     verdict: str = 'dip'                  # 'death', 'dip' or 'after death'
+    # 'median': the 10-min median under the threshold; 'station': a .fcd hold
+    # whose own voltage limit acted (station_runs), a death however short.
+    trigger: str = 'median'
+    trips: int = 0           # station: halves of an RH loop its limit tripped in
+    stopped: bool = False    # station: a run of a step without RH cycling it ended
+    run_ended: bool = False  # station: its last trip was in the last half of a run
+    half: str = ''           # station: the halves the limit is on, 'wet' (KM8-S6) or 'dry'
+    median_fell: bool = True  # station: the 10-min median fell under the threshold in it
+
+    def station_acted(self, limit: str = '', until: bool = False) -> str:
+        """What the station's limit did, for the notes and the events sheet:
+        'the station ended the step on its own limit', or 'the station's own
+        limit tripped in 40 wet halves, the RH loop running on'. `limit` is
+        said after 'limit'; `until` adds the last trip's hour."""
+        if not self.trips:
+            return f'the station ended the step on its own limit{limit}'
+        one = self.trips == 1
+        halves = f'a {self.half} half' if one else f'{self.trips} {self.half} halves'
+        upto = f' up to {self.end_h:.2f} h' if until and not one else ''
+        tail = (', then the station ended the step' if self.stopped
+                else (' as the run ended' if one else ', the last as the run ended') if self.run_ended
+                else (' and the RH loop ran on' if one else ', the RH loop running on'))
+        return f"the station's own limit{limit} tripped in {halves}{upto}{tail}"
 
 
 @dataclass
@@ -817,6 +1478,8 @@ def _file_rows(tr: HoldTrace, span_s: float) -> List[Dict[str, Any]]:
             'Note': f'could not be read: {unread[f.name]}' if f.name in unread else '',
             'File': f.name,
         }
+        if f.rh_ends_s is not None:
+            row['RH cycles'] = f.rh_cycles
         if sel.any():
             t, v, m = tr.t_s[sel], tr.v[sel], tr.median[sel]
             row.update({
@@ -995,11 +1658,31 @@ def _ocv_notes(res: OcvResult) -> List[str]:
                        f'the 10-min median stayed above it')
     if res.death:
         d = res.death
-        out.append(f'OCV death at {d.start_h:.2f} h in {_hold_label(res.holds[d.segment - 1].segment)}, '
-                   f'step {d.step}: 10-min median under {s.threshold_v:g} V for {d.minutes:.0f} min')
+        seg = res.holds[d.segment - 1].segment
+        where = f'{_hold_label(seg)}, step {d.step}'
+        if d.trigger == 'station':
+            f = next(f for f in seg.files if f.step == d.step)
+            acted = d.station_acted(f' (Term:E<{f.term_v:g})', until=True)
+            under = (f'{d.minutes * 60.0:.0f} s' if d.minutes < 1.0 else f'{d.minutes:.1f} min')
+            out.append(f'OCV death at {d.start_h:.2f} h in {where}: {acted}, the OCV under it from '
+                       f'then until it did ({d.minutes:.1f} min, lowest {d.lowest_v:.3f} V)'
+                       if not d.trips else
+                       f'OCV death at {d.start_h:.2f} h in {where}: {acted}; the OCV was under it '
+                       f'{under} in all (lowest reading {d.lowest_v:.4f} V)'
+                       + ('' if d.median_fell else
+                          f'; the 10-min median never fell under {s.threshold_v:g} V in it'))
+        else:
+            out.append(f'OCV death at {d.start_h:.2f} h in {where}: 10-min median under '
+                       f'{s.threshold_v:g} V for {d.minutes:.0f} min')
         if res.recovered_h is not None:
-            out.append(f'OCV recovered: the 10-min median was back at {s.threshold_v:g} V or more '
-                       f'at {res.recovered_h:.2f} h. Flagged; the death at {d.start_h:.2f} h stands')
+            thr, at = f'{s.threshold_v:g} V', f'{res.recovered_h:.2f} h'
+            out.append('OCV recovered: ' + (
+                f'the 10-min median was back at {thr} or more at {at}' if d.trigger != 'station' else
+                f"once the station's limit stopped acting, the 10-min median was back at {thr} or "
+                f'more at {at}' if d.median_fell else
+                f"the 10-min median never fell under {thr} while the station's limit acted, and "
+                f'was at {thr} or more after it at {at}')
+                + f'. Flagged; the death at {d.start_h:.2f} h stands')
     if res.rate_note:
         out.append(res.rate_note)
     if not res.judged:
@@ -1019,19 +1702,37 @@ def _ocv_notes(res: OcvResult) -> List[str]:
     return out
 
 
-def ocv_plot_bin(hours_tested: float, plot_bin_min: float = 0.0) -> Tuple[float, str]:
+def ocv_plot_bin(hours_tested: float, plot_bin_min: float = 0.0,
+                 rh_period_s: Optional[float] = None,
+                 rh_unsteady: bool = False) -> Tuple[float, str]:
     """The OCV plot's bin width (s), and how it was chosen.
 
-    Automatic (0): about PLOT_MAX_BINS bins over the test. Set: that width,
-    but at least 1 min, and no finer than about PLOT_BINS_CAP bins over the
-    test allow (_plot_bin_cap_s). Bins start at each hold's start, so a test
-    of n holds can have up to n more. Only the plot and its stored copy
-    follow it; every rule works on the samples.
+    Automatic (0): the finest bin about PLOT_BINS_CAP bins over the test
+    allow (_plot_bin_cap_s), at least 1 min; with a steady RH cycle
+    (`rh_period_s`), the fewest whole cycles at least that wide, or equal
+    bins to a cycle when it is long. `rh_unsteady`: there are RH cycles, but
+    at no steady pace, so the rule says why it does not follow them. Set:
+    that width, within the same limits. Bins start at each hold's start, so
+    a test of n holds can have up to n more. Only the plot and its stored
+    copy follow it; every rule works on the samples.
     """
     total_s = hours_tested * 3600.0
+    finest = max(TRACE_BIN_S, _plot_bin_cap_s(total_s))
     if not plot_bin_min > 0:
-        return (max(TRACE_BIN_S, total_s / PLOT_MAX_BINS),
-                f'automatic: about {PLOT_MAX_BINS:,} bins over the test, each at least 1 min')
+        limits = f'at least 1 min and no more than about {PLOT_BINS_CAP:,} bins over the test'
+        P = rh_period_s
+        if P and P > 0:
+            # Whole cycles while that stays near the finest width; a longer
+            # cycle is cut into equal bins, so the plot follows it without
+            # beating against it.
+            if P <= RH_BIN_MAX_FINEST * finest + 1e-9:
+                k = max(1, math.ceil(finest / P - 1e-9))
+                return k * P, f'automatic: {k} whole RH cycle{"s" if k > 1 else ""} of {P:.4g} s, {limits}'
+            n = max(1, math.floor(P / finest + 1e-9))
+            return P / n, f'automatic: {n} bins to each RH cycle of {P:.4g} s, {limits}'
+        return finest, (f'automatic: the finest that keeps about {PLOT_BINS_CAP:,} bins over the '
+                        f'test, at least 1 min'
+                        + ('; no steady RH cycle to bin by' if rh_unsteady else ''))
     asked_s = plot_bin_min * 60.0
     bin_s = max(TRACE_BIN_S, asked_s, _plot_bin_cap_s(total_s))
     # Widths typed in minutes land a hair off in seconds (2.05 × 60 is
@@ -1064,14 +1765,22 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
     """
     s = settings or OcvSettings()
     res = OcvResult(settings=s)
-    plot_bin_s, res.plot_bin_rule = ocv_plot_bin(tl.hours_tested, s.plot_bin_min)
+    steady = tl.rh_steady
+    plot_bin_s, res.plot_bin_rule = ocv_plot_bin(
+        tl.hours_tested, s.plot_bin_min, tl.rh_period_s if steady else None,
+        rh_unsteady=bool(tl.cycles_tested) and not steady)
     res.plot_bin_s = plot_bin_s
     ref_key = tl.segments[0].files[0].conditions_key if tl.segments else None
     initial: Optional[float] = None
     for seg in tl.segments:
         is_ref = seg.files[0].conditions_key == ref_key
-        h = analyze_hold(load_hold_trace(seg, s), s, plot_bin_s, loss_ref_v=initial,
+        tr = load_hold_trace(seg, s)
+        h = analyze_hold(tr, s, plot_bin_s, loss_ref_v=initial,
                          loss_pct=DOE_OCV_LOSS_PCT if is_ref else None)
+        # In clock order; the station's act first where a median stretch
+        # starts with it, so that stretch is after the death, not a dip.
+        h.runs = sorted(h.runs + station_runs(tr, s),
+                        key=lambda r: (r.start_h, r.trigger != 'station'))
         if is_ref and initial is None and math.isfinite(h.start_v):
             initial = h.start_v
         res.holds.append(h)
@@ -1080,11 +1789,13 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
     res.loss_breach_h = next((h.loss_breach_h for h in res.holds
                               if h.loss_breach_h is not None), None)
 
-    # Death is the first stretch, in clock order, that lasts persist_min.
+    # Death is the first stretch, in clock order, that lasts persist_min, or
+    # the first event of a hold's own limit (a step the station ended, a wet
+    # half it cut short), whichever is earlier.
     # Later stretches are kept and labelled but never move it (plan: a
     # recovery is flagged, not forgiven).
     for r in res.runs:
-        if res.death is None and r.minutes >= s.persist_min - 1e-9:
+        if res.death is None and (r.trigger == 'station' or r.minutes >= s.persist_min - 1e-9):
             r.verdict, res.death = 'death', r
         elif res.death is not None:
             r.verdict = 'after death'
@@ -1112,6 +1823,224 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
     set_rate_cutoff(res, res.death.start_h if res.death else None, 'OCV')
     res.notes = _ocv_notes(res)
     return res
+
+
+# A half of an RH loop that ends early without a reading under the limit
+# logged counts as the limit tripping in it only with a reading this close
+# above the limit at its end: a half cut short while the OCV sits far above
+# it is a flag or logging glitch, not the station acting.
+TRIP_NEAR_V = 0.02
+
+# (first index of the stretch under the limit, index where the limit acted,
+# 'stop', 'trip' or 'trip-end' -- a trip in the last half of its run -- the
+# file, and the state of the half: 'wet' or 'dry')
+_Hit = Tuple[int, int, str, StepFile, str]
+
+
+def station_runs(tr: HoldTrace, s: Optional[OcvSettings] = None) -> List[OcvRun]:
+    """Where a .fcd hold's own voltage limit (Term:E<0.7 NextStep in the
+    step's description) acted, each an OCV death however short (Corey,
+    13 Oct). Per run of each file (FuelCell appends a re-run after a
+    restart), _limit_hits:
+
+    - a run whose Wet flag does not cycle that ends under the limit: the
+      station ended the step;
+    - in a run that cycles RH, a half of the sub-step the limit belongs to
+      that the limit tripped in, the loop running on (KM8-S6: NextStep from
+      the 30 s wet sub-step is the dry one).
+
+    Each is dated from the first reading of the stretch under the limit it
+    ends. A trip does not count while the OCV is still coming up: at the
+    start of the hold, or of a re-run after a restart, before a reading of
+    that run has reached the limit, or within the settle -- unless none ever
+    does, a cell dead from the start. A file the hold rolls over to goes on
+    as the one before it left off, with no settle.
+    Acts less than the median window apart are one event, so a loop
+    tripping every cycle is one stretch, not hundreds; an event's minutes
+    are the time the OCV was under the limit in it. A step named for a gas
+    change is left out (StepFile.gas_change), and so are readings drawing
+    current, as for the OCV rule. The first 10-min median at or over the
+    threshold after an event is its recovery, flagged as the OCV rule's
+    are.
+    """
+    s = s or OcvSettings()
+    n = len(tr.t_s)
+    runs = tr.run_idx if tr.run_idx is not None else np.zeros(n, dtype=int)
+    wet = tr.wet if tr.wet is not None else np.full(n, np.nan)
+    ocv = tr.finite & ~tr.on_load
+    settle_s = s.settle_min * 60.0
+    hits: List[_Hit] = []
+    came_up = False                  # the hold's run before reached the limit
+    for k, f in enumerate(tr.segment.files):
+        timed = (tr.file_idx == k) & np.isfinite(tr.t_s)
+        for j, r_ in enumerate(np.unique(runs[timed])):
+            rows = np.flatnonzero(timed & (runs == r_))
+            if f.term_v is None or f.gas_change:
+                came_up = False
+                continue
+            at = rows[ocv[rows] & (tr.v[rows] >= f.term_v)]
+            if k > 0 and j == 0 and came_up:
+                # Rolled over from the file before, the OCV already up.
+                settled_s, up_s = -math.inf, -math.inf
+            else:
+                settled_s = (tr.segment.H_start_h * 3600.0 if k == 0 and j == 0
+                             else float(tr.t_s[rows[0]])) + settle_s
+                up_s = float(tr.t_s[at[0]]) if len(at) else None
+            hits += _limit_hits(tr, f, rows, wet[rows], settled_s, up_s)
+            came_up = up_s == -math.inf or len(at) > 0
+    hits.sort(key=lambda h: h[1])
+    out: List[OcvRun] = []
+    group: List[_Hit] = []
+    for h in hits:
+        if group and tr.t_s[h[0]] - tr.t_s[group[-1][1]] > s.window_min * 60.0:
+            out.append(_station_run(tr, group, s))
+            group = []
+        group.append(h)
+    if group:
+        out.append(_station_run(tr, group, s))
+    return out
+
+
+def _limit_hits(tr: HoldTrace, f: StepFile, rows: np.ndarray, w: np.ndarray,
+                settled_s: float, up_s: Optional[float]) -> List[_Hit]:
+    """Where a hold file's own limit acted in one run (`rows`: the run's
+    samples that have a time, in time order; `w` their Wet flags).
+
+    Only readings at open circuit count, and the halves are read from the
+    rows with a Wet flag: a row whose flag is blank belongs to neither.
+
+    - A step that is not an RH loop (StepFile.loop: a steady RH, a flag
+      switched now and then, or none), the station ends on the limit: a run
+      whose last reading is under it was stopped there, dated from the start
+      of the stretch under it, or from the run's first reading if the OCV
+      never came up to the limit (a cell already dead when the hold began).
+    - In an RH loop whose flags do not switch in the run, the halves cannot
+      be told apart, so its limit is not judged (for a hold named for RH
+      cycling, build_timeline says its flags never switch).
+    - In an RH loop, the limit belongs to one sub-step of the loop: the one
+      whose whole halves last the time the header gives (KM8-S6: 30 Seconds,
+      the wet one; if neither or both match, the wet one). The limit tripped
+      in such a half when a reading under it ends the half -- its last
+      flagged row, or a row with a blank flag before the next half -- the run
+      then moving on to the other half, or ending. FuelCell may act on a
+      reading it does not log, so a half that ended at least a sample and a
+      half early is a trip too when a reading at its end is within
+      TRIP_NEAR_V of the limit -- only where the limit's whole halves are
+      seen to last the header's time, never in a run's first or last half
+      (which may lie partly outside its log), and only on a clean change of
+      flag at both its ends: no blank flag in it or either side of it, no
+      row missing from the log, and halves of more than a sample either
+      side, so a flag or logging glitch is not read as the station acting. A run
+      ending in the other half under the limit is no act of the station's:
+      that sub-step has no limit known, and the OCV rule judges it.
+
+    A trip counts once `up_s`, the run's first reading at the limit, has
+    passed and the run has settled (`settled_s`); with no reading at the
+    limit in the run (up_s None), from the first.
+    """
+    lim = f.term_v
+    t, v = tr.t_s[rows], tr.v[rows]
+    ocv = tr.finite[rows] & ~tr.on_load[rows]
+    oc = np.flatnonzero(ocv)
+    if not len(oc):
+        return []
+    under = ocv & (v < lim)
+    # Where the stretch under the limit around each reading started; rows
+    # without a reading neither end a stretch nor add to it. (Readings over
+    # the limit get the next one, clipped: never looked up.)
+    start_of = oc[np.minimum(np.maximum.accumulate(np.where(under[oc], -1, np.arange(len(oc)))) + 1,
+                             len(oc) - 1)]
+    stretch = lambda p: int(rows[start_of[np.searchsorted(oc, p)]])
+    if not f.loop:
+        p = oc[-1]
+        return [(stretch(p), int(rows[p]), 'stop', f, '')] if under[p] else []
+    have = np.flatnonzero(np.isfinite(w))
+    state = (w[have] > 0.5).astype(float)
+    if not len(have) or np.all(state == state[0]):
+        return []
+    # The halves: stretches of one state, (state, first row, last row, followed).
+    edge = np.flatnonzero(np.diff(state) != 0) + 1
+    firsts, lasts = np.r_[0, edge], np.r_[edge, len(have)] - 1
+    halves = [(state[a], have[a], have[b], i < len(firsts) - 1)
+              for i, (a, b) in enumerate(zip(firsts, lasts))]
+    # A half with a flag on every row (no blank one inside it).
+    flagged = [lasts[i] - firsts[i] == h[2] - h[1] for i, h in enumerate(halves)]
+    d = np.diff(t)
+    dt = float(np.median(d[d > 0])) if (d > 0).any() else 0.0
+    lasts_s = lambda a, b: float(t[b] - t[a]) + dt
+    # A whole half (another before it and after it) that lasts the header's
+    # time, within a sample and a half.
+    whole = [h for i, h in enumerate(halves) if f.sub_s and h[3] and i > 0
+             and abs(lasts_s(h[1], h[2]) - f.sub_s) <= 1.5 * dt]
+    states = {h[0] for h in whole}
+    lim_state = states.pop() if len(states) == 1 else 1.0
+    early_ok = dt > 0 and any(h[0] == lim_state for h in whole)
+    name = 'wet' if lim_state == 1.0 else 'dry'
+    out: List[_Hit] = []
+    for i, (sv, a, b, followed) in enumerate(halves):
+        if sv != lim_state:
+            continue
+        nxt = halves[i + 1][1] if followed else len(rows)       # the next half's first row
+        ends = np.arange(b, nxt)                                # its last flagged row and blank ones after
+        cand = ends[under[ends]]
+        if len(cand):
+            p = int(cand[0])
+        elif early_ok and followed and i > 0 and lasts_s(a, b) < f.sub_s - 1.5 * dt:
+            # Ended early: only a clean change of flag at both its ends, the
+            # halves either side of it more than a sample long, nothing missing
+            # from the log, and a reading at its end near the limit.
+            prev, after = halves[i - 1], halves[i + 1]
+            clean = (prev[2] == a - 1 and after[1] == b + 1 and b > a
+                     and prev[2] > prev[1] and after[2] > after[1]
+                     and all(flagged[i - 1:i + 2])
+                     and np.all(np.diff(t[a - 1:b + 2]) <= 1.5 * dt))
+            mine = oc[(oc >= a) & (oc <= b)]
+            near = np.r_[mine[-2:], oc[(oc > b) & (oc <= after[2])][:2]]
+            if not clean or not len(mine) or v[near].min() >= lim + TRIP_NEAR_V:
+                continue
+            p = int(mine[-1])
+        else:
+            continue
+        if tr.on_load[rows[b]] or (up_s is not None and (t[p] < up_s or t[p] < settled_s)):
+            continue
+        under_p = bool(under[p])
+        out.append((stretch(p) if under_p else int(rows[p]), int(rows[p]),
+                    'trip' if followed else 'trip-end', f, name))
+    return out
+
+
+def _station_run(tr: HoldTrace, group: List[_Hit], s: OcvSettings) -> OcvRun:
+    """One event of a hold's own limit: from the start of its first stretch
+    under the limit to the last time the limit acted, the time under the
+    limit in it, its lowest reading, whether the 10-min median fell under the
+    threshold in it, and the first judged median at or over the threshold
+    after it."""
+    lead = min(group, key=lambda h: h[0])
+    last = max(group, key=lambda h: h[1])
+    a, b = lead[0], last[1]
+    span = tr.finite & ~tr.on_load & (tr.t_s >= tr.t_s[a]) & (tr.t_s <= tr.t_s[b])
+    trips = [h for h in group if h[2] != 'stop']
+    if trips:
+        # The time under the limit, reading by reading: in a loop the OCV
+        # can be over it between trips.
+        d = np.diff(np.unique(tr.t_s[np.isfinite(tr.t_s)]))
+        dt = float(np.median(d)) if len(d) else 0.0
+        minutes = float(np.sum(span & (tr.v < max(h[3].term_v for h in group)))) * dt / 60.0
+    else:
+        minutes = float(tr.t_s[b] - tr.t_s[a]) / 60.0
+    back = np.flatnonzero(tr.valid & (tr.median >= s.threshold_v))
+    later = back[back > b]
+    judged = span & tr.valid
+    return OcvRun(segment=tr.segment.number, step=lead[3].step,
+                  start_h=float(tr.t_s[a]) / 3600.0, end_h=float(tr.t_s[b]) / 3600.0,
+                  minutes=minutes,
+                  lowest_v=float(tr.v[span].min()) if span.any() else float(tr.v[b]),
+                  recovered_h=float(tr.t_s[later[0]]) / 3600.0 if len(later) else None,
+                  verdict='death', trigger='station', trips=len(trips),
+                  stopped=any(h[2] == 'stop' for h in group),
+                  run_ended=last[2] in ('stop', 'trip-end'),
+                  half=trips[0][4] if trips else '',
+                  median_fell=bool(np.any(tr.median[judged] < s.threshold_v)))
 
 
 def set_rate_cutoff(res: OcvResult, death_h: Optional[float], cause: str = '') -> None:
@@ -1170,19 +2099,24 @@ def hold_rows(tl: Timeline, ocv: Optional[OcvResult] = None) -> List[Dict[str, A
 
 
 EVENT_COLUMNS = ['Segment', 'Step', 'Start (h)', 'End (h)', 'Minutes',
-                 'Lowest 10-min median (V)', 'Verdict', 'Median back over threshold (h)']
+                 'Lowest 10-min median (V)', 'Verdict', 'Median at or over threshold after (h)']
 
 
-def ocv_event_rows(res: OcvResult) -> List[Dict[str, Any]]:
-    """Every stretch of 10-min median under the threshold, judged or not."""
+def ocv_event_rows(res: OcvResult, tl: Optional[Timeline] = None) -> List[Dict[str, Any]]:
+    """Every stretch of 10-min median under the threshold, judged or not, and
+    every event of a hold's own limit (a step the station ended, wet halves
+    it cut short); with RH cycling, where each starts in RH cycles too."""
     words = {'death': 'death',
              'dip': f'dip, shorter than {res.settings.persist_min:g} min',
              'after death': 'after death'}
     return [{'Segment': r.segment, 'Step': r.step,
              'Start (h)': round(r.start_h, 4), 'End (h)': round(r.end_h, 4),
              'Minutes': round(r.minutes, 2), 'Lowest 10-min median (V)': round(r.lowest_v, 5),
-             'Verdict': words[r.verdict],
-             'Median back over threshold (h)': _r(r.recovered_h, 4)}
+             'Verdict': words[r.verdict] + (f': {r.station_acted()} (lowest sample shown)'
+                                            if r.trigger == 'station' else ''),
+             'Median at or over threshold after (h)': _r(r.recovered_h, 4),
+             **({'Start (RH cycles)': tl.cycles_at(r.start_h)} if tl is not None and tl.cycles_tested
+                else {})}
             for r in res.runs]
 
 
@@ -1239,7 +2173,7 @@ METRICS: Dict[str, List[Tuple[str, str, int]]] = {
              ('Q_H', 'Q_H (mC/cm²)', 4), ('scan_rate', 'Scan rate (mV/s)', 2),
              ('cycle', 'Cycle used', 0)],
     'eis': [('HFR', 'HFR (mΩ·cm²)', 2)],
-    'polcurve': [('V_1A', 'V @ 1 A/cm² (V)', 4), ('j_0.6V', 'j @ 0.6 V (A/cm²)', 4),
+    'polcurve': [('V_1A', 'V @ 1 A/cm² (V)', 4), ('j_0.65V', 'j @ 0.65 V (A/cm²)', 4),
                  ('peak_power', 'Peak power (W/cm²)', 4)],
 }
 
@@ -1261,12 +2195,17 @@ def _quiet(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
 
-def _columns(path: str, names: Tuple[str, ...]) -> Dict[str, np.ndarray]:
+def _columns(path: str, names: Tuple[str, ...],
+             skip_modes: Tuple[int, ...] = ()) -> Dict[str, np.ndarray]:
     """Named numeric columns of a step file, by header name, with rows that
-    lack any of them dropped."""
-    df = pd.read_csv(path, usecols=lambda c: str(c).strip() in names)
-    df.columns = [str(c).strip() for c in df.columns]
-    df = df.loc[:, ~df.columns.duplicated()]
+    lack any of them dropped. A .fcd file's columns come under the station
+    names (fcd_columns), less rows in a control mode of `skip_modes`."""
+    if is_fcd(path):
+        df = fcd_columns(path, names, skip_modes)
+    else:
+        df = pd.read_csv(path, usecols=lambda c: str(c).strip() in names)
+        df.columns = [str(c).strip() for c in df.columns]
+        df = df.loc[:, ~df.columns.duplicated()]
     missing = [n for n in names if n not in df.columns]
     if missing:
         raise ValueError('no ' + ', '.join(f"'{n}'" for n in missing) + ' column')
@@ -1283,7 +2222,7 @@ def analyze_crossover_file(path: str, cs: CharSettings):
     3), and the short-corrected intercept and R_short from a line through the
     same window. R_short is left out when that line is flat or falling."""
     from scripts.h2_crossover_analysis import analyze_crossover
-    c = _columns(path, ('Working Electrode Voltage', 'Current'))
+    c = _columns(path, ('Working Electrode Voltage', 'Current'), FCD_SKIP_MODES)
     V, j = c['Working Electrode Voltage'], c['Current'] / cs.geo_area
     r = _quiet(analyze_crossover, V, j, avg_V_min=cs.xover_lo, avg_V_max=cs.xover_hi,
                geo_area=cs.geo_area)
@@ -1348,11 +2287,11 @@ def analyze_eis_file(path: str, cs: CharSettings):
 
 
 def analyze_polcurve_file(path: str, cs: CharSettings):
-    """V @ 1 A/cm², j @ 0.6 V and peak power from a stepped pol curve (mV and
+    """V @ 1 A/cm², j @ 0.65 V and peak power from a stepped pol curve (mV and
     mA columns), through the same steps as the portal's pol-curve batch:
     dwell endpoints, sweeps, the last up-sweep, then analyze_polcurve."""
     import scripts.polcurve_analysis as PC
-    c = _columns(path, ('mV', 'mA'))
+    c = _columns(path, ('mV', 'mA'), FCD_SKIP_MODES)
     j_raw = c['mA'] * 1e-3 / cs.geo_area
     V_raw = c['mV'] * 1e-3
 
@@ -1372,7 +2311,7 @@ def analyze_polcurve_file(path: str, cs: CharSettings):
     r = _quiet(PC.analyze_polcurve, j, V, HFR=None, geo_area=cs.geo_area)
     v1 = r.get('V_at_1Acm2')
     values = {'V_1A': float(v1) if v1 is not None else math.nan,
-              'j_0.6V': float(r.get('j_at_0.6V', math.nan)),
+              'j_0.65V': float(r.get('j_at_0.65V', math.nan)),
               'peak_power': float(r['peak_power_W_cm2'])}
     note = '' if v1 is not None else f'reaches {float(j.max()):.2f} A/cm², short of 1 A/cm²'
     return values, (j, V), note
@@ -1492,7 +2431,7 @@ def _series_labels(files: List[StepFile]) -> Dict[Tuple[Any, ...], str]:
         keys.setdefault((f.role,) + f.conditions_key, f)
     names: Dict[Tuple[Any, ...], str] = {}
     for key, f in keys.items():
-        base = f'{KIND_LABELS[f.role]}, {f.RH_pct:g}% RH'
+        base = f'{KIND_LABELS[f.role]}, {f.rh_label}'
         names[key] = f'{base}, {f.gases}' if f.role == 'polcurve' else base
 
     def collisions() -> Dict[str, int]:
@@ -1506,6 +2445,8 @@ def _series_labels(files: List[StepFile]) -> Dict[Tuple[Any, ...], str]:
         if counts[names[key]] > 1:
             names[key] += (f', {f.T_C:g} °C' if f.role == 'polcurve'
                            else f', {f.T_C:g} °C, {f.gases}')
+            if f.P_kPa is not None:
+                names[key] += f', {f.P_kPa:g} kPa'
     counts, seen = collisions(), {}
     for key in keys:
         n = names[key]
@@ -1518,7 +2459,7 @@ def _series_labels(files: List[StepFile]) -> Dict[Tuple[Any, ...], str]:
 def _analyze_file(f: StepFile, series: str, cs: CharSettings) -> CharResult:
     """One file through its analyzer. Only an analyzer that raises, or one
     that yields no number at all, makes an error: a pol curve that stops
-    short of 1 A/cm² still has j @ 0.6 V and peak power."""
+    short of 1 A/cm² still has j @ 0.65 V and peak power."""
     res = CharResult(file=f, series=series)
     try:
         res.values, res.curve, res.note = ANALYZERS[f.role](f.path, cs)
@@ -1554,6 +2495,9 @@ def analyze_characterizations(tl: Timeline, settings: Optional[CharSettings] = N
             ca.series_kind[r.series] = r.kind
             if r.kind == 'crossover' and r.file.RH_pct == cs.death_rh:
                 ca.death_series.append(r.series)
+            elif r.kind == 'crossover' and not math.isfinite(r.file.RH_pct):
+                ca.notes.append(f'{r.series}: the file names give no RH, so these crossovers are '
+                                f'not judged by the {cs.death_rh:g}% RH crossover rule')
 
     by_index: Dict[int, float] = {}
     for r in ca.results:
@@ -1656,6 +2600,15 @@ class Verdict:
     at_bol: bool = False
     ocv_judged: bool = True
     xover_judged: bool = True
+    ocv_trigger: str = ''           # 'station' when the station's own limit was the OCV death
+    cycles: Optional[int] = None    # RH cycles to death, or tested when alive; None without
+
+    @property
+    def cause_text(self) -> str:
+        """The cause, saying when the OCV death was the station's own limit."""
+        if self.ocv_trigger == 'station' and self.cause in ('OCV', 'both'):
+            return f'{self.cause} (station limit)'
+        return self.cause
 
     @property
     def text(self) -> str:
@@ -1666,7 +2619,7 @@ class Verdict:
         if self.bracket and self.cause == 'crossover':
             return (f'dead at {self.hours:.2f} h, crossover, between '
                     f'{self.bracket[0]:.2f} and {self.bracket[1]:.2f} h')
-        return f'dead at {self.hours:.2f} h, {self.cause}'
+        return f'dead at {self.hours:.2f} h, {self.cause_text}'
 
     @property
     def bracket_text(self) -> str:
@@ -1675,19 +2628,32 @@ class Verdict:
         return 'at BOL' if self.at_bol else f'({self.bracket[0]:.2f}, {self.bracket[1]:.2f}] h'
 
 
+# Hold hours that differ by less than this (3.6 µs) are the same moment: sums
+# of the same lengths in another order can differ in the last bit.
+CLOCK_TOL_H = 1e-9
+
+
 def decide(tl: Timeline, ocv: Optional['OcvResult'], ca: Optional[CharAnalysis]) -> Verdict:
     t_ocv = ocv.death_h if ocv is not None else None
     xd = ca.xover_death if ca is not None else None
     judged = dict(ocv_judged=bool(ocv is not None and ocv.judged),
                   xover_judged=bool(ca is not None and ca.xover_judged))
+    # The two clocks meet where a hold the station ended is followed by the
+    # crossover that trips: the OCV death is at the hold's last sample, the
+    # crossover at the hold's end, the same hour summed two ways. Within
+    # CLOCK_TOL_H they are the same time.
     if t_ocv is None and xd is None:
-        return Verdict(False, tl.hours_tested, **judged)
-    if xd is not None and (t_ocv is None or xd.H < t_ocv):
-        return Verdict(True, xd.H, 'crossover', (xd.low, xd.H), at_bol=xd.interval.index == 0,
-                       **judged)
-    both = xd is not None and xd.low < t_ocv <= xd.H
-    return Verdict(True, t_ocv, 'both' if both else 'OCV',
-                   (xd.low, xd.H) if both else None, **judged)
+        v = Verdict(False, tl.hours_tested, **judged)
+    elif xd is not None and (t_ocv is None or xd.H < t_ocv - CLOCK_TOL_H):
+        v = Verdict(True, xd.H, 'crossover', (xd.low, xd.H), at_bol=xd.interval.index == 0,
+                    **judged)
+    else:
+        both = xd is not None and xd.low < t_ocv <= xd.H + CLOCK_TOL_H
+        v = Verdict(True, t_ocv, 'both' if both else 'OCV', (xd.low, xd.H) if both else None,
+                    ocv_trigger=ocv.death.trigger, **judged)
+    if tl.cycles_tested:
+        v.cycles = tl.cycles_at(v.hours) if v.dead else tl.cycles_tested
+    return v
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1718,19 +2684,46 @@ _LANES = (('hold', 'OCV hold', '#1f77b4'),
           ('other', 'Other', '#bcbd22'))
 
 
-def file_spans_h(tl: Timeline) -> List[Tuple[StepFile, float, float]]:
-    """(file, start, length) on a test-time axis built from the step logs.
+# A step that adds no hold time is drawn on the timeline as a tick this
+# share of the test wide, centred on the hold hour it ran at; so is a hold
+# segment shorter than that, in a darker blue.
+TIMELINE_TICK = 0.006
+SHORT_HOLD_COLOR = '#08306b'
 
-    Each file occupies its last stamp plus the step tail, as on the hold
-    clock; time between steps beyond that is not recorded anywhere, so it is
-    not drawn.
+
+def timeline_lanes(tl: Timeline) -> Tuple[Dict[str, List[Tuple[float, float]]],
+                                          Dict[str, float], float, bool]:
+    """What the timeline draws: each role's spans (h), where each folder
+    starts, the length of the axis, and whether it is the hold clock.
+
+    On the hold clock, OCV hold time only (Corey, 13 Oct), each hold segment
+    spans its hold hours, and every other step takes no hold time: it is a
+    tick centred on the hold hour it ran at. Without a hold there are no
+    hold hours to draw on, so the
+    steps are laid end to end over the time their logs ran (each its last
+    stamp plus the step tail, as the clock counts a hold), which shows what
+    did run.
     """
-    out, t = [], 0.0
+    lanes: Dict[str, List[Tuple[float, float]]] = {}
+    folder_x: Dict[str, float] = {}
+    if not tl.segments:
+        t = 0.0
+        for f in tl.files:
+            folder_x.setdefault(f.folder, t)
+            lanes.setdefault(f.role, []).append((t, t + f.length_s / 3600.0))
+            t += f.length_s / 3600.0
+        total = t if t > 0 else 1.0
+        w = 0.002 * total
+        return ({r: [(a, max(b, a + w)) for a, b in sp] for r, sp in lanes.items()},
+                folder_x, total, False)
+    total = tl.hours_tested if tl.hours_tested > 0 else 1.0
+    tick = TIMELINE_TICK * total
+    lanes['hold'] = [(sg.H_start_h, sg.H_end_h) for sg in tl.segments]
     for f in tl.files:
-        length = f.length_s / 3600.0
-        out.append((f, t, length))
-        t += length
-    return out
+        folder_x.setdefault(f.folder, f.H_start_h)
+        if f.role != 'hold':
+            lanes.setdefault(f.role, []).append((f.H_start_h - tick / 2.0, f.H_start_h + tick / 2.0))
+    return lanes, folder_x, total, True
 
 
 def _verdict_lines(v: Optional['Verdict']) -> List[str]:
@@ -1746,7 +2739,10 @@ def _verdict_lines(v: Optional['Verdict']) -> List[str]:
                 n for n, ok in (('OCV rule', v.ocv_judged), ('crossover rule', v.xover_judged))
                 if not ok) + ' not applied (no data)')
         return lines
-    lines = ['Verdict: dead', f'Hours to death = {v.hours:.2f} h', f'Death cause: {v.cause}']
+    lines = ['Verdict: dead', f'Hours to death = {v.hours:.2f} h']
+    if v.cycles is not None:
+        lines.append(f'RH cycles to death = {v.cycles}')
+    lines.append(f'Death cause: {v.cause_text}')
     if v.bracket_text:
         lines.append(f'Death bracket: {v.bracket_text}')
     return lines
@@ -1754,38 +2750,51 @@ def _verdict_lines(v: Optional['Verdict']) -> List[str]:
 
 def plot_timeline(tl: Timeline, save_path: Optional[str] = None, title: str = '',
                   verdict: Optional['Verdict'] = None):
-    """The run as one lane per role: the check that ordering and hold
-    detection are right before any number is trusted.
+    """The run as one lane per role: the check that holds were found where
+    they should be, and where each characterization fell, before any number
+    is trusted. The order of steps within a block is the workbook's
+    Manifest.
 
-    Each lane is drawn as a single square-wave line (no NaN breaks, which the
-    sidecar writer refuses) over a filled band, so a stored copy re-renders
-    as the same timing diagram.
+    The x axis is the durability clock, OCV hold time only, as on every
+    other plot (Corey, 13 Oct): holds fill their lane end to end, each
+    segment parted from the next, and every other step is a tick at the hold
+    hour it ran at, steps at one hour sharing it (timeline_lanes). A hold
+    segment too short to see -- one the station ended within seconds -- is a
+    dark blue tick at its hour. A run without a hold is drawn over the time
+    its step logs ran instead. Folder boundaries are dotted lines, a death a
+    red one. Each lane is drawn as a
+    single square-wave line (no NaN breaks, which the sidecar writer
+    refuses) over a filled band, so a stored copy re-renders as the same
+    timing diagram; the hold lane dips to its base between segments, so the
+    stored copy parts them too.
     """
-    spans = file_spans_h(tl)
-    total = spans[-1][1] + spans[-1][2] if spans else 1.0
-    min_w = total * 0.002
-    lanes = [ln for ln in _LANES if any(f.role == ln[0] for f, _, _ in spans)]
+    spans, folder_x, total, on_holds = timeline_lanes(tl)
+    pad = TIMELINE_TICK * total if on_holds else 0.0
+    x_lo, x_hi = -pad, total + pad
+    lanes = [ln for ln in _LANES if ln[0] in spans]
     n = max(len(lanes), 1)
     fig, ax = plt.subplots(figsize=(12, 1.6 + 0.42 * n), dpi=120)
 
     for li, (role, label, color) in enumerate(lanes):
         base = n - 1 - li
         top = base + 0.7
+        # Hold segments that abut stay apart; anything else that meets or
+        # overlaps is one span.
+        apart = on_holds and role == 'hold'
         merged: List[List[float]] = []
-        for f, start, length in spans:
-            if f.role != role:
-                continue
-            a, b = start, start + max(length, min_w)
-            if merged and a <= merged[-1][1]:
+        for a, b in sorted(spans[role]):
+            a, b = max(a, x_lo), min(b, x_hi)
+            if merged and (a < merged[-1][1] if apart else a <= merged[-1][1]):
                 merged[-1][1] = max(merged[-1][1], b)
             else:
                 merged.append([a, b])
-        xs, ys = [0.0], [base]
+        xs, ys = [x_lo], [base]
         for a, b in merged:
             xs += [a, a, b, b]
             ys += [base, top, top, base]
-        xs.append(total)
+        xs.append(x_hi)
         ys.append(base)
+        xs = [round(x, 5) for x in xs]
         ax.fill_between(xs, base, ys, color=color, alpha=0.85, linewidth=0)
         ax.plot(xs, ys, color=color, lw=0.8, label=label)
 
@@ -1793,37 +2802,71 @@ def plot_timeline(tl: Timeline, save_path: Optional[str] = None, title: str = ''
     # hold segment. Placed in the axes' data coordinates but held by the
     # figure: the sidecar keeps every text of an axes as readout, and a stored
     # copy then re-rendered the folder names and hours as a long readout list.
-    starts: Dict[str, float] = {}
-    for f, start, _ in spans:
-        starts.setdefault(f.folder, start)
-    if len(starts) > 1:
-        for folder, x in starts.items():
+    # Folders that start at the same hold hour (a BOL folder holds no hold
+    # time) share one boundary, named in order.
+    named: List[Any] = []
+    if len(folder_x) > 1:
+        at: Dict[float, List[str]] = {}
+        for folder, x in folder_x.items():
+            at.setdefault(round(x, 6), []).append(folder.rsplit('/', 1)[-1])
+        for x, names in at.items():
             if x > 0:
                 ax.axvline(x, color='k', lw=0.8, ls=':', alpha=0.6)
-            fig.text(x, n - 0.05, f' {folder.rsplit("/", 1)[-1]}', transform=ax.transData,
-                     fontsize=7.5, va='bottom', ha='left', color='0.25', rotation=0)
+            named.append(fig.text(x, n - 0.05, ' ' + ' → '.join(names), transform=ax.transData,
+                                  fontsize=7.5, va='bottom', ha='left', color='0.25', rotation=0))
+    if on_holds and 'hold' in spans:
+        tick = TIMELINE_TICK * total
+        for sg in tl.segments:
+            if sg.H_end_h - sg.H_start_h < tick:
+                a, b = round(sg.H_start_h - tick / 2.0, 5), round(sg.H_start_h + tick / 2.0, 5)
+                ax.fill_between([a, b], n - 1, n - 0.3, color=SHORT_HOLD_COLOR, lw=0, zorder=2.5)
+                ax.plot([a, a, b, b], [n - 1, n - 0.3, n - 0.3, n - 1], color=SHORT_HOLD_COLOR,
+                        lw=0.8, zorder=2.6, label='hold shorter than a tick')
 
-    # Hold hours at the end of each hold segment, while that stays legible.
-    if 0 < len(tl.segments) <= 12 and lanes and lanes[0][0] == 'hold':
-        end_x = {s.number: 0.0 for s in tl.segments}
-        for f, start, length in spans:
-            if f.role == 'hold':
-                end_x[f.segment] = start + length
-        for s in tl.segments:
-            fig.text(end_x[s.number], n - 1 + 0.78, f'{s.H_end_h:.2f} h', transform=ax.transData,
-                     fontsize=7, ha='right', va='bottom', color='#1f77b4')
+    # Holds abut on this clock, so each segment after the first is parted from
+    # the one before by a white line across the hold lane (the figure's too:
+    # a stored copy would redraw it as a reference line across every lane);
+    # and hold hours mark each segment's end, the last always, the others
+    # where they do not crowd it.
+    if on_holds and lanes and lanes[0][0] == 'hold':
+        for s in tl.segments[1:]:
+            fig.add_artist(Line2D([s.H_start_h] * 2, [n - 1, n - 0.3], transform=ax.transData,
+                                  color='white', lw=1.2, zorder=3))
+        if len(tl.segments) <= 12:
+            shown: List[float] = []
+            for s in reversed(tl.segments):
+                if shown and shown[-1] - s.H_end_h < 0.04 * total:
+                    continue
+                shown.append(s.H_end_h)
+                fig.text(s.H_end_h, n - 1 + 0.78, f'{s.H_end_h:.2f} h', transform=ax.transData,
+                         fontsize=7, ha='right', va='bottom', color='#1f77b4')
+    if verdict is not None and verdict.dead:
+        ax.axvline(round(verdict.hours, 4), color='#d62728', lw=1.6,
+                   label=f'death at {verdict.hours:.2f} h')
 
     ax.set_yticks([n - 1 - i + 0.35 for i in range(len(lanes))])
     ax.set_yticklabels([ln[1] for ln in lanes], fontsize=9)
     ax.set_ylim(-0.3, n + 0.45)
-    ax.set_xlim(0, total)
-    ax.set_xlabel('Test time from step logs (h)')
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_xlabel('Hold hours (h): OCV hold time only; every other step is a tick at the hold '
+                  'hour it ran at' if on_holds else
+                  'No OCV hold found, so no hold hours: elapsed time over every step, from the '
+                  'step logs (h)')
     ax.grid(True, axis='x', alpha=0.25)
     ax.set_title(title or 'Durability test timeline', fontsize=11, fontweight='bold', loc='left')
     _readout(ax, [f'Hours tested = {tl.hours_tested:.2f} h',
+                  f'RH cycles tested = {tl.cycles_tested}' if tl.cycles_tested else None,
                   f'Hold files = {len(tl.holds)}',
                   f'Hold segments = {len(tl.segments)}'] + _verdict_lines(verdict))
     plt.tight_layout()
+    # A folder named near the end of the axis would run off it: it is named
+    # back from its boundary instead.
+    renderer = fig.canvas.get_renderer()
+    right = ax.get_window_extent(renderer).x1
+    for txt in named:
+        if txt.get_window_extent(renderer).x1 > right:
+            txt.set_ha('right')
+            txt.set_text(txt.get_text().strip() + ' ')
     if save_path:
         save_with_sidecar(fig, save_path, plot_type='fcdur_timeline', bbox_inches='tight')
     return fig
@@ -1919,8 +2962,9 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
                    label=f'dip under {s.threshold_v:g} V, shorter than {s.persist_min:g} min')
         ys += [r.lowest_v for r in dips]
     if res.death:
+        how = ', the station\'s own limit' if res.death.trigger == 'station' else ''
         ax.axvline(round(res.death.start_h, 4), color='#d62728', lw=1.6,
-                   label=f'OCV death at {res.death.start_h:.2f} h')
+                   label=f'OCV death at {res.death.start_h:.2f} h{how}')
 
     lo, hi = min(ys), max(ys)
     pad = max(0.01, 0.06 * (hi - lo))
@@ -1946,6 +2990,7 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
              (_kv('OCV death', res.death_h, '.2f', 'h') if res.death
               else 'OCV death: none' if res.judged else 'OCV death: not judged'),
              _kv('Hours tested', tl.hours_tested, '.2f', 'h'),
+             f'RH cycles tested = {tl.cycles_tested}' if tl.cycles_tested else None,
              _kv('OCV plot bin', res.plot_bin_s / 60.0, '.4g', 'min')]
     if len(colors) > 1:
         lines.append(f'Initial, final, loss and rate at\n{res.reference}')
@@ -2124,12 +3169,13 @@ def plot_metric_vs_time(tl: Timeline, ca: CharAnalysis, kind: str, key: str, yla
 
 def plot_perf_vs_time(tl: Timeline, ca: CharAnalysis, save_path: Optional[str] = None,
                       title: str = ''):
-    """Pol-curve performance against hold hours: V @ 1 A/cm² above, j @ 0.6 V
+    """Pol-curve performance against hold hours: V @ 1 A/cm² above, j @ 0.65 V
     below, one line per flow setting."""
     colors = _series_style(ca)
     mine = [s for s in ca.series if ca.series_kind[s] == 'polcurve']
     fig, (ax, axj) = plt.subplots(2, 1, figsize=(11, 7), dpi=120, sharex=True)
-    for target, key, ylabel in ((ax, 'V_1A', 'V @ 1 A/cm² (V)'), (axj, 'j_0.6V', 'j @ 0.6 V (A/cm²)')):
+    for target, key, ylabel in ((ax, 'V_1A', 'V @ 1 A/cm² (V)'),
+                                (axj, 'j_0.65V', 'j @ 0.65 V (A/cm²)')):
         ys: List[float] = []
         for s in mine:
             ys += _plot_trend(target, ca, s, key, colors[s])
@@ -2147,7 +3193,7 @@ def plot_perf_vs_time(tl: Timeline, ca: CharAnalysis, save_path: Optional[str] =
         if not blocks:
             continue
         for key, name, unit, spec in (('V_1A', 'V @ 1 A/cm²', 'V', '.4f'),
-                                      ('j_0.6V', 'j @ 0.6 V', 'A/cm²', '.4f')):
+                                      ('j_0.65V', 'j @ 0.65 V', 'A/cm²', '.4f')):
             # The first and last curves themselves: a curve that no longer
             # reaches 1 A/cm² is a result, not a gap to step over.
             for when, r in (('initial', blocks[0]), ('final', blocks[-1])):
@@ -2161,6 +3207,77 @@ def plot_perf_vs_time(tl: Timeline, ca: CharAnalysis, save_path: Optional[str] =
     plt.tight_layout()
     if save_path:
         save_with_sidecar(fig, save_path, plot_type='fcdur_perf_vs_time', bbox_inches='tight')
+    return fig
+
+
+# The stored hours-to-cycles map keeps every this many cycle ends of a hold,
+# besides its start and end, its first and last cycle end, and the cycle ends
+# either side of a pause longer than RH_MAP_PAUSE cycles; read off linearly
+# between them, it is then within a cycle of the count.
+RH_MAP_EVERY = 25
+RH_MAP_PAUSE = 2.0
+
+
+def rh_cycle_map(tl: Timeline) -> Tuple[np.ndarray, np.ndarray]:
+    """RH cycles completed against hold hours: each hold's start and end,
+    its first and last cycle end, every RH_MAP_EVERY-th between, and both
+    ends of any pause in the cycling. It is what Comparisons plots the
+    durability charts against cycles with, reading it off linearly; a hold
+    at a steady RH, or a pause, is a flat stretch."""
+    xs: List[float] = [0.0]
+    ys: List[int] = [0]
+    period = tl.rh_period_s
+    for f in tl.holds:
+        xs.append(f.H_start_h)
+        ys.append(f.C_start)
+        ends = f.rh_ends_s
+        if ends is not None and len(ends):
+            keep = set(range(RH_MAP_EVERY - 1, len(ends), RH_MAP_EVERY)) | {0, len(ends) - 1}
+            if period:
+                for i in np.flatnonzero(np.diff(ends) > RH_MAP_PAUSE * period):
+                    keep |= {int(i), int(i) + 1}
+            for i in sorted(keep):
+                xs.append(f.H_start_h + float(ends[i]) / 3600.0)
+                ys.append(f.C_start + i + 1)
+        xs.append(f.H_end_h)
+        ys.append(f.C_end)
+    x, y = np.round(np.asarray(xs, float), 5), np.asarray(ys, float)
+    keep = np.r_[True, (np.diff(x) > 0) | (np.diff(y) != 0)]
+    return x[keep], y[keep]
+
+
+def plot_rh_cycles(tl: Timeline, verdict: Optional[Verdict] = None,
+                   save_path: Optional[str] = None, title: str = ''):
+    """RH cycles completed against hold hours (rh_cycle_map), with the
+    characterizations and the death. Its stored copy is the map Comparisons
+    reads to plot every durability chart against RH cycles."""
+    x, y = rh_cycle_map(tl)
+    fig, ax = plt.subplots(figsize=(11, 4.5), dpi=120)
+    ax.plot(x, y, color='#1f77b4', lw=1.4, label='RH cycles completed')
+    char_h = sorted({round(f.H_start_h, 4) for f in tl.files if f.role in _CHAR_ROLES})
+    for j, xh in enumerate(char_h):
+        ax.axvline(xh, color='0.55', ls=':', lw=1.0,
+                   label='characterization' if j == 0 else '_nolegend_')
+    if verdict is not None and verdict.dead:
+        ax.axvline(round(verdict.hours, 4), color='#d62728', lw=1.6,
+                   label=f'death at {verdict.hours:.2f} h, RH cycle {verdict.cycles}')
+    ax.set_xlim(0, max(tl.hours_tested, 1e-3))
+    ax.set_ylim(0, max(tl.cycles_tested, 1) * 1.05)
+    ax.set_xlabel('Hold hours (h)')
+    ax.set_ylabel('RH cycles')
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc='upper left', fontsize=8, framealpha=0.9)
+    ax.set_title(title or 'RH cycles', fontsize=11, fontweight='bold', loc='left')
+    _readout(ax, [f'RH cycles tested = {tl.cycles_tested}',
+                  _kv('RH cycle', tl.rh_period_s, '.4g', 's') if tl.rh_steady
+                  else 'RH cycle: no steady pace' if tl.rh_period_s is not None else None,
+                  _kv('Hours tested', tl.hours_tested, '.2f', 'h'),
+                  f'RH cycles to death = {verdict.cycles}'
+                  if verdict is not None and verdict.dead and verdict.cycles is not None else None],
+             x=1.0, y=1.02)
+    plt.tight_layout()
+    if save_path:
+        save_with_sidecar(fig, save_path, plot_type='fcdur_rh_cycles', bbox_inches='tight')
     return fig
 
 
@@ -2253,10 +3370,14 @@ def verdict_rows(v: Verdict, ocv: Optional[OcvResult],
                       f'{xd.previous.label if xd.previous else "none"}')
     else:
         xover_rule = 'no death'
-    return [
+    rows = [
         ('Verdict', v.text),
         ('Hours to death (h)', round(v.hours, 4) if v.dead else ''),
-        ('Death cause', v.cause),
+    ]
+    if v.cycles is not None:
+        rows.append(('RH cycles to death', v.cycles if v.dead else ''))
+    return rows + [
+        ('Death cause', v.cause_text),
         ('Death bracket', v.bracket_text),
         ('OCV rule', ocv_rule),
         ('Crossover rule', xover_rule),
@@ -2287,14 +3408,16 @@ def char_summary_rows(ca: CharAnalysis, ocv: Optional[OcvResult]) -> List[Tuple[
     ]
 
 
-def cycle_rows(ca: CharAnalysis) -> List[Dict[str, Any]]:
+def cycle_rows(ca: CharAnalysis, tl: Optional[Timeline] = None) -> List[Dict[str, Any]]:
     """The Cycles sheet: one row per characterization, each measurement's
-    block value across."""
+    block value across; with RH cycling, the RH cycles before it too."""
     skip = {'fit_R2', 'scan_rate', 'cycle', 'Q_H'}
     rows = []
     for iv in ca.intervals:
         row: Dict[str, Any] = {'Characterization': iv.label, 'Interval': iv.index,
                                'Hold hours (h)': round(iv.H, 4)}
+        if tl is not None and tl.cycles_tested:
+            row['RH cycles before'] = tl.cycles_at(iv.H)
         for s in ca.series:
             blk = ca.block(s, iv.index)
             for key, heading, nd in METRICS[ca.series_kind[s]]:
@@ -2312,21 +3435,47 @@ CHAR_COLUMNS = (['Characterization', 'Interval', 'Hold hours (h)', 'Step', 'Kind
                 + ['Note', 'Error', 'File'])
 
 
-def characterization_rows(ca: CharAnalysis) -> pd.DataFrame:
-    """The Characterizations sheet: every file, repeats included."""
+def characterization_rows(ca: CharAnalysis, tl: Optional[Timeline] = None) -> pd.DataFrame:
+    """The Characterizations sheet: every file, repeats included; with RH
+    cycling, the RH cycles before each too."""
+    cycled = tl is not None and tl.cycles_tested
+    columns = list(CHAR_COLUMNS)
+    if cycled:
+        columns.insert(columns.index('Hold hours (h)') + 1, 'RH cycles before')
     rows = []
     for r in ca.results:
         row: Dict[str, Any] = {'Characterization': ca.label(r.interval), 'Interval': r.interval,
                                'Hold hours (h)': round(r.H, 4), 'Step': r.file.step,
                                'Kind': KIND_LABELS[r.kind], 'Series': r.series,
                                'Represents block': 'yes' if r.block else ''}
+        if cycled:
+            row['RH cycles before'] = r.file.C_start
         for key, heading, nd in METRICS[r.kind]:
             row[heading] = _r(r.values.get(key), nd)
         row['Note'] = r.note
         row['Error'] = r.error
         row['File'] = r.file.name
         rows.append(row)
-    return pd.DataFrame(rows, columns=CHAR_COLUMNS)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def step_formats(tl: Timeline) -> str:
+    """Which formats the run's step files came in."""
+    kinds = [('csv', 'station CSV'), ('fcd', 'Scribner FuelCell (.fcd)')]
+    present = {f.source for f in tl.files}
+    return ' and '.join(label for key, label in kinds if key in present) or 'none'
+
+
+def step_tail_text(tl: Timeline) -> Any:
+    """The tail the clock adds per hold file: the station CSVs' 30 s; none
+    for a .fcd step, which ends with its last sample. A run without holds
+    says what its files would have had."""
+    sources = {f.source for f in tl.holds} or {f.source for f in tl.files}
+    if sources == {'fcd'}:
+        return '0 (.fcd steps end with their last sample)'
+    if sources == {'csv', 'fcd'}:
+        return f'{tl.step_tail_s:g} (station CSVs); 0 (.fcd)'
+    return tl.step_tail_s
 
 
 def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
@@ -2339,15 +3488,28 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
     every sample: 150 h at 1 s is 540,000 rows, and a run past 291 h would
     not fit a sheet. The step files hold the samples.
     """
-    summary = [
-        ('Hours tested (h)', round(tl.hours_tested, 4)),
+    summary = [('Hours tested (h)', round(tl.hours_tested, 4)),
+               ('Time counted', 'OCV hold time only: characterizations and every other step '
+                                'between holds add none')]
+    if tl.cycles_tested:
+        summary += [
+            ('RH cycles tested', tl.cycles_tested),
+            ('RH cycle (s)', _r(tl.rh_period_s, 3) if tl.rh_steady or tl.rh_period_s is None
+             else f'{tl.rh_period_s:.4g}, the median: the cycles keep no steady pace'),
+            ('RH cycle rule', 'a cycle counts once its wet half is over: every fall from wet to '
+                              'dry of the station\'s Wet flag (the one that falls most, the '
+                              'cathode\'s on a tie), in any hold; cycles, like hours, count in '
+                              'OCV holds only'),
+        ]
+    summary += [
         ('Hold files', len(tl.holds)),
         ('Hold segments', len(tl.segments)),
         ('Step files', len(tl.files)),
         ('Folders, in order', ' → '.join(tl.folders)),
         ('Folders left out at upload', ', '.join(tl.left_out) or 'none'),
         ('Hold rule', f'OCV, air or O2 cathode, running ≥ {tl.hold_min_h:g} h'),
-        ('Step tail added per hold file (s)', tl.step_tail_s),
+        ('Step file format', step_formats(tl)),
+        ('Step tail added per hold file (s)', step_tail_text(tl)),
         ('Geometric area (cm²)', params.get('geo_area')),
         ('Pt loading (mg/cm²)', params.get('loading')),
         ('Ignored files', ', '.join(f'{v} {k}' for k, v in sorted(tl.ignored.items())) or 'none'),
@@ -2373,10 +3535,22 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
             ('OCV death (h)', _r(d.start_h, 4) if d else 'none' if ocv.judged else 'not judged'),
             ('OCV death step', f'{d.step} (hold {d.segment})' if d else ''),
             ('OCV recovered after death at (h)',
-             _r(ocv.recovered_h, 4) if ocv.recovered_h is not None else ''),
+             '' if ocv.recovered_h is None else _r(ocv.recovered_h, 4)
+             if not (d and d.trigger == 'station' and not d.median_fell) else
+             f'{ocv.recovered_h:.4f}, after the station\'s limit last acted: the 10-min median '
+             f'never fell under the threshold'),
             ('OCV dips (under threshold, too short for death)',
              sum(r.verdict == 'dip' for r in ocv.runs)),
-            ('OCV death rule', s.describe()),
+            ('OCV death rule', s.describe() + (
+                ". Also a death, however short: a .fcd hold's own voltage limit (Term:E<...) "
+                "acting -- the station ending a step whose RH is steady on it, or, in an "
+                "RH-cycling loop, the limit tripping in a half of its sub-step: a reading under "
+                "it ending the half, or the half ending a sample and a half or more short of the "
+                f"header's time with a reading within {TRIP_NEAR_V * 1000:g} mV of the limit at "
+                "its end. Dated from the stretch under the limit; a trip counts once the OCV has "
+                "reached the limit in the hold and settled, or from the first reading if it never "
+                "does. Samples above the current limit are left out of it too"
+                if any(f.term_v is not None and not f.gas_change for f in tl.holds) else '')),
             ('OCV decay rule', f'straight line through 1-min medians over {s.rate_window_h:g} h '
                                f'windows ending every {RATE_STEP_H:g} h of each hold, '
                                f'≥ {RATE_MIN_COVERAGE:.0%} of minutes with data; '
@@ -2397,22 +3571,25 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
         pd.DataFrame(summary, columns=['Item', 'Value']).to_excel(
             xw, sheet_name='Summary', index=False)
         if ca is not None and ca.results:
-            pd.DataFrame(cycle_rows(ca)).to_excel(xw, sheet_name='Cycles', index=False)
+            pd.DataFrame(cycle_rows(ca, tl)).to_excel(xw, sheet_name='Cycles', index=False)
         pd.DataFrame(hold_rows(tl, ocv)).to_excel(xw, sheet_name='Holds', index=False)
         if has_ocv:
             pd.DataFrame(ocv.by_condition).to_excel(
                 xw, sheet_name='OCV by condition', index=False)
-            pd.DataFrame(ocv_event_rows(ocv), columns=EVENT_COLUMNS).to_excel(
+            pd.DataFrame(ocv_event_rows(ocv, tl), columns=EVENT_COLUMNS + (
+                ['Start (RH cycles)'] if tl.cycles_tested else [])).to_excel(
                 xw, sheet_name='OCV events', index=False)
             pd.DataFrame(decay_rows(ocv), columns=DECAY_COLUMNS).to_excel(
                 xw, sheet_name='Decay rate', index=False)
             traces = [h.trace for h in ocv.holds if h.trace is not None and not h.trace.empty]
-            (pd.concat(traces, ignore_index=True) if traces else pd.DataFrame()).to_excel(
-                xw, sheet_name='OCV trace', index=False)
+            trace = pd.concat(traces, ignore_index=True) if traces else pd.DataFrame()
+            if tl.cycles_tested and not trace.empty:
+                trace.insert(1, 'RH cycles', [tl.cycles_at(x) for x in trace['Hold hours (h)']])
+            trace.to_excel(xw, sheet_name='OCV trace', index=False)
             pd.DataFrame([row for h in ocv.holds for row in h.files]).to_excel(
                 xw, sheet_name='Hold files', index=False)
         if ca is not None and ca.results:
-            characterization_rows(ca).to_excel(xw, sheet_name='Characterizations', index=False)
+            characterization_rows(ca, tl).to_excel(xw, sheet_name='Characterizations', index=False)
         pd.DataFrame(manifest_rows(tl)).to_excel(xw, sheet_name='Manifest', index=False)
         pd.DataFrame({'Note': notes or ['none']}).to_excel(
             xw, sheet_name='Notes', index=False)
@@ -2459,11 +3636,15 @@ def build_summary(tl: Timeline, params: Dict[str, Any],
             row['j_xover final'] = round(judged[-1].values['j_xover'], 4)
             if math.isfinite(judged[-1].values['R_short']):
                 row['R_short final'] = round(judged[-1].values['R_short'], 1)
+    if tl.cycles_tested:
+        row['RH cycles tested'] = int(tl.cycles_tested)
     if verdict is not None:
         row['Verdict'] = 'dead' if verdict.dead else 'alive'
         if verdict.dead:
             row['Hours to death'] = round(verdict.hours, 4)
-            row['Death cause'] = verdict.cause
+            if verdict.cycles is not None:
+                row['RH cycles to death'] = int(verdict.cycles)
+            row['Death cause'] = verdict.cause_text
             if verdict.bracket_text:
                 row['Death bracket'] = verdict.bracket_text
     return row
@@ -2554,8 +3735,31 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     if not tl.files:
         # Raised rather than returned: a returned error status still shows the
         # job as complete (V22).
-        raise RuntimeError('No station step files found. Expected names like '
-                           'c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv.')
+        # What was there instead, so a format it does not read says so.
+        seen = []
+        if tl.skipped:
+            seen.append(f'{len(tl.skipped)} file(s) skipped, e.g. {tl.skipped[0][0]}: '
+                        f'{tl.skipped[0][1]}')
+        if tl.ignored:
+            seen.append('ignored: ' + ', '.join(f'{v} {k}' for k, v in sorted(tl.ignored.items())))
+        raise RuntimeError('No step files found. FC Durability reads station CSVs named like '
+                           'c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv and Scribner '
+                           'FuelCell files named like c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd.'
+                           + (' Found ' + '; '.join(seen) + '.' if seen else ''))
+    areas = sorted({f.area_cm2 for f in tl.files if f.area_cm2 is not None})
+    if areas and any(abs(a - num['geo_area']) > 1e-6 for a in areas):
+        tl.notes.insert(len(param_notes),
+                        f'the .fcd headers give an active area of '
+                        f'{", ".join(f"{a:g}" for a in areas)} cm² (SurfaceArea); this analysis '
+                        f'used {num["geo_area"]:g} cm², the geometric area parameter')
+    if {f.source for f in tl.files} == {'csv', 'fcd'}:
+        # Their names give conditions differently (W/D flags and no pressure
+        # against an RH token and a pressure), so their holds never share a
+        # conditions key.
+        tl.notes.insert(len(param_notes),
+                        'this run mixes station CSVs and .fcd files; their names give '
+                        'conditions differently, so holds of the two never count as the same '
+                        'conditions')
     ocv = analyze_ocv(tl, ocv_settings)
     ca = analyze_characterizations(tl, char_settings)
     verdict = decide(tl, ocv, ca)
@@ -2570,7 +3774,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     from scripts.helpers.conditions import img_ext_from_params
     image_ext = img_ext_from_params(p)
     if image_ext:
-        sample = p.get('sample_name') or tl.files[0].sample
+        # A .fcd name carries no sample; the run's folder does.
+        sample = (p.get('sample_name') or tl.files[0].sample
+                  or Path(tl.files[0].folder).name or 'sample')
         kinds = {ca.series_kind[s] for s in ca.series if ca.blocks(s)}
 
         def save(name: str, draw) -> None:
@@ -2579,6 +3785,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
 
         save('fcdur_timeline', lambda path: plot_timeline(
             tl, path, title=f'Durability test timeline — {sample}', verdict=verdict))
+        if tl.cycles_tested:
+            save('fcdur_rh_cycles', lambda path: plot_rh_cycles(
+                tl, verdict, path, title=f'RH cycles — {sample}'))
         if ocv.holds:
             save('fcdur_ocv_vs_time', lambda path: plot_ocv(
                 tl, ocv, path, title=f'Hold OCV — {sample}'))

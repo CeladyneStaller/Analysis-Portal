@@ -16,12 +16,14 @@ boxes and the Excel Metrics sheet all come along for free.
 The viewer is read-only (fork F). Nothing here writes to JSONBin.
 """
 
+import bisect
 import json
+import math
 import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from scripts.helpers import jsonbin
 from scripts.helpers.record import (
@@ -306,11 +308,25 @@ def run_plots(key: str) -> List[Dict[str, Any]]:
 MAX_SERIES_POINTS = 400
 # A chart that computes from the points rather than only drawing them asks for
 # them whole (`full`): Comparisons' OCV smoothing takes medians of the stored
-# points, and medians of bucket extremes are not those. Only for the plot types
-# named here, and still bounded, far above the most points an FC Durability
-# OCV line holds (about 3,000 bins per test).
+# points, and medians of bucket extremes are not those; its RH cycles axis
+# reads hours off a test's map to cycles (RH_CYCLES_PLOT_TYPE), whose kinks a
+# thinned copy can cut. Only for the plot types named here, and still bounded,
+# far above the most points an FC Durability OCV line holds (about 3,000 bins
+# per test) or its cycle map (a point every 25 cycles).
 MAX_FULL_SERIES_POINTS = 20_000
-FULL_SERIES_PLOT_TYPES = {'fcdur_ocv_vs_time'}
+FULL_SERIES_PLOT_TYPES = {'fcdur_ocv_vs_time', 'fcdur_rh_cycles'}
+# FC Durability stores, with a test that cycles RH, a plot of RH cycles
+# completed against hold hours: this line, a point at every 25th cycle and at
+# each hold's start and end (fc_durability_analysis.rh_cycle_map). Comparisons
+# can draw a durability plot against cycles off it (materialize_for_compare).
+RH_CYCLES_PLOT_TYPE = 'fcdur_rh_cycles'
+RH_CYCLES_LINE = 'RH cycles completed'
+RH_CYCLES_XLABEL = 'RH cycles'
+# The durability plots drawn against hold hours, which Comparisons offers
+# against RH cycles; the timeline, the evolution plots and the map are not.
+ON_CYCLES_PLOT_TYPES = {'fcdur_ocv_vs_time', 'fcdur_xover_vs_time', 'fcdur_hfr_vs_time',
+                        'fcdur_ecsa_vs_time', 'fcdur_perf_vs_time'}
+ON_CYCLES_SUFFIX = '~rh-cycles'          # the staged copy against RH cycles
 # The labels of a high–low band's edges (plot_compare.BAND_LOW and BAND_HIGH,
 # not imported, which would load matplotlib here).
 BAND_EDGE_LABELS = ('bin low', 'bin high')
@@ -485,6 +501,75 @@ def materialize_sidecars(key: str, dest_dir: Path,
     return sorted(written)
 
 
+def _finite(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def rh_cycle_map(sidecars: Dict[str, Any]) -> Optional[Tuple[List[float], List[float]]]:
+    """A stored test's map from hold hours to RH cycles completed, or None.
+
+    The points of its RH_CYCLES_LINE with both numbers, in order of hours (one
+    that steps back in hours is dropped). None for a test that holds RH
+    steady, or one stored before RH cycles were counted.
+    """
+    for sc in (sidecars or {}).values():
+        if not isinstance(sc, dict) or sc.get('plot_type') != RH_CYCLES_PLOT_TYPE:
+            continue
+        for ax in (sc.get('data') or {}).get('axes', []):
+            for ln in ax.get('lines', []):
+                if ln.get('label') != RH_CYCLES_LINE:
+                    continue
+                hours: List[float] = []
+                cycles: List[float] = []
+                for h, c in zip(ln.get('x') or [], ln.get('y') or []):
+                    if _finite(h) and _finite(c) and not (hours and h < hours[-1]):
+                        hours.append(float(h))
+                        cycles.append(float(c))
+                return (hours, cycles) if len(hours) >= 2 else None
+    return None
+
+
+def cycles_at(hours: List[float], cycles: List[float], h: Any) -> Any:
+    """RH cycles completed at `h` hold hours on a map (rh_cycle_map): straight
+    between its points and held at its ends, as the Comparisons chart reads
+    it. Anything that is not a number passes through."""
+    if not _finite(h):
+        return h
+    if h <= hours[0]:
+        return cycles[0]
+    if h >= hours[-1]:
+        return cycles[-1]
+    i = bisect.bisect_right(hours, h)            # hours[i - 1] <= h < hours[i]
+    h0, h1, c0, c1 = hours[i - 1], hours[i], cycles[i - 1], cycles[i]
+    return c0 + (c1 - c0) * (h - h0) / (h1 - h0) if h1 > h0 else c1
+
+
+def sidecar_on_cycles(sidecar: Dict[str, Any], hours: List[float],
+                      cycles: List[float]) -> Dict[str, Any]:
+    """A durability plot's sidecar redrawn against RH cycles, in place.
+
+    Every x on its axes is read off the test's map: its lines and points (a
+    band's edges with them, so they still pair), its vertical lines (the
+    characterizations and a death), text placed by data, and its x range; the
+    x label says RH cycles.
+    """
+    def at(v: Any) -> Any:
+        return cycles_at(hours, cycles, v)
+
+    for ax in (sidecar.get('data') or {}).get('axes', []):
+        for tr in list(ax.get('lines') or []) + list(ax.get('scatters') or []):
+            tr['x'] = [at(v) for v in tr.get('x') or []]
+        for vl in ax.get('axvlines') or []:
+            vl['x'] = at(vl.get('x'))
+        for tx in ax.get('texts') or []:
+            if tx.get('in_axes_fraction') is False:
+                tx['x'] = at(tx.get('x'))
+        if isinstance(ax.get('xlim'), list):
+            ax['xlim'] = [at(v) for v in ax['xlim']]
+        ax['xlabel'] = RH_CYCLES_XLABEL
+    return sidecar
+
+
 def materialize_for_compare(selections: List[Dict[str, str]],
                             root: Path) -> List[Dict[str, str]]:
     """Stage historical plots for the comparison script.
@@ -496,6 +581,11 @@ def materialize_for_compare(selections: List[Dict[str, str]],
     Each run gets its own directory under `root`, mirroring how live jobs are
     laid out, so the returned list can be passed straight through as the
     comparison script's `sources` parameter.
+
+    A durability plot against hold hours (ON_CYCLES_PLOT_TYPES) selected with
+    `x: 'cycles'` is staged against RH cycles (sidecar_on_cycles), off its own
+    test's map; a test without one is left out, as Comparisons leaves it off
+    its chart. A plot is staged once for every selection of it.
 
     Selections whose sidecar was not stored are omitted.
     """
@@ -522,19 +612,33 @@ def materialize_for_compare(selections: List[Dict[str, str]],
         if plot not in available.get(key, set()):
             continue
         detail = fetch_detail(key)
+        sidecars = decode_sidecars(detail)
+        plot_type = str((sidecars.get(plot) or {}).get('plot_type', ''))
+        name = plot
+        if sel.get('x') == 'cycles' and plot_type in ON_CYCLES_PLOT_TYPES:
+            cmap = rh_cycle_map(sidecars)
+            if cmap is None:
+                continue
+            # A copy of its own beside the stored one, made from the stored
+            # one, so the same plot asked for on hold hours is still staged
+            # as stored.
+            name = plot + ON_CYCLES_SUFFIX
+            staged = dirs[key] / '_plot_data'
+            (staged / f'{name}.json').write_text(json.dumps(
+                sidecar_on_cycles(json.loads((staged / f'{plot}.json').read_text()), *cmap),
+                ensure_ascii=False))
         source: Dict[str, Any] = {
             'job_id': detail.get('job_id', key),
             'label': sel.get('label', ''),
             # The comparison script strips the extension to find the sidecar,
             # so the suffix here is nominal.
-            'filename': f'{plot}.png',
+            'filename': f'{name}.png',
             'output_dir': str(dirs[key]),
             'sample_name': detail.get('sample_name', ''),
             # Carried so the caller can check the selection is comparable
             # before spending an executor slot on it. The comparison script
             # ignores keys it does not use.
-            'plot_type': str((decode_sidecars(detail).get(plot) or {})
-                             .get('plot_type', '')),
+            'plot_type': plot_type,
         }
         # Whether the plot's high–low band is drawn, chosen per sample on the
         # Comparisons chart; only a literal true or false is passed on, and

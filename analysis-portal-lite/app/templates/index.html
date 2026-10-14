@@ -3244,16 +3244,23 @@ const VF_ANALYSIS_ORDER = ['polcurve', 'eis', 'crossover', 'ecsa'];
 // Hours to death only for a sample that died (decision 7); one still running
 // carries Hours tested alone. Its lifetime is then known only to be at least
 // that long — censored — and it is listed under Hours to death as such, so the
-// lifetime column holds every sample instead of only the dead ones.
+// lifetime column holds every sample instead of only the dead ones. A test
+// that cycles RH says its lifetime in RH cycles too, censored the same way.
+const FCDUR_LIFETIMES = [['Hours to death', 'Hours tested'],
+                         ['RH cycles to death', 'RH cycles tested']];
 function unitValues(d) {
   const out = [];
   const kv = d.key_values || {};
   Object.entries(kv).forEach(([raw, v]) => {
     if (typeof v === 'number' && isFinite(v)) out.push([canonMetric(raw), v, false]);
   });
-  if (d.Analysis === 'fc_durability' && !(typeof kv['Hours to death'] === 'number')
-      && typeof kv['Hours tested'] === 'number' && isFinite(kv['Hours tested'])) {
-    out.push(['Hours to death', kv['Hours tested'], true]);
+  if (d.Analysis === 'fc_durability') {
+    FCDUR_LIFETIMES.forEach(([death, tested]) => {
+      if (!(typeof kv[death] === 'number')
+          && typeof kv[tested] === 'number' && isFinite(kv[tested])) {
+        out.push([death, kv[tested], true]);
+      }
+    });
   }
   return out;
 }
@@ -3809,20 +3816,22 @@ const METRIC_DIR = {
   // FC Durability
   'Hours tested': 1, 'Hours to death': 1, 'OCV initial': 1,
   'OCV decay rate': -1, 'OCV loss': -1, 'j_xover initial': -1, 'j_xover final': -1,
-  'R_short final': 1,
+  'R_short final': 1, 'RH cycles tested': 1, 'RH cycles to death': 1,
 };
 // Preference order for which metrics earn a column; the table shows the first
 // few that are actually present. FC Durability leads with its lifetime, Hours
 // to death (a live sample's shown as at least its hours tested), then the
-// index's other values in the order it lists them.
+// index's other values in the order it lists them; the RH cycle counts, which
+// only a test that cycles RH has, come last.
 const COLUMN_ORDER = ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'HFR', '|j_xover|',
                       'Average ECSA', 'Peak P',
                       'Hours to death', 'Hours tested', 'OCV initial', 'OCV decay rate',
-                      'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final'];
+                      'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final',
+                      'RH cycles to death', 'RH cycles tested'];
 const MAX_METRIC_COLUMNS = 5;
 // How long a test has run is neither good nor bad, so its column is sortable
 // but never tinted: a long test that died is not the best sample.
-const UNTINTED_METRICS = new Set(['Hours tested']);
+const UNTINTED_METRICS = new Set(['Hours tested', 'RH cycles tested']);
 
 let _sortKey = null, _sortDir = -1;
 
@@ -4825,6 +4834,7 @@ const KV_UNITS = {
   'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',
   'OCV decay rate': 'μV/h', 'OCV loss': '%', 'j_xover initial': 'mA/cm²',
   'j_xover final': 'mA/cm²', 'R_short final': 'Ω·cm²',
+  'RH cycles tested': 'cycles', 'RH cycles to death': 'cycles',
 };
 // Distinct hues legible on both dark and light backgrounds.
 const TREND_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -4839,7 +4849,8 @@ function availableMetrics(runs) {
                  'j @ 0.7 V', 'j @ 0.65 V', 'j @ 0.6 V', 'j @ 0.5 V', 'j @ 0.4 V',
                  'HFR', '|j_xover|', 'Average ECSA',
                  'Hours to death', 'Hours tested', 'OCV initial', 'OCV decay rate',
-                 'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final'];
+                 'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final',
+                 'RH cycles to death', 'RH cycles tested'];
   const ordered = known.filter(k => set.has(k));
   Array.from(set).sort().forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
   return ordered;
@@ -5166,6 +5177,8 @@ const CMP_TYPES = {
   // highest sample, as two edge lines on the trace's x that are not series:
   // `bands` lets each sample shade between them (CMP_BAND). Plots stored
   // before the band carry a bin-minimum line instead, not a series either.
+  // Every durability chart can be drawn against RH cycles instead of hold
+  // hours, for a test that cycles RH (CMP_OPT.x_cyc, cmpCycAxis).
   fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability',
                  plotType: 'fcdur_ocv_vs_time', x: 'Hold time (h)', y: 'Hold OCV (V)',
                  panel: /^Hold OCV/i, opts: [], bins: [0.25, 0.5, 1, 2, 5, 10], bands: true,
@@ -5184,7 +5197,7 @@ const CMP_TYPES = {
   fcdur_perf:  { label: 'Durability — performance', analysis: 'fc_durability',
                  plotType: 'fcdur_perf_vs_time', x: 'Hold time (h)', y: 'V @ 1 A/cm² (V)',
                  panel: /^V @ 1/i, dots: true, series: l => !!l,
-                 opts: [['j06', 'j @ 0.6 V instead']] },
+                 opts: [['j065', 'j @ 0.65 V instead']] },
 };
 // The step code a whole-test unit is listed under.
 const CMP_WHOLE = 'test';
@@ -5198,7 +5211,7 @@ let CMP_TYPE = 'polcurve';
 let CMP_SEL = new Map();            // sample key -> Set of step codes
 let CMP_HIDDEN = new Set();         // "key::step"
 let CMP_BAND = new Set();           // curve ids whose high–low band is shaded
-let CMP_OPT = { irfree: false, power: false, j06: false, bin_h: 0 };
+let CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0 };
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
 let CMP_LOADING = false;
@@ -5249,12 +5262,16 @@ const CMP_METRIC_MAX = 3;
 
 // {name, value} for one unit, canonicalised so a summary field name and its
 // annotation spelling do not appear as two different metrics. A whole-test
-// unit shows its own list only, a live sample's lifetime as "≥".
+// unit shows its own list only, a live sample's lifetime as "≥". Drawn against
+// RH cycles, a test that cycles RH says its lifetime in cycles.
+const CMP_CYC_METRIC = { 'Hours to death': 'RH cycles to death',
+                         'Hours tested': 'RH cycles tested' };
 function cmpUnitMetrics(unit) {
   const want = CMP_METRICS[CMP_TYPE] || [];
   if (cmpWholeType(CMP_TYPE)) {
     const vals = unitValues({ Analysis: CMP_TYPES[CMP_TYPE].analysis, key_values: unit.kv });
-    return want.map(n => vals.find(([m]) => m === n)).filter(Boolean)
+    const pick = n => vals.find(([m]) => m === n);
+    return want.map(n => (cmpCycAxis() && pick(CMP_CYC_METRIC[n])) || pick(n)).filter(Boolean)
       .map(([name, value, censored]) => ({ name, value, censored }));
   }
   const have = {};
@@ -5728,7 +5745,9 @@ const CMP_PICK_MEMO = new WeakMap(); // series payload -> Map(type|panel -> grou
 function cmpPickSeries(sr) {
   if (!sr || !sr.axes || !sr.axes.length) return [];
   const t = CMP_TYPES[CMP_TYPE] || {};
-  const want = CMP_TYPE === 'fcdur_perf' && CMP_OPT.j06 ? /^j @ 0\.6/i : t.panel;
+  // The performance chart's other panel; a test stored before j @ 0.65 V
+  // replaced j @ 0.6 V has none (cmpUndrawn).
+  const want = CMP_TYPE === 'fcdur_perf' && CMP_OPT.j065 ? /^j @ 0\.65 V/i : t.panel;
   const memo = CMP_PICK_MEMO.get(sr) || new Map();
   CMP_PICK_MEMO.set(sr, memo);
   const key = CMP_TYPE + '|' + (want ? want.source : '');
@@ -5870,7 +5889,9 @@ function cmpSmoothing() {
   if (!(CMP_TYPES[CMP_TYPE] || {}).bins) return out;
   cmpSelected().forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
-    const s = cmpGroupSpacing(cmpPickSeries(CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step))));
+    const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    if (cmpUndrawn(u.key, sr)) return;      // not on the chart
+    const s = cmpGroupSpacing(cmpPickSeries(sr));
     if (!isFinite(s)) return;
     out.spacing.set(cmpCurveId(u.key, u.step), s);
     out.of++;
@@ -5903,6 +5924,125 @@ function cmpSetBin(v) {
   cmpRender();
   const el = document.getElementById('cmpBin');
   if (el) el.focus();
+}
+
+// ── RH cycles (durability charts) ───────────────────────────────
+// A durability chart can be drawn against RH cycles instead of hold hours.
+// FC Durability stores, with a test that cycles RH, a map from hold hours to
+// RH cycles completed: its fcdur_rh_cycles plot, a point at each hold's start
+// and end, its first and last cycle, every 25th cycle and both ends of any
+// pause in the cycling. Each x drawn is read off it, straight between two of
+// its points, within a cycle of the count. A sample without one (RH held steady, or stored
+// before cycles were counted) is left off and named in the note, and Export
+// leaves it out. Hold hours stay underneath: smoothing bins hold time, and
+// the chart converts what it would have drawn.
+const CMP_CYC_X = 'RH cycles';
+const CMP_CYC_PLOT = 'fcdur_rh_cycles', CMP_CYC_LINE = 'RH cycles completed';
+// sample key -> {x: hours, y: cycles}; null when none is stored, false when
+// it could not be fetched (asked again when the axis is chosen again).
+let CMP_CYC = new Map();
+const CMP_CYC_ASKED = new Set();     // sample keys being fetched
+const cmpCycAxis = () => cmpWholeType(CMP_TYPE) && !!CMP_OPT.x_cyc;
+// The map in a fetched plot: its line by name, points in order of hours.
+function cmpCycMap(sr) {
+  const ln = ((sr && sr.axes) || []).flatMap(a => a.lines || [])
+    .find(l => l.label === CMP_CYC_LINE);
+  const x = [], y = [];
+  ((ln && ln.x) || []).forEach((h, i) => {
+    const c = (ln.y || [])[i];
+    if (Number.isFinite(h) && Number.isFinite(c) && !(h < x[x.length - 1])) { x.push(h); y.push(c); }
+  });
+  return x.length >= 2 ? { x, y } : null;
+}
+// Cycles completed at an hour of hold time, held at the map's ends.
+function cmpCycAt(m, h) {
+  const { x, y } = m, n = x.length;
+  if (!Number.isFinite(h)) return h;
+  if (h <= x[0]) return y[0];
+  if (h >= x[n - 1]) return y[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (x[mid] <= h) lo = mid; else hi = mid; }
+  const dx = x[hi] - x[lo];
+  return dx > 0 ? y[lo] + (y[hi] - y[lo]) * (h - x[lo]) / dx : y[hi];
+}
+// A sample's parts (or bands) as drawn, moved onto RH cycles: worked out once
+// per drawing and map, as the drawing itself is (cmpDrawnParts), so a pan or
+// a zoom does not convert again.
+const CMP_ON_CYC = new WeakMap();    // drawn parts or bands -> Map(map -> converted)
+function cmpOnCycles(drawn, m) {
+  const memo = CMP_ON_CYC.get(drawn) || new Map();
+  CMP_ON_CYC.set(drawn, memo);
+  if (!memo.has(m)) {
+    memo.set(m, drawn.map(g => g.map(pts => pts && pts.map(p => [cmpCycAt(m, p[0]), ...p.slice(1)]))));
+  }
+  return memo.get(m);
+}
+// The maps a chart about to be drawn needs, marked as asked for (and then
+// fetched, cmpLoadCycles) before it is drawn, so it says it is loading them.
+function cmpCycAsk() {
+  if (!cmpCycAxis()) return [];
+  const want = [...new Set(cmpSelected().map(u => u.key))]
+    .filter(k => !CMP_CYC.has(k) && !CMP_CYC_ASKED.has(k));
+  want.forEach(k => CMP_CYC_ASKED.add(k));
+  return want;
+}
+async function cmpLoadCycles(want) {
+  if (!want.length) return;
+  const got = new Map();
+  try {
+    const r = await fetch('/api/view/series', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selections: want.map(key => ({
+        key, analysis: 'fc_durability', step: '', plot_type: CMP_CYC_PLOT, full: true })) }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    (d.series || []).forEach(sr => got.set(sr.key, cmpCycMap(sr)));
+    // Only a plot that is not stored is no map; a sample the store could not
+    // read this time is asked for again later.
+    (d.missing || []).forEach(m => {
+      if (m.reason === 'no stored plot data') got.set(m.key, null);
+    });
+  } catch (e) {
+    console.error('RH cycles:', e);
+  } finally {
+    // Anything not answered failed, and is not asked for again on every
+    // redraw: a redraw that asks, fails and redraws would never stop.
+    want.forEach(k => { CMP_CYC_ASKED.delete(k); CMP_CYC.set(k, got.has(k) ? got.get(k) : false); });
+    cmpRender();
+  }
+}
+// Hours and cycles are different scales, so a window set on one is let go on
+// the other; y is the same quantity either way and keeps its range. The
+// control is rebuilt with the chart, so it takes the focus back.
+function cmpSetX(v) {
+  CMP_OPT.x_cyc = v === 'cycles';
+  if (CMP_VIEW) {
+    CMP_VIEW = { ...CMP_VIEW, x0: null, x1: null };
+    if (!cmpHasView()) CMP_VIEW = null;
+  }
+  CMP_CYC.forEach((m, k) => { if (m === false) CMP_CYC.delete(k); });
+  cmpRender();
+  const el = document.getElementById('cmpX');
+  if (el) el.focus();
+}
+// Why a durability sample on the chart draws nothing, or '' when it draws (or
+// is still being fetched): said on its row and, longer, in the note.
+const CMP_UNDRAWN_WHY = {
+  'no RH cycles stored': 'no RH cycles stored: RH held steady, or the test was stored '
+    + 'before RH cycles were counted (analyse and store it again to add them)',
+  'RH cycles not loaded': 'RH cycles could not be fetched (set x to hold hours and back to try again)',
+  'no j @ 0.65 V stored': 'stored before j @ 0.65 V replaced j @ 0.6 V '
+    + '(analyse and store it again to add it)',
+};
+function cmpUndrawn(key, sr) {
+  if (!sr || !cmpWholeType(CMP_TYPE)) return '';
+  if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j065 && !cmpPickSeries(sr).length) {
+    return 'no j @ 0.65 V stored';
+  }
+  if (!cmpCycAxis()) return '';
+  const m = CMP_CYC.get(key);
+  return m === null ? 'no RH cycles stored' : m === false ? 'RH cycles not loaded' : '';
 }
 // Dash by series, from the names in the samples on the chart, in the order
 // they first appear: the same condition draws the same way for every sample.
@@ -5938,8 +6078,8 @@ function cmpChart(series, cfg) {
   }));
   if (!xs.length) {
     CMP_SCALE = null;
-    return `<div class="cmp-empty">${CMP_LOADING ? 'Loading curves…'
-      : 'No curves selected — add one below.'}</div>`;
+    return `<div class="cmp-empty">${CMP_LOADING || CMP_CYC_ASKED.size ? 'Loading curves…'
+      : cfg.empty || 'No curves selected — add one below.'}</div>`;
   }
   // Folded rather than spread into Math.max: a few samples' whole tests with
   // their bands are tens of thousands of values, past what a call takes.
@@ -6184,8 +6324,20 @@ function cmpRender() {
   };
   const sm = CMP_SMOOTHED = cmpSmoothing();
   const bin = sm.w;
+  const cyc = cmpCycAxis();
+  // Maps this chart needs: marked as asked for before it is drawn, so it says
+  // it is loading them, and fetched now, so nothing thrown while drawing can
+  // leave them marked and never fetched.
+  cmpLoadCycles(cmpCycAsk());
   document.getElementById('cmpOpts').innerHTML =
-    (t.opts.length
+    (whole
+      ? `<label title="Hold hours, or the RH cycles completed by then, for a test that cycles RH">x
+           <select id="cmpX" onchange="cmpSetX(this.value)">
+             <option value="hours" ${cyc ? '' : 'selected'}>hold hours</option>
+             <option value="cycles" ${cyc ? 'selected' : ''}>RH cycles</option>
+           </select></label>`
+      : '')
+    + (t.opts.length
       ? t.opts.map(([k, l]) =>
           `<label><input type="checkbox" ${CMP_OPT[k] ? 'checked' : ''}
             onchange="CMP_OPT['${k}']=this.checked;cmpRender()"> ${escapeHtml(l)}</label>`).join('')
@@ -6329,19 +6481,22 @@ function cmpRender() {
         const off = CMP_HIDDEN.has(cmpKey(k, u.step));
         const sr = CMP_SERIES.get(cmpKey(k, CMP_TYPE + '::' + u.step));
         const nodata = sr === null;
+        // A whole test the chart cannot draw says why in place of its lifetime.
+        const why = whole ? cmpUndrawn(k, sr) : '';
         const mets = cmpUnitMetrics(u);
         // A whole test draws several series, so its row is their legend.
         const head = whole
           ? `<span class="st">whole test</span>
-             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>
+             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (why || u.cond || '—'))}</span>
              <span class="cmp-series">${cmpPickSeries(sr).map(s =>
                `<span class="ser">${cmpDashSvg(color, cmpSeriesDash(s.name, vocab), 18)}`
                + `${escapeHtml(s.name)}</span>`).join('')}</span>`
           : `${cmpDashSvg(color, cmpDashOf(u.step))}
              <span class="st">${escapeHtml(u.step)}</span>
              <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>`;
-        return `<div class="cmp-strow${off || nodata ? ' off' : ''}"
-                  ${nodata ? 'title="No plot data stored for this step"' : ''}>
+        return `<div class="cmp-strow${off || nodata || why ? ' off' : ''}"
+                  ${nodata ? 'title="No plot data stored for this step"'
+                    : why ? `title="Not drawn: ${escapeAttr(CMP_UNDRAWN_WHY[why] || why)}"` : ''}>
           <span class="cmp-scol1">${head}</span>
           <span class="cmp-scol2">${mets.length
             ? mets.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.name)}</span>`
@@ -6364,21 +6519,34 @@ function cmpRender() {
   // curve is looked at. Deriving them from the first series that loaded meant
   // a chart with no series in that loop — one showing only a statistical curve
   // with its components hidden — fell back to "x" and "y".
-  let xlab = t.x || '', ylab = t.y || '';
+  let xlab = cyc ? CMP_CYC_X : t.x || '', ylab = t.y || '';
   if (CMP_TYPE === 'polcurve' && CMP_OPT.power) ylab = 'Power density (mW/cm²)';
   else if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) ylab = 'iR-free voltage (V)';
-  if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j06) ylab = 'j @ 0.6 V (A/cm²)';
+  if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j065) ylab = 'j @ 0.65 V (A/cm²)';
   const series = [];
+  const undrawn = new Map();          // why -> the samples it leaves off
   sel.forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     if (!sr) return;
     if (whole) {
+      const why = cmpUndrawn(u.key, sr);
+      if (why) {
+        if (!undrawn.has(why)) undrawn.set(why, []);
+        undrawn.get(why).push(sr.sample_name || u.key);
+        return;
+      }
       const groups = cmpPickSeries(sr);
-      const drawn = cmpDrawnParts(groups, bin);
+      let drawn = cmpDrawnParts(groups, bin);
       // Each part's high–low band, when this sample has it turned on.
-      const bands = t.bands && CMP_BAND.has(cmpCurveId(u.key, u.step))
+      let bands = t.bands && CMP_BAND.has(cmpCurveId(u.key, u.step))
         ? cmpDrawnBands(groups, bin) : null;
+      if (cyc) {
+        const m = CMP_CYC.get(u.key);
+        if (!m) return;               // still being fetched
+        drawn = cmpOnCycles(drawn, m);
+        if (bands) bands = cmpOnCycles(bands, m);
+      }
       groups.forEach((s, gi) => drawn[gi].forEach((pts, j) => series.push({
         pts, color: cmpColorOf(u.key), dash: cmpSeriesDash(s.name, vocab), dots: !!t.dots,
         band: bands && bands[gi][j],
@@ -6416,6 +6584,7 @@ function cmpRender() {
 
   document.getElementById('cmpChart').innerHTML = cmpChart(series,
     { x: xlab || 'x', y: ylab || 'y', equal: !!t.equal,
+      empty: undrawn.size ? 'None of the samples chosen can be drawn here — the note below says why.' : '',
       zeroY: CMP_TYPE === 'polcurve' && CMP_OPT.power,
       stats: stats.map(x => ({ ...x.st, data: x.data,
                               color: cmpStatColor(x.i) })) });
@@ -6426,7 +6595,10 @@ function cmpRender() {
        <b>Run statistics</b>. A row ticks the steps it is showing, so setting
        the Step filter first makes that one curve per sample.</span>`;
   } else
-  document.getElementById('cmpNote').innerHTML = sel.length > CMP_MAX
+  document.getElementById('cmpNote').innerHTML = [...undrawn].map(([why, names]) =>
+      `<span class="warn">Not drawn: ${escapeHtml(names.join(', '))} — ${
+        escapeHtml(CMP_UNDRAWN_WHY[why] || why)}.</span> `).join('')
+    + (sel.length > CMP_MAX
     ? `<span class="warn">${sel.length} curves — past about ${CMP_MAX} the chart
        stops being readable and the payload gets heavy. Narrow by condition, or
        hide the steps you are not comparing.</span>`
@@ -6434,7 +6606,7 @@ function cmpRender() {
       + (sm.smoothed
         ? `Smoothed here to ${escapeHtml(cmpSmoothedText(sm))}, and so is the chart image Export
            saves; its server-side comparison and workbook use the stored points.`
-        : 'Export renders the same comparison server-side, with its readouts and workbook.');
+        : 'Export renders the same comparison server-side, with its readouts and workbook.'));
 
   document.getElementById('cmpExport').disabled =
     series.length < 2 && !stats.length;
@@ -7259,6 +7431,7 @@ const TR_UNIT = {
   'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',
   'OCV decay rate': 'μV/h', 'OCV loss': '%', 'j_xover initial': 'mA/cm²',
   'j_xover final': 'mA/cm²', 'R_short final': 'Ω·cm²',
+  'RH cycles tested': 'cycles', 'RH cycles to death': 'cycles',
 };
 function trUnitOf(name) {
   if (TR_UNIT[name] != null) return TR_UNIT[name];
@@ -7271,6 +7444,7 @@ const TR_QUANTITY = {
   'mW/cm²': 'Power density', 'mV/dec': 'Tafel slope',
   'mA/cm²': 'Crossover current', 'nmol/cm²/s': 'H₂ flux', 'm²/g': 'ECSA',
   'h': 'Lifetime', 'μV/h': 'Decay rate', '%': 'Loss', 'Ω·cm²': 'Resistance',
+  'cycles': 'Lifetime in RH cycles',
 };
 const TR_PAL = ['#47b5ff', '#f87171', '#4ade80', '#fbbf24', '#c084fc',
                 '#22d3ee', '#fb923c'];
@@ -8389,7 +8563,15 @@ function cmpLoadView(name) {
   if (!v) { cmpRenderViews(''); return; }
 
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
-  CMP_OPT = { irfree: false, power: false, j06: false, bin_h: 0, ...(v.opt || {}) };
+  // A view saved before j @ 0.65 V replaced j @ 0.6 V asks for the panel by
+  // its old name; one saved before the RH cycles axis is on hold hours.
+  const opt = { ...(v.opt || {}) };
+  if ('j06' in opt) {
+    if (!('j065' in opt)) opt.j065 = !!opt.j06;
+    delete opt.j06;
+  }
+  CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0, ...opt };
+  CMP_CYC.forEach((m, k) => { if (m === false) CMP_CYC.delete(k); });   // asked again
   // A view saved before smoothing has none; one edited by hand gets none
   // rather than a width the control does not offer.
   CMP_OPT.bin_h = Object.values(CMP_TYPES).some(x => (x.bins || []).includes(+CMP_OPT.bin_h))
@@ -8501,10 +8683,16 @@ function cmpExportRows() {
     Object.entries((unit && unit.kv) || {}).forEach(([k, v]) => {
       if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = fmtNum(v);
     });
+    // Drawn against RH cycles, a test that counts them is listed by them.
+    if (cmpCycAxis()) {
+      Object.entries(CMP_CYC_METRIC).forEach(([h, c]) => { if (c in kv) delete kv[h]; });
+    }
+    const why = cmpUndrawn(u.key, CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step)));
     rows.push({ color: cmpColorOf(u.key), dash: cmpDashOf(u.step), weight: 2,
                 name: (run && run.sample_name) || u.key,
                 note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`
-                      + (cmpBanded(u) ? ' · high–low shaded' : ''), kv });
+                      + (cmpBanded(u) ? ' · high–low shaded' : '')
+                      + (why ? ` · not drawn: ${why}` : ''), kv });
   });
   return rows;
 }
@@ -8564,8 +8752,12 @@ function cmpSvgToPng(scale, spec) {
   rows.forEach(r => Object.keys(r.kv || {}).forEach(k => {
     if (!present.includes(k)) present.push(k);
   }));
+  // A Comparisons chart against RH cycles ranks the cycle counts where the
+  // hours they stand in for would be.
+  const twin = !sp.rows && cmpCycAxis()
+    ? Object.fromEntries(Object.entries(CMP_CYC_METRIC).map(([h, c]) => [c, h])) : {};
   present.sort((a, b) => {
-    const ia = order.indexOf(a), ib = order.indexOf(b);
+    const ia = order.indexOf(twin[a] || a), ib = order.indexOf(twin[b] || b);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
   });
   const cols = present.slice(0, 3);
@@ -8598,6 +8790,7 @@ function cmpSvgToPng(scale, spec) {
     bits = [`${rows.length} curve${rows.length === 1 ? '' : 's'}`];
     if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) bits.push('iR-free');
     if (CMP_TYPE === 'polcurve' && CMP_OPT.power) bits.push('power density');
+    if (cmpCycAxis()) bits.push('against RH cycles');
     // As the chart was drawn: a width that smoothed nothing is not mentioned.
     if (CMP_SMOOTHED && CMP_SMOOTHED.smoothed) {
       bits.push(`smoothed: medians of ${cmpSmoothedText(CMP_SMOOTHED)}`);
@@ -8684,13 +8877,18 @@ async function cmpDownloadPng(name, spec) {
 async function exportComparison() {
   const sels = [];
   const bands = !!(CMP_TYPES[CMP_TYPE] || {}).bands;
+  // Drawn against RH cycles, the server draws against them too, off the same
+  // stored map; a sample with none is not on the chart, and is left out.
+  const cyc = cmpCycAxis();
   cmpSelected().forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
+    if (cyc && !CMP_CYC.get(u.key)) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     // The server draws a stored band unless told otherwise, so a type with
     // bands says for every sample whether it is shaded here.
     if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}`,
-                        ...(bands ? { band: CMP_BAND.has(cmpCurveId(u.key, u.step)) } : {}) });
+                        ...(bands ? { band: CMP_BAND.has(cmpCurveId(u.key, u.step)) } : {}),
+                        ...(cyc ? { x: 'cycles' } : {}) });
   });
   const btn = document.getElementById('cmpExport');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
@@ -9572,8 +9770,11 @@ let editingSampleIdx = 0;
 const SEQUENTIAL_FOLDER_SCRIPTS = ['Electrolyzer Durability', 'FC Durability'];
 
 // FC Durability reads one CSV per protocol step, named like
-// c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv on both stands. With no order
-// sent, the script takes folders by the earliest step letter in each, then by
+// c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv on both stands, or one .fcd
+// per step from the Scribner's own FuelCell software, named like
+// c4_OCV-RHC-1000cyc_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd (a whole run in
+// one folder). With no order sent, the script takes folders by the earliest
+// step letter in each, then by
 // natural sort of the name (order_folders in fc_durability_analysis.py), so an
 // FCTS BOL folder (steps a, b) leads its 40 h folders and 40H_2 precedes
 // 40H_10. Identify Folders lists them in that same order, because whatever
@@ -9847,13 +10048,23 @@ function updateIdentifyBtn() {
   }
 }
 
-// The step letter of a station step file ('c' for c5_<sample>_OCV_95Cell-30RH_
-// 0.1WH2-0.2WA.csv), or null for anything the script would not read as one.
-// Mirrors build_timeline and parse_step_name: a .csv that is not a station
+// The step letter of a step file ('c' for c5_<sample>_OCV_95Cell-30RH_
+// 0.1WH2-0.2WA.csv, 'zz' for zz2_shut-down_25C-Dry_0o4N2-0o4N2_0kPa.fcd), or
+// null for anything the script would not read as one. Mirrors build_timeline,
+// parse_step_name and parse_fcd_step_name: a .csv that is not a station
 // _FILTERDATA file, step token first, a {T}Cell-{RH}RH token from the fourth
-// token on.
+// token on; or a .fcd, a step token of one or two letters first, then a
+// temperature token (80C-100RH, 90C-100RH(90C)-0RH, 93C-(90C)RH, 25C-Dry, 83C).
+const FCD_NUM = String.raw`\d+(?:[o.]\d+)?`;
+const FCD_TRH_RE = new RegExp(String.raw`^${FCD_NUM}C(?:-(?:${FCD_NUM}RH(?:\(${FCD_NUM}C\)-`
+  + String.raw`${FCD_NUM}RH)?|\(${FCD_NUM}C\)RH|Dry))?$`, 'i');
 function stationStepLetter(path) {
   const base = String(path).split('/').pop();
+  if (/\.fcd$/i.test(base)) {
+    const tokens = base.replace(/\.fcd$/i, '').split('_');
+    const m = /^([A-Za-z]{1,2})\d+$/.exec(tokens[0]);
+    return m && tokens.slice(1).some(t => FCD_TRH_RE.test(t)) ? m[1].toLowerCase() : null;
+  }
   if (!/\.csv$/i.test(base) || /_FILTERDATA\.csv$/i.test(base)) return null;
   const tokens = base.replace(/\.csv$/i, '').split('_');
   if (tokens.length < 4) return null;
@@ -9927,8 +10138,8 @@ function identifySamples() {
   if (rule) {
     const ordered = rule(files);
     if (!ordered.length) {
-      alert('No station step files (like c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv) '
-            + 'were found.');
+      alert('No step files (like c5_<sample>_OCV_95Cell-30RH_0.1WH2-0.2WA.csv or '
+            + 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd) were found.');
       return;
     }
     document.getElementById('identify-btn').style.display = 'none';

@@ -638,7 +638,8 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
                           'Avg ECSA (m2/g)']),
     ],
     # One step-less unit per durability test. Hours to death exists only for
-    # a sample that died: absent means alive, censored at Hours tested.
+    # a sample that died: absent means alive, censored at Hours tested. A
+    # test that cycles RH also counts its lifetime in RH cycles, the same way.
     'fc_durability': [
         ('Hours tested', ['Hours tested']),
         ('Hours to death', ['Hours to death']),
@@ -648,6 +649,8 @@ KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
         ('j_xover initial', ['j_xover initial']),
         ('j_xover final', ['j_xover final']),
         ('R_short final', ['R_short final']),
+        ('RH cycles tested', ['RH cycles tested']),
+        ('RH cycles to death', ['RH cycles to death']),
     ],
 }
 
@@ -672,6 +675,8 @@ KEY_VALUE_UNITS = {
     'j_xover initial': 'mA/cm²',
     'j_xover final': 'mA/cm²',
     'R_short final': 'Ω·cm²',
+    'RH cycles tested': 'cycles',
+    'RH cycles to death': 'cycles',
 }
 
 
