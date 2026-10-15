@@ -44,7 +44,9 @@ INDEX_TTL_S = 30
 
 _detail_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _cache_lock = threading.Lock()
-_index_cache: Dict[str, Any] = {'at': 0.0, 'data': None}
+# `gen` counts the times the copy was dropped (forget_index, clear_cache): a
+# read that was out across one is not kept.
+_index_cache: Dict[str, Any] = {'at': 0.0, 'data': None, 'gen': 0}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -59,12 +61,16 @@ def fetch_index(force: bool = False) -> Dict[str, Any]:
                  and (time.time() - _index_cache['at']) < INDEX_TTL_S)
         if fresh:
             return _index_cache['data']
+        gen = _index_cache.get('gen', 0)
 
     index = jsonbin.fetch_index()
 
     with _cache_lock:
-        _index_cache['data'] = index
-        _index_cache['at'] = time.time()
+        # Dropped while this read was out (a push, say): what it read may be
+        # from before, so it is returned but not kept.
+        if _index_cache.get('gen', 0) == gen:
+            _index_cache['data'] = index
+            _index_cache['at'] = time.time()
     return index
 
 
@@ -260,6 +266,20 @@ def clear_cache() -> None:
         _detail_cache.clear()
         _index_cache['data'] = None
         _index_cache['at'] = 0.0
+        _index_cache['gen'] = _index_cache.get('gen', 0) + 1
+
+
+def forget_index() -> None:
+    """Drop the cached index, so the next read sees a run pushed a moment ago.
+
+    Called after every push. The detail cache needs nothing: it is keyed by
+    the index entry's timestamp, which the push advances. A read already out
+    is not kept when it answers (fetch_index).
+    """
+    with _cache_lock:
+        _index_cache['data'] = None
+        _index_cache['at'] = 0.0
+        _index_cache['gen'] = _index_cache.get('gen', 0) + 1
 
 
 # ─────────────────────────────────────────────────────────────────────

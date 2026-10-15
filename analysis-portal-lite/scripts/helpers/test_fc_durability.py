@@ -66,7 +66,7 @@ with contextlib.redirect_stdout(io.StringIO()):
         analyze_ocv, load_hold_trace, below_runs, rolling_decay, OcvSettings,
         PLOT_BINS_CAP, ocv_plot_bin, analyze_characterizations, decide,
         CharSettings, _pick_curves, analyze_crossover_file, _series_labels, BAND_LOW, BAND_HIGH,
-        rh_cycle_map)
+        rh_cycle_map, rh_cycles_absent)
     from scripts.ecsa_analysis import compute_ecsa_hupd, generate_synthetic_cv
     from scripts.eis_analysis import extract_hfr, MODELS
 
@@ -425,6 +425,10 @@ check('holds sheet rows', wb['Holds'].max_row - 1, 1)
 summary_items = {r[0]: r[1] for r in wb['Summary'].iter_rows(min_row=2, values_only=True)}
 check('nothing left out at upload: said so, and no summary field',
       (summary_items.get('Folders left out at upload'), 'Folders left out' in row), ('none', False))
+check('no RH cycles from station CSVs, and the Summary says why; none in the stored row',
+      (summary_items.get('RH cycles tested'), 'RH cycles tested' in row),
+      ('not counted: the holds are station CSV files, which log no Wet flag (RH cycles are read '
+       'from the Wet flags of Scribner FuelCell .fcd holds)', False))
 wb.close()
 
 # Folders skipped in the upload page's folder list never arrive; the page
@@ -1878,9 +1882,89 @@ check('a new sample on "Keep stored stand": no stand recorded, none guessed from
        bool(fresh.get('Data'))), (None, None, True))
 import time
 from scripts.helpers import viewstore as _vs
-_vs._index_cache['at'] = time.time()        # still the pre-push cache, however long the job ran
-check('the runs list read fresh on request shows a sample pushed a moment ago; the cache does not',
+# The push drops the views' copy of the index, so even a read that is not
+# forced finds a sample pushed a moment ago, however recently the copy was
+# filled before it.
+check('a push drops the views\' 30 s copy of the index: a sample pushed a moment ago is listed',
+      (_vs._index_cache['data'], '260603_DUR-NEW' in listed(False)), (None, True))
+# A copy filled from before the push (another process's, say) still hides
+# it; read fresh on request, it is there.
+_vs._index_cache.update(data={**store.index, 'runs': [e for e in store.index['runs']
+                                                      if e['sample_name'] != '260603_DUR-NEW']},
+                        at=time.time())
+check('the runs list read fresh on request shows a sample pushed a moment ago; a stale copy does not',
       ('260603_DUR-NEW' in listed(False), '260603_DUR-NEW' in listed(True)), (False, True))
+
+# The page reads the store again once an analysis it ran is stored. The push
+# runs after the job is complete, so a poll must see that it is still to come:
+# push_pending is set with "complete" and cleared beside the push's result,
+# whatever the result.
+import scripts.helpers.jsonbin as _jb
+_real_push = _jb.push_job_metrics
+_seen = {}
+
+
+def _spy_push(**kw):
+    _seen.update(portal.jobs[kw['job_id']])
+    return _real_push(**kw)
+
+
+def _broken_push(**kw):
+    raise RuntimeError('store down')
+
+
+try:
+    _jb.push_job_metrics = _spy_push
+    _done = submit('job-pending', xd_dir, dict(params, sample_name='260603_DUR-PENDING', stand='keep'))
+    _jb.push_job_metrics = _broken_push
+    _broke = submit('job-broken', xd_dir, dict(params, sample_name='260603_DUR-BROKEN', stand='keep'))
+finally:
+    _jb.push_job_metrics = _real_push
+check('while its push runs a job is complete with push_pending set; after, cleared beside the result',
+      (_seen.get('status'), _seen.get('push_pending'), _done.get('push_pending'),
+       (_done.get('metrics_push') or {}).get('pushed')), ('complete', True, False, True))
+check('... cleared too when the push fails outright',
+      (_broke.get('status'), _broke.get('push_pending'), (_broke.get('metrics_push') or {}).get('pushed')),
+      ('complete', False, False))
+_empty = tmp / 'empty_upload'
+_empty.mkdir(exist_ok=True)
+check('a job that fails has no push to wait for',
+      (lambda j: (j.get('status'), 'push_pending' in j))(
+          submit('job-failed', _empty, dict(params, sample_name='260603_DUR-FAILED'))),
+      ('failed', False))
+
+# A read of the index out when a push drops the views' copy (forget_index)
+# may be from before the push: it is answered, not kept.
+_real_fetch = _jb.fetch_index
+_old_index = {**store.index, 'runs': store.index['runs'][:1]}
+
+
+def _read_across_a_push():
+    _vs.forget_index()                     # the push lands while this read is out
+    return _old_index
+
+
+try:
+    _vs.forget_index()
+    _jb.fetch_index = _read_across_a_push
+    _first = _vs.fetch_index()
+    _jb.fetch_index = _real_fetch
+    _second = _vs.fetch_index()
+finally:
+    _jb.fetch_index = _real_fetch
+check('a read of the index out across a push is answered but not kept: the next read is fresh',
+      (_first is _old_index, _vs._index_cache['data'] is _old_index,
+       len(_second['runs']) == len(store.index['runs'])), (True, False, True))
+
+# An admin change applied rewrites bins without moving their entries'
+# timestamps: the views' caches are dropped; a dry run leaves them.
+_vs.fetch_index()
+_vs._detail_cache['BIN@t'] = {'stale': True}
+portal._admin_call(lambda apply=False: {'applied': apply}, apply=False)
+_kept = ('BIN@t' in _vs._detail_cache, _vs._index_cache['data'] is not None)
+portal._admin_call(lambda apply=False: {'applied': apply}, apply=True)
+check('an admin change applied drops the views\' caches; a dry run does not',
+      (_kept, 'BIN@t' in _vs._detail_cache, _vs._index_cache['data']), ((True, True), False, None))
 
 # Comparisons ask for a durability plot by its type: the unit is step-less and
 # holds ten plots, and (analysis, step) alone answers with the first stored.
@@ -2143,26 +2227,29 @@ FCD_COLS = ['Time (Sec)', 'I (A)', 'I (mA/cm²)', 'Power (Watts)', 'Power (mW/cm
 TERM = 'Open Circuit; 30 Seconds; Fixed 1 Sec/Pt; Term:E<0.7 NextStep'
 
 
-def write_fcd(path, t, data, desc='Open Circuit; 30 Seconds; Fixed 1 Sec/Pt; ', area=5):
+def write_fcd(path, t, data, desc='Open Circuit; 30 Seconds; Fixed 1 Sec/Pt; ', area=5,
+              columns=None):
     """A FuelCell5 file as the station writes one: 'Key: value' header lines,
     the column line, 'End Comments', then tab-separated rows, CRLF throughout.
     `t` is Time (Sec) on the session clock; `data` maps columns to values,
-    and the rest log 0. Returns how many lines come before the data."""
+    and the rest log 0; `columns`, the columns logged, all of FCD_COLS by
+    default. Returns how many lines come before the data."""
     t = np.asarray(t, float)
-    cols = {c: np.zeros(len(t)) for c in FCD_COLS}
+    logged = columns or FCD_COLS
+    cols = {c: np.zeros(len(t)) for c in logged}
     cols['Time (Sec)'] = t
     for c, v in data.items():
         cols[c] = np.broadcast_to(np.asarray(v, float), t.shape)
     head = ['FUELCELL DATA', 'Format: FuelCell5', 'Time: "10/1/2026 9:00:00 AM"',
             'DateTime: 46296.375', 'comment 1: ""', 'comment 2: ""',
             f'Description: "{desc}; Single File: {Path(path).name}(Append)"',
-            f'SurfaceArea: {area:g}', 'StackNumber: 1', f'DataColumnCount: {len(FCD_COLS)}']
-    head += [f'DataColumn{k}: {k}' for k in range(1, len(FCD_COLS) + 1)]
-    head += ['\t'.join(FCD_COLS), 'End Comments']
+            f'SurfaceArea: {area:g}', 'StackNumber: 1', f'DataColumnCount: {len(logged)}']
+    head += [f'DataColumn{k}: {k}' for k in range(1, len(logged) + 1)]
+    head += ['\t'.join(logged), 'End Comments']
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w', encoding='utf-8', newline='') as fh:
         fh.write('\r\n'.join(head) + '\r\n')
-        fh.writelines('\t'.join(f'{cols[c][k]:.10g}' for c in FCD_COLS) + '\r\n'
+        fh.writelines('\t'.join(f'{cols[c][k]:.10g}' for c in logged) + '\r\n'
                       for k in range(len(t)))
     return len(head)
 
@@ -2513,6 +2600,68 @@ check('... a hold named for RH cycling whose Wet flags never change counts none,
       ([f.rh_cycles for f in tl.holds], tl.cycles_tested, [n for n in tl.notes if 'Wet flags' in n]),
       ([0, 0], 0, ['c5: named for RH cycling, but its Wet flags never switch from wet to dry, so no '
                    'RH cycles are counted for it']))
+# One that logs no Wet flag at all is said so, not as flags that never switch.
+noflag = tmp / 'fcd_noflag'
+write_fcd(noflag / 'c5_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
+          80000.0 + np.arange(10, 7201.0, 10), {'E_Stack (V)': 0.94},
+          columns=[c for c in FCD_COLS if not c.startswith('Wet_')])
+tl_nf = build_timeline(str(noflag))
+check('... one that logs no Wet flag at all counts none, and says that',
+      ([(f.role, f.wet_logged) for f in tl_nf.files], tl_nf.cycles_tested,
+       [n for n in tl_nf.notes if 'Wet flag' in n]),
+      ([('hold', False)], 0, ['c5: named for RH cycling, but it logs no Wet flag (Wet_Cathode, '
+                              'Wet_Anode), so no RH cycles are counted for it']))
+# Why a test with holds counts no RH cycles, for the Summary: none when it
+# counts some, or has no holds.
+cyc_dir = tmp / 'fcd_absent_cycling'
+write_fcd(cyc_dir / 'c4_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)})
+nohold = tmp / 'fcd_absent_nohold'
+write_fcd(nohold / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 1801.0, 15),
+          {'E_Stack (V)': 0.95})
+check('why no RH cycles: the Wet flags never fall; no Wet flag in the .fcd holds; none to say with '
+      'cycles or without holds',
+      [rh_cycles_absent(build_timeline(str(d_))) for d_ in (slow, noflag, cyc_dir, nohold)],
+      ['none: the Wet flags never fall from wet to dry in a hold (RH held steady)',
+       'not counted: no Wet flag (Wet_Cathode, Wet_Anode) was read from the .fcd holds', None, None])
+# A Wet flag column with no reading in it is no flag read; holds counted in
+# no way are named with why: station CSVs, .fcd holds with no flag read, flags
+# that never fall. Beside cycles counted, the holds that could not be are named.
+blank = tmp / 'fcd_blank_flags'
+write_fcd(blank / 'c5_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
+          80000.0 + np.arange(10, 7201.0, 10), {'E_Stack (V)': 0.94, 'Wet_Anode': np.nan,
+                                                 'Wet_Cathode': np.nan})
+tl_bl = build_timeline(str(blank))
+check('... nor one whose Wet flag columns hold no reading',
+      ([f.wet_logged for f in tl_bl.holds], [n for n in tl_bl.notes if 'Wet flag' in n],
+       rh_cycles_absent(tl_bl)),
+      ([False], ['c5: named for RH cycling, but it logs no Wet flag (Wet_Cathode, Wet_Anode), so no RH '
+                 'cycles are counted for it'],
+       'not counted: no Wet flag (Wet_Cathode, Wet_Anode) was read from the .fcd holds'))
+mixed = tmp / 'fcd_absent_mixed'
+write_four(mixed / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_fcd(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+write_fcd(mixed / 'c5_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
+          9000.0 + np.arange(15, 7201.0, 15), {'E_Stack (V)': 0.95},
+          columns=[c for c in FCD_COLS if not c.startswith('Wet_')])
+tl_mx = build_timeline(str(mixed))
+check('none counted in a mix: each hold named with why',
+      ([f.role for f in tl_mx.files], rh_cycles_absent(tl_mx)),
+      (['hold', 'hold', 'hold'],
+       'none counted: c3: station CSV file, which logs no Wet flag; c5: no Wet flag (Wet_Cathode, '
+       'Wet_Anode) read; c4: the Wet flags never fall from wet to dry (RH held steady)'))
+write_fcd(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)})
+write_fcd(mixed / 'c6_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 20000.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})          # held wet: none to count, none missed
+res_mx = quiet(run, str(mixed), str(tmp / 'out_absent_mixed'), {'image_format': 'none'})
+wb_mx = openpyxl.load_workbook(tmp / 'out_absent_mixed' / 'fc_durability.xlsx', read_only=True)
+sum_mx = {r_[0]: r_[1] for r_ in wb_mx['Summary'].iter_rows(min_row=2, values_only=True)}
+wb_mx.close()
+check('... and beside cycles counted, the holds that could not be counted are named; steady ones are not',
+      (res_mx['summary'][0].get('RH cycles tested'), sum_mx.get('RH cycles not counted in')),
+      (96, 'c3: station CSV file, which logs no Wet flag; c5: no Wet flag (Wet_Cathode, Wet_Anode) read'))
 
 # RH cycles from the Wet flags: the cathode's when it cycles, else the
 # anode's; every fall from wet to dry is a cycle, at a steady RH too (Corey:

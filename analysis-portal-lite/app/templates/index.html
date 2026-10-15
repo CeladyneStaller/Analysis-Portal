@@ -3091,8 +3091,23 @@ _updateThemeButton(_getThemeMode());
 
 // ── View tab ────────────────────────────────────
 let _viewRuns = [];        // full index list, most recent first
-let _viewLoaded = false;   // fetched at least once this session
+let _viewLoaded = false;   // fetched this session, and nothing stored since
 let _viewFacets = { samples: [], scripts: [], analyses: [], stands: [] };
+// The next read goes to the store rather than the server's 30 s copy of the
+// index: set when an analysis this page ran has been stored since the last
+// read (viewIndexChanged).
+let _viewForce = false;
+let _viewReload = null;
+let _viewLoadSeq = 0;      // only the latest read of the index is kept
+let _viewGen = 0;          // analyses seen stored (viewIndexChanged)
+let _viewReadAt = 0;       // when the index was last read (ms)
+let _viewShown = '';       // the runs and facets last read, as JSON
+let _viewReading = false;  // the latest read is still out
+let _viewRetryMs = 0;      // the wait before a failed background read is tried again
+// Analyses stored elsewhere (another tab, another person) reach this page when
+// one of the three tabs is opened, or the page come back to, this long after
+// the last read: the server's copy of the index is never older.
+const VIEW_REREAD_MS = 30000;
 
 function switchTab(name) {
   document.getElementById('tab-analysis').classList.toggle('active', name === 'analysis');
@@ -3104,24 +3119,124 @@ function switchTab(name) {
   document.getElementById('tab-trends').classList.toggle('active', name === 'trends');
   document.getElementById('view-trends').classList.toggle('active', name === 'trends');
   // Comparisons and Trends read the same index the View tab does, so it is
-  // loaded once and all three share it.
-  if ((name === 'view' || name === 'compare' || name === 'trends') && !_viewLoaded)
-    loadViewRuns(false);
+  // loaded once and all three share it, until an analysis is stored.
+  if (name === 'view' || name === 'compare' || name === 'trends') {
+    if (!_viewLoaded) loadViewRuns(_viewForce, true);
+    else viewMaybeReread();
+  }
   if (name === 'compare') cmpRender();
   if (name === 'trends') trRender();
 }
 
-async function loadViewRuns(force) {
+// An analysis this page ran has been stored, so the history the three tabs
+// share is out of date: a sample analysed for the first time is missing from
+// it, and one analysed again carries its old entry. Whichever of them is open
+// reads it again now, the others when next opened. Jobs finishing together
+// read it once.
+function viewIndexChanged() {
+  _viewGen += 1;
+  _viewLoaded = false;
+  _viewForce = true;
+  if (!viewTabOpen()) return;
+  clearTimeout(_viewReload);
+  _viewReload = setTimeout(() => viewReloadQuietly(true), 400);
+}
+const viewTabOpen = () => ['view', 'compare', 'trends'].some(n =>
+  document.getElementById('view-' + n).classList.contains('active'));
+
+// An edit not yet committed in a box Comparisons or Trends rebuild when the
+// history is read (a range, a statistic's name or spread, a goal): a read in
+// the background waits until it is done. The search boxes are never rebuilt.
+function viewEditing() {
+  const a = document.activeElement;
+  return !!a && a.matches('.cmp-range, .cmp-rename, .pct, .tr-goal input')
+    && a.value !== a.defaultValue && !!a.closest('#view-compare, #view-trends');
+}
+function viewReloadQuietly(force) {
+  clearTimeout(_viewReload);
+  if (viewEditing()) { _viewReload = setTimeout(() => viewReloadQuietly(force), 1000); return; }
+  loadViewRuns(force, true);
+}
+// Read again on opening one of the three tabs, or coming back to the page,
+// once the last read is VIEW_REREAD_MS old.
+function viewMaybeReread() {
+  if (!viewTabOpen() || _viewReading) return;
+  // Out of date (a read failed, say): read again, from the store if a push
+  // is behind it.
+  if (!_viewLoaded) { viewReloadQuietly(_viewForce); return; }
+  if (Date.now() - _viewReadAt >= VIEW_REREAD_MS) viewReloadQuietly(false);
+}
+window.addEventListener('focus', viewMaybeReread);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') viewMaybeReread();
+});
+
+// A run's index entry, as far as telling it was stored again: a later
+// analysis merged into it moves its timestamp, last job and job count.
+const runStamp = e => [e.timestamp || '', e.job_id || '', e.n_jobs || ''].join('|');
+
+// What was fetched for runs stored again since is their old record's: their
+// curves and RH cycles maps in Comparisons, their details and thumbnails in
+// the View tab. All are dropped, to be fetched again when next wanted, and a
+// fetch already out keeps nothing from its answer (CMP_EPOCH).
+function viewForgetRuns(keys) {
+  if (!keys.length) return;
+  CMP_EPOCH += 1;
+  const theirs = id => keys.some(k => id.startsWith(k + '::'));
+  [...CMP_SERIES.keys()].forEach(id => { if (theirs(id)) CMP_SERIES.delete(id); });
+  keys.forEach(k => { CMP_CYC.delete(k); delete _detailCache[k]; });
+  Object.keys(_thumbUrls).forEach(id => {
+    if (theirs(id)) { URL.revokeObjectURL(_thumbUrls[id]); delete _thumbUrls[id]; }
+  });
+}
+
+async function loadViewRuns(force, quiet) {
   const host = document.getElementById('viewRunsHost');
-  host.innerHTML = '<div class="empty">Loading analysis history…</div>';
+  // A read in the background (quiet) leaves the history shown as it is until
+  // its answer is in.
+  // Whatever answer comes next is drawn over the placeholder (_viewShown).
+  if (!quiet || !_viewRuns.length) {
+    host.innerHTML = '<div class="empty">Loading analysis history…</div>';
+    _viewShown = '';
+  }
+  // A read overtaken by a later one is dropped: answering last, it could put
+  // back an index from before a push the later read already shows.
+  const seq = ++_viewLoadSeq, gen = _viewGen;
+  _viewReading = true;
   try {
-    const url = '/api/view/runs' + (force ? '?_=' + Date.now() : '');
+    // Forced (the refresh button, or after a push), the server reads the
+    // store instead of its 30 s copy; the stamp keeps the browser's cache out.
+    const url = '/api/view/runs' + (force ? '?force=true&_=' + Date.now() : '');
     const r = await fetch(url);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
+    if (seq !== _viewLoadSeq) return;
+    _viewRetryMs = 0;
+    // An answer read in the background that is the one shown changes nothing,
+    // so nothing is redrawn: an open run detail, the Comparisons picker and
+    // the Trends panel stay as they are.
+    const json = JSON.stringify([data.runs || [], data.facets || null]);
+    const same = quiet && json === _viewShown;
+    _viewShown = json;
+    const was = new Map(_viewRuns.map(e => [runKey(e), runStamp(e)]));
     _viewRuns = data.runs || [];
+    viewForgetRuns(_viewRuns.filter(e => was.has(runKey(e)) && was.get(runKey(e)) !== runStamp(e))
+      .map(runKey));
     _viewFacets = data.facets || _viewFacets;
-    _viewLoaded = true;
+    _viewReadAt = Date.now();
+    // An analysis seen stored while this read was out may not be in it: the
+    // history then stays out of date, to be read again.
+    if (gen === _viewGen) {
+      _viewLoaded = true;
+      if (force) _viewForce = false;
+    }
+    if (same) return;
+    // The run detail open now, with its sections as they are, to open again
+    // on its entry as now read; one a sort or filter already closed is not.
+    const open = _openDetailJob;
+    const openRow = open && document.querySelector(`tr.detail-row[data-job="${cssEscape(open)}"]`);
+    const openBuckets = openRow ? [...openRow.querySelectorAll('.rd-analysis.open')]
+      .map(sec => sec.dataset.bucket) : [];
     populateViewFacets();
     populateMetricPicker();
     applyViewFilters();
@@ -3130,9 +3245,36 @@ async function loadViewRuns(force) {
     // data is actually here.
     if (document.getElementById('view-trends').classList.contains('active')) trRender();
     if (document.getElementById('view-compare').classList.contains('active')) cmpRender();
+    if (openRow && !document.querySelector(`tr.detail-row[data-job="${cssEscape(open)}"]`)) {
+      _openDetailJob = null;
+      await openRunDetail(open);
+      const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(open)}"]`);
+      if (dr && openBuckets.length) {
+        dr.querySelectorAll('.rd-analysis').forEach(sec =>
+          sec.classList.toggle('open', openBuckets.includes(sec.dataset.bucket)));
+        // Its toolbar button says what a click does now: collapse them.
+        const btn = dr.querySelector(`.rd-tool-btn[data-job="${cssEscape(open)}"]`);
+        if (btn) btn.textContent = 'Collapse all';
+        hydrateThumbs(open);
+      }
+    }
   } catch (e) {
+    if (seq !== _viewLoadSeq) return;
+    // One in the background that fails leaves the history shown as it was,
+    // and is tried again, later each time, while one of the three tabs is open.
+    if (quiet && _viewRuns.length) {
+      console.error('history:', e);
+      _viewRetryMs = Math.min((_viewRetryMs || 5000) * 2, 60000);
+      clearTimeout(_viewReload);
+      _viewReload = setTimeout(() => { if (viewTabOpen()) viewReloadQuietly(force || _viewForce); },
+                               _viewRetryMs);
+      return;
+    }
+    // Drawn over the placeholder, so the next answer is drawn over it too.
     host.innerHTML = '<div class="empty">Could not load history: '
       + escapeHtml(String(e.message || e)) + '</div>';
+  } finally {
+    if (seq === _viewLoadSeq) _viewReading = false;
   }
 }
 
@@ -4106,11 +4248,13 @@ async function openRunDetail(jobId) {
   row.after(dr);
 
   try {
+    const epoch = CMP_EPOCH;
     const detail = _detailCache[jobId] || await (async () => {
       const r = await fetch(`/api/view/runs/${encodeURIComponent(jobId)}`);
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      _detailCache[jobId] = d;
+      // Not kept if a run was stored again while it was out (viewForgetRuns).
+      if (epoch === CMP_EPOCH) _detailCache[jobId] = d;
       return d;
     })();
     if (_openDetailJob !== jobId) return;  // collapsed while loading
@@ -4609,6 +4753,7 @@ async function hydrateThumbs(jobId) {
     try {
       let url = _thumbUrls[key];
       if (!url) {
+        const epoch = CMP_EPOCH;
         const r = await fetch('/api/view/render', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4616,10 +4761,12 @@ async function hydrateThumbs(jobId) {
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         url = URL.createObjectURL(await r.blob());
-        _thumbUrls[key] = url;
+        if (epoch === CMP_EPOCH) _thumbUrls[key] = url;   // as the run detail
       }
       if (_openDetailJob !== jobId) return;  // collapsed mid-flight
-      el.innerHTML = `<img src="${url}" alt="${escapeAttr(plot)}">`;
+      // One not kept (its run stored again meanwhile) is let go once drawn.
+      el.innerHTML = `<img src="${url}" alt="${escapeAttr(plot)}"${_thumbUrls[key] === url ? ''
+        : ' onload="window.URL.revokeObjectURL(this.src)"'}>`;
     } catch (e) {
       el.classList.add('unrenderable');
       el.innerHTML = 'render<br>failed';
@@ -4634,6 +4781,7 @@ async function openHistoricalPlot(jobId, plot) {
   try {
     let url = _thumbUrls[key];
     if (!url) {
+      const epoch = CMP_EPOCH;
       const r = await fetch('/api/view/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4641,7 +4789,7 @@ async function openHistoricalPlot(jobId, plot) {
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       url = URL.createObjectURL(await r.blob());
-      _thumbUrls[key] = url;
+      if (epoch === CMP_EPOCH) _thumbUrls[key] = url;   // as the run detail
     }
     openLightbox(url, plot);
   } catch (e) {
@@ -5215,6 +5363,9 @@ let CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
 let CMP_LOADING = false;
+// Bumped when a sample's fetched data is dropped (viewForgetRuns): a fetch
+// sent before then keeps nothing from its answer.
+let CMP_EPOCH = 0;
 
 const cmpKey = (k, st) => k + '::' + st;
 const cmpOrder = () => [...CMP_SEL.keys()];
@@ -5675,6 +5826,7 @@ async function cmpLoadSeries() {
   // to the extremes of its buckets, whose medians are not the stored ones.
   if (t.bins) ask.forEach(s => { s.full = true; });
   const stepOf = st => t.analysis ? CMP_WHOLE : st;
+  const epoch = CMP_EPOCH;
   CMP_LOADING = true;
   try {
     const r = await fetch('/api/view/series', {
@@ -5683,6 +5835,9 @@ async function cmpLoadSeries() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
+    // A sample stored again while this was out (viewForgetRuns) may have
+    // been answered from its old record: kept for none, asked for again.
+    if (epoch !== CMP_EPOCH) return;
     (d.series || []).forEach(sr =>
       CMP_SERIES.set(cmpKey(sr.key, type + '::' + stepOf(sr.step)), sr));
     // A selection with no stored sidecar is cached as null so it is not
@@ -5932,10 +6087,11 @@ function cmpSetBin(v) {
 // RH cycles completed: its fcdur_rh_cycles plot, a point at each hold's start
 // and end, its first and last cycle, every 25th cycle and both ends of any
 // pause in the cycling. Each x drawn is read off it, straight between two of
-// its points, within a cycle of the count. A sample without one (RH held steady, or stored
-// before cycles were counted) is left off and named in the note, and Export
-// leaves it out. Hold hours stay underneath: smoothing bins hold time, and
-// the chart converts what it would have drawn.
+// its points, within a cycle of the count. A sample without one (a test from
+// station CSVs, which log no Wet flag; RH held steady; or stored before cycles
+// were counted) is left off and named in the note, and Export leaves it out.
+// Hold hours stay underneath: smoothing bins hold time, and the chart
+// converts what it would have drawn.
 const CMP_CYC_X = 'RH cycles';
 const CMP_CYC_PLOT = 'fcdur_rh_cycles', CMP_CYC_LINE = 'RH cycles completed';
 // sample key -> {x: hours, y: cycles}; null when none is stored, false when
@@ -5989,6 +6145,7 @@ function cmpCycAsk() {
 async function cmpLoadCycles(want) {
   if (!want.length) return;
   const got = new Map();
+  const epoch = CMP_EPOCH;
   try {
     const r = await fetch('/api/view/series', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -6007,8 +6164,13 @@ async function cmpLoadCycles(want) {
     console.error('RH cycles:', e);
   } finally {
     // Anything not answered failed, and is not asked for again on every
-    // redraw: a redraw that asks, fails and redraws would never stop.
-    want.forEach(k => { CMP_CYC_ASKED.delete(k); CMP_CYC.set(k, got.has(k) ? got.get(k) : false); });
+    // redraw: a redraw that asks, fails and redraws would never stop. A
+    // sample stored again meanwhile (viewForgetRuns) keeps nothing from the
+    // answer, which may be its old record's, and is asked for again.
+    want.forEach(k => {
+      CMP_CYC_ASKED.delete(k);
+      if (epoch === CMP_EPOCH) CMP_CYC.set(k, got.has(k) ? got.get(k) : false);
+    });
     cmpRender();
   }
 }
@@ -6029,8 +6191,10 @@ function cmpSetX(v) {
 // Why a durability sample on the chart draws nothing, or '' when it draws (or
 // is still being fetched): said on its row and, longer, in the note.
 const CMP_UNDRAWN_WHY = {
-  'no RH cycles stored': 'no RH cycles stored: RH held steady, or the test was stored '
-    + 'before RH cycles were counted (analyse and store it again to add them)',
+  'no RH cycles counted': 'no RH cycles counted: they come from the Wet flags in Scribner '
+    + 'FuelCell (.fcd) holds, so a test from station CSV files has none, a .fcd test whose '
+    + 'flags never fall held RH steady, and a .fcd test stored before RH cycles were counted '
+    + 'needs analysing again',
   'RH cycles not loaded': 'RH cycles could not be fetched (set x to hold hours and back to try again)',
   'no j @ 0.65 V stored': 'stored before j @ 0.65 V replaced j @ 0.6 V '
     + '(analyse and store it again to add it)',
@@ -6042,7 +6206,7 @@ function cmpUndrawn(key, sr) {
   }
   if (!cmpCycAxis()) return '';
   const m = CMP_CYC.get(key);
-  return m === null ? 'no RH cycles stored' : m === false ? 'RH cycles not loaded' : '';
+  return m === null ? 'no RH cycles counted' : m === false ? 'RH cycles not loaded' : '';
 }
 // Dash by series, from the names in the samples on the chart, in the order
 // they first appear: the same condition draws the same way for every sample.
@@ -7260,12 +7424,15 @@ async function cmpRunStats() {
     return { key, analysis: CMP_TYPE, step };
   }).filter(sel => !CMP_SERIES.has(cmpKey(sel.key, CMP_TYPE + '::' + sel.step)));
   if (want.length) {
+    const epoch = CMP_EPOCH;
     try {
       const r = await fetch('/api/view/series', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selections: want }),
       });
       const d = await r.json();
+      // A run stored again while this was out: asked for again (viewForgetRuns).
+      if (epoch !== CMP_EPOCH) return cmpRunStats();
       (d.series || []).forEach(sr =>
         CMP_SERIES.set(cmpKey(sr.key, CMP_TYPE + '::' + sr.step), sr));
       (d.missing || []).forEach(m =>
@@ -9678,11 +9845,9 @@ async function adminRefresh() {
   ADM_SAMPLES = d.samples || [];
   ADM_STANDS = d.stands || [];
   document.getElementById('admCount').textContent = `${ADM_SAMPLES.length} samples`;
-  // The View tab reads the same index, so it is stale the moment admin writes.
-  _viewLoaded = false;
-  if (document.getElementById('tab-view').classList.contains('active')) {
-    loadViewRuns(true);
-  }
+  // The history the View, Comparisons and Trends tabs share is stale the
+  // moment admin writes, as when an analysis is stored.
+  viewIndexChanged();
 }
 
 // Every apply returns the backup the server took before writing. Saving it is
@@ -9739,7 +9904,7 @@ function getMyJobIds() {
         if (!r.ok) continue;
         const j = await r.json();
         renderJob(j.job_id, j);
-        if (j.status === 'running') {
+        if (j.status === 'running' || j.push_pending) {
           polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
         }
       } catch(e) { /* transient; keep the id and retry next load */ }
@@ -10928,16 +11093,48 @@ document.getElementById('go').addEventListener('click', async () => {
 });
 
 // ── Polling ─────────────────────────────────────
+const _pollBusy = new Set();       // jobs whose last poll is still out
+const _pollShown = new Map();      // job id -> the answer its card was drawn from
 async function poll(id) {
+  // One poll out per job at a time, so answers are taken in order.
+  if (_pollBusy.has(id)) return;
+  _pollBusy.add(id);
   try {
     const r = await fetch(`/api/jobs/${id}`);
-    const d = await r.json();
-    renderJob(id, d);
-    if (d.status === 'complete' || d.status === 'failed') {
+    if (r.status === 404) {
+      // Gone from the server (a restart, or past its time to live): nothing
+      // more will come, so it is not asked for again, and a job still running
+      // is said to be lost.
       clearInterval(polling[id]);
       delete polling[id];
+      forgetJobIds([id]);
+      const last = jobs.get(id);
+      if (last && last.status === 'running') {
+        renderJob(id, { ...last, status: 'failed',
+                        message: 'This job is no longer on the server: it was restarted, or the job expired.' });
+      }
+      return;
+    }
+    if (!r.ok) return;                 // a passing error: asked again next time
+    const d = await r.json();
+    // Its card is redrawn only when the job has changed: a finished job is
+    // polled on while its push runs, and a redraw that changes nothing would
+    // swallow a click on its controls.
+    const shown = JSON.stringify(d);
+    if (_pollShown.get(id) !== shown) {
+      _pollShown.set(id, shown);
+      renderJob(id, d);
+    }
+    // A completed analysis is stored after it completes (push_pending), so
+    // polling goes on until that is over; once stored, the history the
+    // View, Comparisons and Trends tabs share is out of date.
+    if (d.status === 'failed' || (d.status === 'complete' && !d.push_pending)) {
+      clearInterval(polling[id]);
+      delete polling[id];
+      if (d.status === 'complete' && d.metrics_push && d.metrics_push.pushed) viewIndexChanged();
     }
   } catch(e) { console.error(e); }
+  finally { _pollBusy.delete(id); }
 }
 
 // ── Render job ──────────────────────────────────

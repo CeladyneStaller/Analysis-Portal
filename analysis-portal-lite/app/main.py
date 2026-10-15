@@ -200,6 +200,10 @@ def _on_job_done(job_id: str, future):
                     # family from the file extensions.
                     'stand': (jobs[job_id].get("params") or {}).get("stand"),
                 }
+                # Set with "complete", so a poll never sees the job finished
+                # with its push still to come: the page reads the store again
+                # once this is cleared (viewIndexChanged).
+                jobs[job_id]["push_pending"] = True
         except Exception as e:
             jobs[job_id].update({
                 "status": "failed",
@@ -219,9 +223,18 @@ def _on_job_done(job_id: str, future):
             # metrics_push entry, nothing to diagnose from. Always call, always
             # record the outcome.
             push_result = push_job_metrics(**push_args)
+            if push_result.get('pushed'):
+                # The views' copy of the index is up to 30 s old; a read made
+                # now must find this run's entry as just written.
+                try:
+                    from scripts.helpers import viewstore
+                    viewstore.forget_index()
+                except Exception as e:
+                    print(f"[metrics] job={job_id} index cache not cleared: {e}", flush=True)
             with jobs_lock:
                 if job_id in jobs:
                     jobs[job_id]["metrics_push"] = push_result
+                    jobs[job_id]["push_pending"] = False
                     if not push_result.get('pushed'):
                         current_msg = jobs[job_id].get("message", "")
                         warning = ("Metrics push warning: "
@@ -239,6 +252,7 @@ def _on_job_done(job_id: str, future):
                         'pushed': False,
                         'reason': f'unexpected error: {e}'
                     }
+                    jobs[job_id]["push_pending"] = False
             print(f"[metrics] job={job_id} unexpected error: {e}", flush=True)
 
 
@@ -627,13 +641,23 @@ def _admin_call(fn, *a, **kw):
     """
     from scripts.helpers import admin  # noqa: F401
     try:
-        return fn(*a, **kw)
+        out = fn(*a, **kw)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(502, f"{type(e).__name__}: {e}")
+    if kw.get('apply'):
+        # An applied change rewrites detail bins without moving their index
+        # entries' timestamps, which the views' detail cache is keyed by: the
+        # views read the store afresh.
+        try:
+            from scripts.helpers import viewstore
+            viewstore.clear_cache()
+        except Exception as e:
+            print(f"[admin] view caches not cleared: {e}", flush=True)
+    return out
 
 
 @app.post("/api/admin/unlock")

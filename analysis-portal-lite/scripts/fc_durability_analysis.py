@@ -570,6 +570,13 @@ def fcd_rh_cycle_ends(path: str) -> Tuple[Optional[np.ndarray], Optional[np.ndar
     return (ends, wet_s) if len(ends) else (None, None)
 
 
+def fcd_wet_read(path: str) -> bool:
+    """Whether a .fcd file's Wet flag columns hold a reading: a column can be
+    there and every row of it blank."""
+    df = read_fcd(path, FCD_WET)
+    return any(bool(np.isfinite(df[c].to_numpy(float)).any()) for c in df.columns)
+
+
 def fcd_loop(path: str, sf: 'StepFile') -> Tuple[bool, float]:
     """Whether a .fcd OCV step is an RH loop -- named for RH cycling, or its
     Wet flag falling at a steady pace -- and the time its wet halves fell
@@ -673,6 +680,9 @@ class StepFile:
     # read where that limit could end a hold.
     run_end_v: Optional[List[float]] = None
     restarts: int = 0            # times a .fcd file's Time (Sec) starts over (appended re-runs)
+    # A .fcd file logging a Wet flag (FCD_WET), which RH cycles are read from:
+    # a column for one, and for a hold, a reading in it (fcd_wet_read).
+    wet_logged: bool = False
     # A .fcd hold's RH cycles: when each ended (s, on the step's own clock),
     # None at a steady RH; and the cycles completed before and after it.
     rh_ends_s: Optional[np.ndarray] = field(default=None, repr=False)
@@ -952,7 +962,8 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
         sf = StepFile(path=str(p), folder=rel.parent.as_posix(), name=p.name, **rec)
         try:
             if ext == '.fcd':
-                head, _, _ = fcd_layout(str(p))
+                head, cols, _ = fcd_layout(str(p))
+                sf.wet_logged = any(c in cols for c in FCD_WET)
                 sf.desc = head.get('Description', '')
                 try:
                     sf.area_cm2 = float(head.get('SurfaceArea', ''))
@@ -1036,12 +1047,17 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
             try:
                 f.rh_ends_s, f.rh_wet_s = fcd_rh_cycle_ends(f.path)
             except Exception as e:                   # noqa: BLE001
+                f.wet_logged = False                 # none read (rh_cycles_absent)
                 notes.append(f'{f.step}: its Wet flags could not be read ({type(e).__name__}: '
                              f'{e}), so its RH cycles are not counted')
             else:
+                if f.rh_ends_s is None and f.wet_logged:
+                    f.wet_logged = fcd_wet_read(f.path)
                 if f.rh_ends_s is None and '↔' in f.rh_text:
-                    notes.append(f'{f.step}: named for RH cycling, but its Wet flags never switch '
-                                 f'from wet to dry, so no RH cycles are counted for it'
+                    notes.append(f'{f.step}: named for RH cycling, but '
+                                 + ('its Wet flags never switch from wet to dry' if f.wet_logged
+                                    else f'it logs no Wet flag ({", ".join(FCD_WET)})')
+                                 + ', so no RH cycles are counted for it'
                                  + (', nor is its own voltage limit judged' if f.term_v is not None
                                     else ''))
         f.C_start = C
@@ -3478,6 +3494,58 @@ def step_tail_text(tl: Timeline) -> Any:
     return tl.step_tail_s
 
 
+def _rh_uncounted(tl: Timeline) -> Tuple[List[str], List[str], List[str]]:
+    """The holds whose RH cycles are not counted, by why: station CSV files
+    (no Wet flag in them); .fcd holds with no Wet flag read; .fcd holds whose
+    flags never fall (RH held steady). Steps once each, in run order."""
+    def steps(fs: List[StepFile]) -> List[str]:
+        return list(dict.fromkeys(f.step for f in fs))
+    csv = [f for f in tl.holds if f.source != 'fcd']
+    noflag = [f for f in tl.holds if f.source == 'fcd' and not f.wet_logged]
+    steady = [f for f in tl.holds if f.source == 'fcd' and f.wet_logged and f.rh_ends_s is None]
+    return steps(csv), steps(noflag), steps(steady)
+
+
+def _step_list(steps: List[str], most: int = 6) -> str:
+    shown = ', '.join(steps[:most])
+    return shown + (f' and {len(steps) - most} more' if len(steps) > most else '')
+
+
+def rh_cycles_uncounted(tl: Timeline, steady_too: bool = False) -> Optional[str]:
+    """The holds whose RH cycles could not be read and why, for the Summary,
+    and with `steady_too` those whose flags never fall; None when there are
+    none."""
+    csv, noflag, steady = _rh_uncounted(tl)
+    steady = steady if steady_too else []
+    parts = []
+    if csv:
+        parts.append(f'{_step_list(csv)}: station CSV file{"s" if len(csv) > 1 else ""}, '
+                     f'which log{"" if len(csv) > 1 else "s"} no Wet flag')
+    if noflag:
+        parts.append(f'{_step_list(noflag)}: no Wet flag ({", ".join(FCD_WET)}) read')
+    if steady:
+        parts.append(f'{_step_list(steady)}: the Wet flags never fall from wet to dry '
+                     f'(RH held steady)')
+    return '; '.join(parts) or None
+
+
+def rh_cycles_absent(tl: Timeline) -> Optional[str]:
+    """Why a test with holds counts no RH cycles, for its Summary; None when
+    it counts some, or has no holds. RH cycles are read from the Wet flags
+    of .fcd holds (FCD_WET): the station CSVs log none."""
+    if tl.cycles_tested or not tl.holds:
+        return None
+    csv, noflag, steady = _rh_uncounted(tl)
+    if not noflag and not steady:
+        return ('not counted: the holds are station CSV files, which log no Wet flag '
+                '(RH cycles are read from the Wet flags of Scribner FuelCell .fcd holds)')
+    if not csv and not steady:
+        return f'not counted: no Wet flag ({", ".join(FCD_WET)}) was read from the .fcd holds'
+    if not csv and not noflag:
+        return 'none: the Wet flags never fall from wet to dry in a hold (RH held steady)'
+    return 'none counted: ' + rh_cycles_uncounted(tl, steady_too=True)
+
+
 def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
                     ocv: Optional[OcvResult] = None, ca: Optional[CharAnalysis] = None,
                     verdict: Optional[Verdict] = None) -> None:
@@ -3501,6 +3569,11 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
                               'cathode\'s on a tie), in any hold; cycles, like hours, count in '
                               'OCV holds only'),
         ]
+    absent = rh_cycles_absent(tl)
+    if absent:
+        summary.append(('RH cycles tested', absent))
+    elif tl.cycles_tested and rh_cycles_uncounted(tl):
+        summary.append(('RH cycles not counted in', rh_cycles_uncounted(tl)))
     summary += [
         ('Hold files', len(tl.holds)),
         ('Hold segments', len(tl.segments)),
