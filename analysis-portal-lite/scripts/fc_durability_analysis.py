@@ -58,6 +58,13 @@ The verdict takes the earlier of the two rules ("both" when the OCV trip
 falls inside the crossover bracket); a sample neither rule kills is alive at
 the hours tested. DOE AST targets are reported beside it, never judged.
 
+An RH cycle counts at every fall from wet to dry of a .fcd hold's Wet flag,
+and at every fall in RH from one hold to the next, between hold files in
+which no Wet flag falls: by a Wet flag both log, where they log one, else by
+the RH their names give, as for the station CSVs, which log no Wet flag (an
+FCTS 40 h folder holds 30% then 0% RH, twice). A hold named for RH cycling,
+or whose name gives no RH, can then give no fall to or from it.
+
 Only OCV hold time counts: hours tested, hours to death, RH cycles and the
 x axis of every plot, the timeline's included, leave out characterizations
 and every other step between holds. The portal runs this as "FC Durability".
@@ -532,6 +539,52 @@ def _steady_pace(gaps: np.ndarray) -> bool:
     return float(np.mean(np.abs(gaps - med) <= RH_PACE_TOL * med)) >= RH_PACE_SHARE
 
 
+def _hold_rh(f: 'StepFile') -> Optional[float]:
+    """The one RH (%) a hold's name gives (a dew point's at the cell
+    temperature), for a fall in RH from one hold to the next; None for a
+    hold named for RH cycling, or one whose name gives no RH."""
+    if '↔' in f.rh_text or not math.isfinite(f.RH_pct):
+        return None
+    return float(f.RH_pct)
+
+
+def _cycles_in(f: 'StepFile') -> bool:
+    """Whether a hold file cycles RH in itself: its Wet flag falls in it."""
+    return f.rh_ends_s is not None and not f.rh_between
+
+
+def _falls_between(a: 'StepFile', b: 'StepFile') -> bool:
+    """Whether RH falls from hold a to the next hold b. Where both read a Wet
+    flag (.fcd), it does when one they both read is wet at a's last reading
+    and dry at b's first, the cathode's or the anode's, as within a hold the
+    flag that falls counts: a temperature step at one dew point is no fall.
+    Otherwise by the RH their names give (_hold_rh), which is all a station
+    CSV, or a .fcd hold whose Wet flag columns are blank, tells."""
+    both = [col for col in FCD_WET if col in a.wet_edges and col in b.wet_edges]
+    if both:
+        return any(a.wet_edges[col][1] and not b.wet_edges[col][0] for col in both)
+    ra, rb = _hold_rh(a), _hold_rh(b)
+    return ra is not None and rb is not None and rb < ra
+
+
+# A fall in RH between holds ends no sooner than this far into the drier
+# hold (s): the hours plots store are rounded to 4 decimals, 0.18 s at most,
+# so a characterization run between the two holds reads the cycles before
+# the fall off the stored map too, whenever the drier hold's log starts.
+RH_FALL_MIN_S = 1.0
+
+
+def _first_sample_s(f: 'StepFile') -> float:
+    """When a hold logged its first sample, on its own clock (s), as its
+    samples sit on the hold clock (load_hold_trace): a .fcd step's first
+    stamp, or a station CSV's; 0 for a log that started late, which is
+    placed from the hold's start."""
+    t = f.t_first_s
+    if not math.isfinite(t) or (f.source != 'fcd' and t > FIRST_SAMPLE_MAX_S):
+        return 0.0
+    return max(float(t), 0.0)
+
+
 def _wet_falls(t: np.ndarray, w: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """When a Wet flag falls -- the time of the first dry sample after each
     wet stretch, over the rows with both a time and a flag -- and how long
@@ -570,11 +623,19 @@ def fcd_rh_cycle_ends(path: str) -> Tuple[Optional[np.ndarray], Optional[np.ndar
     return (ends, wet_s) if len(ends) else (None, None)
 
 
-def fcd_wet_read(path: str) -> bool:
-    """Whether a .fcd file's Wet flag columns hold a reading: a column can be
-    there and every row of it blank."""
+def fcd_wet_edges(path: str) -> Dict[str, Tuple[bool, bool]]:
+    """Each Wet flag a .fcd file holds a reading of (a column can be there and
+    every row of it blank): whether it is wet at its first reading and at its
+    last, for a fall in RH from one hold to the next."""
     df = read_fcd(path, FCD_WET)
-    return any(bool(np.isfinite(df[c].to_numpy(float)).any()) for c in df.columns)
+    edges: Dict[str, Tuple[bool, bool]] = {}
+    for col in FCD_WET:
+        if col in df.columns:
+            v = df[col].to_numpy(float)
+            v = v[np.isfinite(v)]
+            if len(v):
+                edges[col] = (bool(v[0] > 0.5), bool(v[-1] > 0.5))
+    return edges
 
 
 def fcd_loop(path: str, sf: 'StepFile') -> Tuple[bool, float]:
@@ -681,12 +742,20 @@ class StepFile:
     run_end_v: Optional[List[float]] = None
     restarts: int = 0            # times a .fcd file's Time (Sec) starts over (appended re-runs)
     # A .fcd file logging a Wet flag (FCD_WET), which RH cycles are read from:
-    # a column for one, and for a hold, a reading in it (fcd_wet_read).
+    # a column for one, and for a hold, a reading in it (fcd_wet_edges).
     wet_logged: bool = False
-    # A .fcd hold's RH cycles: when each ended (s, on the step's own clock),
-    # None at a steady RH; and the cycles completed before and after it.
+    # A .fcd hold in which no Wet flag falls: each flag it reads, wet or not
+    # at its first reading and its last (fcd_wet_edges, _falls_between).
+    wet_edges: Dict[str, Tuple[bool, bool]] = field(default_factory=dict, repr=False)
+    # A hold's RH cycles: when each ended (s, on the step's own clock), None
+    # when none did; and the cycles completed before and after it. A .fcd
+    # hold's are the falls of its Wet flag, each at its first dry sample. A
+    # hold file in which no flag falls ends one at its first sample, at
+    # least RH_FALL_MIN_S in, when RH falls to it from the hold file before,
+    # in which none falls either (rh_between, _falls_between, build_timeline).
     rh_ends_s: Optional[np.ndarray] = field(default=None, repr=False)
     rh_wet_s: Optional[np.ndarray] = field(default=None, repr=False)   # each cycle's wet half (s)
+    rh_between: bool = False     # its one cycle is a fall in RH from the hold before
     # An RH loop (read with run_end_v): named for RH cycling, or its Wet flag
     # cycling at a steady pace. Its limit is on one half of the loop, so the
     # station never ends the step on it.
@@ -797,16 +866,43 @@ class Timeline:
 
     @property
     def cycles_tested(self) -> int:
-        """RH cycles completed in the holds: 0 for a test at steady RH, or
-        one whose files carry no Wet flag (the station CSVs)."""
+        """RH cycles completed in the holds: falls of a .fcd hold's Wet flag,
+        and falls in RH from one hold to the next (rh_between); 0 for a test
+        at steady RH."""
         return sum(f.rh_cycles for f in self.holds)
 
+    @property
+    def cycles_within(self) -> int:
+        """The RH cycles counted within holds, from their Wet flags."""
+        return sum(f.rh_cycles for f in self.holds if not f.rh_between)
+
+    def _between_gaps_h(self) -> np.ndarray:
+        """Hold hours from each fall in RH between holds (rh_between) to the
+        next."""
+        return np.diff([f.H_start_h + float(f.rh_ends_s[0]) / 3600.0
+                        for f in self.holds if f.rh_between])
+
+    @property
+    def rh_between_h(self) -> Optional[float]:
+        """The median hold hours from one fall in RH between holds to the
+        next, or None with fewer than two falls."""
+        gaps = self._between_gaps_h()
+        return float(np.median(gaps)) if len(gaps) else None
+
+    @property
+    def rh_between_steady(self) -> bool:
+        """Whether the falls in RH between holds keep a steady pace
+        (_steady_pace), as an FCTS run's do."""
+        return _steady_pace(self._between_gaps_h())
+
     def _rh_gaps(self) -> np.ndarray:
-        """Times (s) between RH cycle ends within each hold. In holds named
-        for RH cycling, only cycles whose wet half ran its programmed time
-        count: a half the station's limit tripped in comes short
-        (station_runs), and so does its cycle. Programmed is within 10% of
-        the 90th percentile of those holds' wet halves."""
+        """Times (s) between RH cycle ends within each hold, from its Wet
+        flags (a fall in RH from the hold before, rh_between, is a hold's
+        one end, so no gap). In holds named for RH cycling, only cycles whose
+        wet half ran its programmed time count: a half the station's limit
+        tripped in comes short (station_runs), and so does its cycle.
+        Programmed is within 10% of the 90th percentile of those holds' wet
+        halves."""
         cyc = [f for f in self.holds if f.rh_ends_s is not None and len(f.rh_ends_s) > 1]
         loops = [f for f in cyc if '↔' in f.rh_text and f.rh_wet_s is not None]
         gaps = [np.diff(f.rh_ends_s) for f in cyc if f not in loops]
@@ -1011,6 +1107,7 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
     C = 0                          # RH cycles completed, as H counts hold hours
     segments: List[HoldSegment] = []
     current: Optional[HoldSegment] = None
+    prev: Optional[StepFile] = None    # the hold before, for a fall in RH between holds
     for i, f in enumerate(files, 1):
         f.seq = i
         f.length_s = step_length_s(f, step_tail_s)
@@ -1052,7 +1149,8 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
                              f'{e}), so its RH cycles are not counted')
             else:
                 if f.rh_ends_s is None and f.wet_logged:
-                    f.wet_logged = fcd_wet_read(f.path)
+                    f.wet_edges = fcd_wet_edges(f.path)
+                    f.wet_logged = bool(f.wet_edges)
                 if f.rh_ends_s is None and '↔' in f.rh_text:
                     notes.append(f'{f.step}: named for RH cycling, but '
                                  + ('its Wet flags never switch from wet to dry' if f.wet_logged
@@ -1060,9 +1158,25 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
                                  + ', so no RH cycles are counted for it'
                                  + (', nor is its own voltage limit judged' if f.term_v is not None
                                     else ''))
+        # From one hold to the next, a fall in RH is an RH cycle (Corey, 15
+        # Oct: an FCTS 40 h folder is two, 30% then 0% RH, twice): the one
+        # count the station CSVs allow, which log no Wet flag. Only between
+        # hold files in which no Wet flag falls, whose falls count in them
+        # (an RH loop's ends are cut mid-cycle); read off their Wet flags
+        # where both log one, else the RH their names give (_falls_between).
+        # A file a hold rolls over into is a hold file like any other: a
+        # flag that falls from wet to dry from one to the next is a fall.
+        # It ends at the drier hold's first sample, as a Wet flag's fall does
+        # at its first dry one, and at least RH_FALL_MIN_S in: anything run
+        # between the two holds, a characterization, comes before it.
+        if (prev is not None and f.rh_ends_s is None and not _cycles_in(prev)
+                and _falls_between(prev, f)):
+            f.rh_ends_s = np.array([max(_first_sample_s(f), RH_FALL_MIN_S)])
+            f.rh_between = True
         f.C_start = C
         C += f.rh_cycles
         f.C_end = C
+        prev = f
         f.clock_s = f.length_s
         # A hold continues across file rollovers (Gore-A's 15 x 10 h files),
         # but not across folders -- each FCTS folder is a separate program run
@@ -1784,7 +1898,7 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
     steady = tl.rh_steady
     plot_bin_s, res.plot_bin_rule = ocv_plot_bin(
         tl.hours_tested, s.plot_bin_min, tl.rh_period_s if steady else None,
-        rh_unsteady=bool(tl.cycles_tested) and not steady)
+        rh_unsteady=bool(tl.cycles_within) and not steady)
     res.plot_bin_s = plot_bin_s
     ref_key = tl.segments[0].files[0].conditions_key if tl.segments else None
     initial: Optional[float] = None
@@ -3239,7 +3353,9 @@ def rh_cycle_map(tl: Timeline) -> Tuple[np.ndarray, np.ndarray]:
     its first and last cycle end, every RH_MAP_EVERY-th between, and both
     ends of any pause in the cycling. It is what Comparisons plots the
     durability charts against cycles with, reading it off linearly; a hold
-    at a steady RH, or a pause, is a flat stretch."""
+    at a steady RH, or a pause, is a flat stretch. A fall in RH from the
+    hold before (rh_between) is a step: flat up to the drier hold's first
+    sample, and a cycle more from there, never part of one between."""
     xs: List[float] = [0.0]
     ys: List[int] = [0]
     period = tl.rh_period_s
@@ -3247,7 +3363,11 @@ def rh_cycle_map(tl: Timeline) -> Tuple[np.ndarray, np.ndarray]:
         xs.append(f.H_start_h)
         ys.append(f.C_start)
         ends = f.rh_ends_s
-        if ends is not None and len(ends):
+        if f.rh_between:
+            at = f.H_start_h + float(ends[0]) / 3600.0
+            xs += [at, at]
+            ys += [f.C_start, f.C_end]
+        elif ends is not None and len(ends):
             keep = set(range(RH_MAP_EVERY - 1, len(ends), RH_MAP_EVERY)) | {0, len(ends) - 1}
             if period:
                 for i in np.flatnonzero(np.diff(ends) > RH_MAP_PAUSE * period):
@@ -3284,9 +3404,15 @@ def plot_rh_cycles(tl: Timeline, verdict: Optional[Verdict] = None,
     ax.grid(True, alpha=0.25)
     ax.legend(loc='upper left', fontsize=8, framealpha=0.9)
     ax.set_title(title or 'RH cycles', fontsize=11, fontweight='bold', loc='left')
+    # The RH cycle as the Summary gives it: in seconds from the Wet flags'
+    # falls in holds, else in hold hours from one fall between holds to the
+    # next.
     _readout(ax, [f'RH cycles tested = {tl.cycles_tested}',
                   _kv('RH cycle', tl.rh_period_s, '.4g', 's') if tl.rh_steady
-                  else 'RH cycle: no steady pace' if tl.rh_period_s is not None else None,
+                  else 'RH cycle: no steady pace' if tl.rh_period_s is not None
+                  else None if tl.cycles_within or tl.rh_between_h is None
+                  else _kv('RH cycle', tl.rh_between_h, '.4g', 'h') if tl.rh_between_steady
+                  else 'RH cycle: no steady pace',
                   _kv('Hours tested', tl.hours_tested, '.2f', 'h'),
                   f'RH cycles to death = {verdict.cycles}'
                   if verdict is not None and verdict.dead and verdict.cycles is not None else None],
@@ -3494,16 +3620,18 @@ def step_tail_text(tl: Timeline) -> Any:
     return tl.step_tail_s
 
 
-def _rh_uncounted(tl: Timeline) -> Tuple[List[str], List[str], List[str]]:
-    """The holds whose RH cycles are not counted, by why: station CSV files
-    (no Wet flag in them); .fcd holds with no Wet flag read; .fcd holds whose
-    flags never fall (RH held steady). Steps once each, in run order."""
+def _rh_uncounted(tl: Timeline) -> Tuple[List[str], List[str]]:
+    """The holds whose RH cycles could not be counted, by why: named for RH
+    cycling, with no Wet flag falling in them (none read, or flags that
+    never switch); and holds whose name gives no RH and which read no Wet
+    flag, so no fall in RH to or from them can be read. Steps once each, in
+    run order."""
     def steps(fs: List[StepFile]) -> List[str]:
         return list(dict.fromkeys(f.step for f in fs))
-    csv = [f for f in tl.holds if f.source != 'fcd']
-    noflag = [f for f in tl.holds if f.source == 'fcd' and not f.wet_logged]
-    steady = [f for f in tl.holds if f.source == 'fcd' and f.wet_logged and f.rh_ends_s is None]
-    return steps(csv), steps(noflag), steps(steady)
+    cycling = [f for f in tl.holds if '↔' in f.rh_text and not _cycles_in(f)]
+    unknown = [f for f in tl.holds if '↔' not in f.rh_text and _hold_rh(f) is None
+               and not f.wet_logged]
+    return steps(cycling), steps(unknown)
 
 
 def _step_list(steps: List[str], most: int = 6) -> str:
@@ -3511,39 +3639,58 @@ def _step_list(steps: List[str], most: int = 6) -> str:
     return shown + (f' and {len(steps) - most} more' if len(steps) > most else '')
 
 
-def rh_cycles_uncounted(tl: Timeline, steady_too: bool = False) -> Optional[str]:
-    """The holds whose RH cycles could not be read and why, for the Summary,
-    and with `steady_too` those whose flags never fall; None when there are
-    none."""
-    csv, noflag, steady = _rh_uncounted(tl)
-    steady = steady if steady_too else []
+def rh_cycles_uncounted(tl: Timeline) -> Optional[str]:
+    """The holds whose RH cycles could not be counted and why, for the
+    Summary (_rh_uncounted); None when there are none."""
+    cycling, unknown = _rh_uncounted(tl)
     parts = []
-    if csv:
-        parts.append(f'{_step_list(csv)}: station CSV file{"s" if len(csv) > 1 else ""}, '
-                     f'which log{"" if len(csv) > 1 else "s"} no Wet flag')
-    if noflag:
-        parts.append(f'{_step_list(noflag)}: no Wet flag ({", ".join(FCD_WET)}) read')
-    if steady:
-        parts.append(f'{_step_list(steady)}: the Wet flags never fall from wet to dry '
-                     f'(RH held steady)')
+    if cycling:
+        parts.append(f'{_step_list(cycling)}: named for RH cycling, but no Wet flag falls in '
+                     f'{"them" if len(cycling) > 1 else "it"}')
+    if unknown:
+        parts.append(f'{_step_list(unknown)}: no RH in {"their names" if len(unknown) > 1 else "its name"}, '
+                     f'so no fall in RH to or from {"them" if len(unknown) > 1 else "it"} can be read')
     return '; '.join(parts) or None
 
 
 def rh_cycles_absent(tl: Timeline) -> Optional[str]:
     """Why a test with holds counts no RH cycles, for its Summary; None when
-    it counts some, or has no holds. RH cycles are read from the Wet flags
-    of .fcd holds (FCD_WET): the station CSVs log none."""
+    it counts some, or has no holds. A cycle is a fall of a .fcd hold's Wet
+    flag (FCD_WET), or a fall in RH from one hold to the next: by their Wet
+    flags where both log one, else by their names (_falls_between)."""
     if tl.cycles_tested or not tl.holds:
         return None
-    csv, noflag, steady = _rh_uncounted(tl)
-    if not noflag and not steady:
-        return ('not counted: the holds are station CSV files, which log no Wet flag '
-                '(RH cycles are read from the Wet flags of Scribner FuelCell .fcd holds)')
-    if not csv and not steady:
-        return f'not counted: no Wet flag ({", ".join(FCD_WET)}) was read from the .fcd holds'
-    if not csv and not noflag:
-        return 'none: the Wet flags never fall from wet to dry in a hold (RH held steady)'
-    return 'none counted: ' + rh_cycles_uncounted(tl, steady_too=True)
+    uncounted = rh_cycles_uncounted(tl)
+    if uncounted:
+        cycling, unknown = _rh_uncounted(tl)
+        rest = len(set(f.step for f in tl.holds) - set(cycling) - set(unknown))
+        return 'none counted: ' + uncounted + ('; the other holds give none' if rest else '')
+    flagged = [f.source == 'fcd' and f.wet_logged for f in tl.holds]
+    if len(tl.segments) == 1:                     # one hold, in one file or rolled over
+        return ('none: one hold, in which no Wet flag falls' if any(flagged)
+                else 'none: one hold, which logs no Wet flag')
+    if not any(flagged):
+        return ('none: RH never falls from one hold to the next, and the holds log no Wet flag '
+                'to count cycles within them')
+    return ('none: no Wet flag falls from wet to dry, in a hold or from one hold to the next'
+            + ('' if all(flagged) else '; nor RH, as their names give it, from one hold to the next '
+                                       'where either logs none'))
+
+
+RH_RULE_WITHIN = ("a cycle counts once its wet half is over: every fall from wet to dry of the "
+                  "station's Wet flag (the one that falls most, the cathode's on a tie), in any hold")
+RH_RULE_BETWEEN = ("a cycle counts at every fall in RH from one hold to the next, once the drier hold "
+                   "logs its first sample: from wet to dry of a Wet flag both log, where they log one, "
+                   "else in the RH their names give; only between hold files in which no Wet flag "
+                   "falls")
+
+
+def rh_cycle_rule(tl: Timeline) -> str:
+    """How the RH cycles a test counts were counted: in holds, from their Wet
+    flags; between holds, from falls in their RH; or both."""
+    within, between = tl.cycles_within, tl.cycles_tested - tl.cycles_within
+    rule = '; and '.join(r for r, n in ((RH_RULE_WITHIN, within), (RH_RULE_BETWEEN, between)) if n)
+    return rule + '; cycles, like hours, count in OCV holds only'
 
 
 def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
@@ -3562,12 +3709,14 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
     if tl.cycles_tested:
         summary += [
             ('RH cycles tested', tl.cycles_tested),
+            # Cycles in holds have a cycle in seconds; falls between holds,
+            # one in hold hours from one to the next.
             ('RH cycle (s)', _r(tl.rh_period_s, 3) if tl.rh_steady or tl.rh_period_s is None
-             else f'{tl.rh_period_s:.4g}, the median: the cycles keep no steady pace'),
-            ('RH cycle rule', 'a cycle counts once its wet half is over: every fall from wet to '
-                              'dry of the station\'s Wet flag (the one that falls most, the '
-                              'cathode\'s on a tie), in any hold; cycles, like hours, count in '
-                              'OCV holds only'),
+             else f'{tl.rh_period_s:.4g}, the median: the cycles keep no steady pace')
+            if tl.cycles_within else
+            ('RH cycle (h)', _r(tl.rh_between_h, 4) if tl.rh_between_steady or tl.rh_between_h is None
+             else f'{tl.rh_between_h:.4g}, the median: the falls keep no steady pace'),
+            ('RH cycle rule', rh_cycle_rule(tl)),
         ]
     absent = rh_cycles_absent(tl)
     if absent:

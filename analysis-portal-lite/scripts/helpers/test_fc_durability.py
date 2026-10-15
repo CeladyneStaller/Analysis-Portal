@@ -352,6 +352,11 @@ write_four(cond / 'c5_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 36000, 30)
 tl = build_timeline(str(cond))
 check('a change of conditions starts a new hold', [[f.step for f in s.files] for s in tl.segments],
       [['c3'], ['c4', 'c5']])
+check('... and the fall in RH into it is one RH cycle, at the 0% hold\'s first sample (30 s in), its '
+      'second file a rollover counting none',
+      [(f.step, f.rh_between, None if f.rh_ends_s is None else f.rh_ends_s.tolist(), f.C_start, f.C_end)
+       for f in tl.holds],
+      [('c3', False, None, 0, 0), ('c4', True, [30.0], 0, 1), ('c5', False, None, 1, 1)])
 
 edge = tmp / 'edge'
 write_four(edge / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
@@ -425,10 +430,10 @@ check('holds sheet rows', wb['Holds'].max_row - 1, 1)
 summary_items = {r[0]: r[1] for r in wb['Summary'].iter_rows(min_row=2, values_only=True)}
 check('nothing left out at upload: said so, and no summary field',
       (summary_items.get('Folders left out at upload'), 'Folders left out' in row), ('none', False))
-check('no RH cycles from station CSVs, and the Summary says why; none in the stored row',
+check('no RH cycles from station CSVs: one hold at 30% RH, rolled over into six files, and the Summary '
+      'says why; none in the stored row',
       (summary_items.get('RH cycles tested'), 'RH cycles tested' in row),
-      ('not counted: the holds are station CSV files, which log no Wet flag (RH cycles are read '
-       'from the Wet flags of Scribner FuelCell .fcd holds)', False))
+      ('none: one hold, which logs no Wet flag', False))
 wb.close()
 
 # Folders skipped in the upload page's folder list never arrive; the page
@@ -2612,32 +2617,48 @@ check('... one that logs no Wet flag at all counts none, and says that',
       ([('hold', False)], 0, ['c5: named for RH cycling, but it logs no Wet flag (Wet_Cathode, '
                               'Wet_Anode), so no RH cycles are counted for it']))
 # Why a test with holds counts no RH cycles, for the Summary: none when it
-# counts some, or has no holds.
+# counts some, or has no holds. A cycle is a fall of a .fcd hold's Wet flag,
+# or a fall in RH from one hold to the next (Corey, 15 Oct). The holds whose
+# cycles cannot be read are named: one named for RH cycling in which no flag
+# falls, and one whose name gives no RH, to or from which no fall can be read.
 cyc_dir = tmp / 'fcd_absent_cycling'
 write_fcd(cyc_dir / 'c4_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
           {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)})
 nohold = tmp / 'fcd_absent_nohold'
 write_fcd(nohold / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 1801.0, 15),
           {'E_Stack (V)': 0.95})
-check('why no RH cycles: the Wet flags never fall; no Wet flag in the .fcd holds; none to say with '
-      'cycles or without holds',
-      [rh_cycles_absent(build_timeline(str(d_))) for d_ in (slow, noflag, cyc_dir, nohold)],
-      ['none: the Wet flags never fall from wet to dry in a hold (RH held steady)',
-       'not counted: no Wet flag (Wet_Cathode, Wet_Anode) was read from the .fcd holds', None, None])
-# A Wet flag column with no reading in it is no flag read; holds counted in
-# no way are named with why: station CSVs, .fcd holds with no flag read, flags
-# that never fall. Beside cycles counted, the holds that could not be are named.
+rising = tmp / 'fcd_absent_rising'
+write_fcd(rising / 'c4_OCV_90C-30RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95})
+write_fcd(rising / 'c6_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 9000.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+check('why no RH cycles: a hold named for RH cycling in which no Wet flag falls, beside a steady one or '
+      'alone and logging none; RH rising from one hold to the next, the flags never falling; two holds at '
+      'one RH that log no flag (one in each folder); none to say with cycles or without holds',
+      [rh_cycles_absent(build_timeline(str(d_))) for d_ in (slow, noflag, rising, split, cyc_dir, nohold)],
+      ['none counted: c5: named for RH cycling, but no Wet flag falls in it; the other holds give none',
+       'none counted: c5: named for RH cycling, but no Wet flag falls in it',
+       'none: no Wet flag falls from wet to dry, in a hold or from one hold to the next',
+       'none: RH never falls from one hold to the next, and the holds log no Wet flag to count cycles '
+       'within them', None, None])
+# A Wet flag column with no reading in it is no flag read: the note of a hold
+# named for RH cycling says so, and so does the Summary of a steady test.
 blank = tmp / 'fcd_blank_flags'
 write_fcd(blank / 'c5_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
           80000.0 + np.arange(10, 7201.0, 10), {'E_Stack (V)': 0.94, 'Wet_Anode': np.nan,
                                                  'Wet_Cathode': np.nan})
-tl_bl = build_timeline(str(blank))
+blank_st = tmp / 'fcd_blank_steady'
+write_fcd(blank_st / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Anode': np.nan, 'Wet_Cathode': np.nan})
+tl_bl, tl_bs = build_timeline(str(blank)), build_timeline(str(blank_st))
 check('... nor one whose Wet flag columns hold no reading',
-      ([f.wet_logged for f in tl_bl.holds], [n for n in tl_bl.notes if 'Wet flag' in n],
-       rh_cycles_absent(tl_bl)),
-      ([False], ['c5: named for RH cycling, but it logs no Wet flag (Wet_Cathode, Wet_Anode), so no RH '
-                 'cycles are counted for it'],
-       'not counted: no Wet flag (Wet_Cathode, Wet_Anode) was read from the .fcd holds'))
+      ([f.wet_logged for f in tl_bl.holds + tl_bs.holds], [n for n in tl_bl.notes if 'Wet flag' in n],
+       rh_cycles_absent(tl_bl), rh_cycles_absent(tl_bs)),
+      ([False, False], ['c5: named for RH cycling, but it logs no Wet flag (Wet_Cathode, Wet_Anode), so '
+                        'no RH cycles are counted for it'],
+       'none counted: c5: named for RH cycling, but no Wet flag falls in it',
+       'none: one hold, which logs no Wet flag'))
+NO_WET = [c for c in FCD_COLS if not c.startswith('Wet_')]
 mixed = tmp / 'fcd_absent_mixed'
 write_four(mixed / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
 write_fcd(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
@@ -2645,23 +2666,385 @@ write_fcd(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15
 write_fcd(mixed / 'c5_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
           9000.0 + np.arange(15, 7201.0, 15), {'E_Stack (V)': 0.95},
           columns=[c for c in FCD_COLS if not c.startswith('Wet_')])
+write_fcd(mixed / 'c7_OCV_90C_0o1H2-0o1Air_0kPa.fcd', 30000.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95}, columns=NO_WET)              # no RH in its name, no flag
 tl_mx = build_timeline(str(mixed))
-check('none counted in a mix: each hold named with why',
+check('none counted in a mix: the holds that could not be read named with why; the steady ones, '
+      'station CSV or .fcd, are not',
       ([f.role for f in tl_mx.files], rh_cycles_absent(tl_mx)),
-      (['hold', 'hold', 'hold'],
-       'none counted: c3: station CSV file, which logs no Wet flag; c5: no Wet flag (Wet_Cathode, '
-       'Wet_Anode) read; c4: the Wet flags never fall from wet to dry (RH held steady)'))
-write_fcd(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
-          {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)})
+      (['hold', 'hold', 'hold', 'hold'],
+       'none counted: c5: named for RH cycling, but no Wet flag falls in it; c7: no RH in its name, so '
+       'no fall in RH to or from it can be read; the other holds give none'))
+cycling_w = {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)}
+(mixed / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd').unlink()
+write_fcd(mixed / 'c4_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          cycling_w)
 write_fcd(mixed / 'c6_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 20000.0 + np.arange(15, 7201.0, 15),
           {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})          # held wet: none to count, none missed
+write_fcd(mixed / 'c8_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd',
+          40000.0 + np.arange(15, 7201.0, 15), {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+write_fcd(mixed / 'c9_OCV_80C_0o1H2-0o1Air_0kPa.fcd', 50000.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95}, columns=NO_WET)
+write_fcd(mixed / 'c10_OCV_85C_0o1H2-0o1Air_0kPa.fcd', 60000.0 + np.arange(15, 7201.0, 15), cycling_w)
 res_mx = quiet(run, str(mixed), str(tmp / 'out_absent_mixed'), {'image_format': 'none'})
 wb_mx = openpyxl.load_workbook(tmp / 'out_absent_mixed' / 'fc_durability.xlsx', read_only=True)
 sum_mx = {r_[0]: r_[1] for r_ in wb_mx['Summary'].iter_rows(min_row=2, values_only=True)}
 wb_mx.close()
-check('... and beside cycles counted, the holds that could not be counted are named; steady ones are not',
+check('... and beside cycles counted, the holds that could not be read are named, two of each; the '
+      'steady ones are not, nor those whose Wet flag falls, named for RH cycling or with no RH in the name',
       (res_mx['summary'][0].get('RH cycles tested'), sum_mx.get('RH cycles not counted in')),
-      (96, 'c3: station CSV file, which logs no Wet flag; c5: no Wet flag (Wet_Cathode, Wet_Anode) read'))
+      (192, 'c5, c8: named for RH cycling, but no Wet flag falls in them; c7, c9: no RH in their names, '
+            'so no fall in RH to or from them can be read'))
+
+# ── RH cycles between holds (Corey, 15 Oct) ──────────────────────────
+# Station CSVs log no Wet flag, so a fall in the RH the holds' names give,
+# from one hold to the next, is an RH cycle: it ends at the drier hold's
+# first sample, as a Wet flag's fall does at its first dry one. The FCTS
+# fixture (section 3) holds 30% then 0% RH in each of three folders: a cycle
+# at each 0% hold, none at the rise into the next folder.
+tl = build_timeline(str(tmp / 'fcts'))
+check('RH cycles between holds: one at each fall in RH, at the drier hold\'s first sample (30 s in); '
+      'none at a rise',
+      [(f.folder.split('/')[-1], f.step, f.rh_between,
+        None if f.rh_ends_s is None else f.rh_ends_s.tolist(), f.C_start, f.C_end) for f in tl.holds],
+      [('40H_1', 'c3', False, None, 0, 0), ('40H_1', 'c6', True, [30.0], 0, 1),
+       ('40H_2', 'c3', False, None, 1, 1), ('40H_2', 'c6', True, [30.0], 1, 2),
+       ('40H_10', 'c3', False, None, 2, 2), ('40H_10', 'c6', True, [30.0], 2, 3)])
+check('... three tested, none within a hold; one every 20.425 h; no cycle in seconds to bin by',
+      (tl.cycles_tested, tl.cycles_within, round(tl.rh_between_h, 6), tl.rh_period_s, tl.rh_steady),
+      (3, 0, 20.425, None, False))
+step_h = 10.0 + 30 / 3600
+check('... completed by an hour: none through the first 30% hold and at its end, nor before the 0% '
+      'hold\'s first sample; one from that sample on and through the rise to 30%; all three at the end '
+      'and past it',
+      [tl.cycles_at(h) for h in (5.0, 10.0, step_h - 1e-4, step_h, 15.0, 20.425, 25.0, 61.275, 70.0)],
+      [0, 0, 0, 1, 1, 1, 1, 3, 3])
+mx_b, my_b = rh_cycle_map(tl)
+check('... the map a staircase: flat through each hold, a step up at each 0% hold\'s first sample, '
+      'never part of a cycle between',
+      list(zip(mx_b.tolist(), my_b.astype(int).tolist())),
+      [(0.0, 0), (10.0, 0), (10.00833, 0), (10.00833, 1), (20.425, 1), (30.425, 1), (30.43333, 1),
+       (30.43333, 2), (40.85, 2), (50.85, 2), (50.85833, 2), (50.85833, 3), (61.275, 3)])
+tl_flat = build_timeline(str(tmp / 'fcts'))
+for f_ in tl_flat.holds:
+    f_.rh_ends_s, f_.rh_between = None, False
+b_on, b_off = analyze_ocv(tl), analyze_ocv(tl_flat)
+check('... and the OCV plot bin is the test\'s without them: falls between holds give no cycle to bin by',
+      (b_on.plot_bin_s, b_on.plot_bin_rule), (b_off.plot_bin_s, b_off.plot_bin_rule))
+
+# One cycle per fall: falls in a row count each (100% to 30% to 0%), a rise
+# none; a dew point's RH is the one its name gives at the cell temperature
+# (holds that log no Wet flag); a .fcd hold's first sample is one interval
+# in; a log that started late is placed from its hold's start, and its cycle
+# 1 s in (RH_FALL_MIN_S).
+chain = tmp / 'rh_between_chain'
+for step_, rh_ in (('c3', 100), ('c4', 30), ('c5', 0), ('c6', 30), ('c7', 0)):
+    write_four(chain / f'{step_}_S_OCV_90Cell-{rh_}RH_0.1WH2-0.1WA.csv', 7200, 30)
+dew = tmp / 'rh_between_dew'
+for k_, trh_ in enumerate(('90C-100RH', '93C-(90C)RH', '90C-100RH', '93C-(90C)RH')):
+    write_fcd(dew / f'c{k_ + 3}_OCV_{trh_}_0o1H2-0o1Air_0kPa.fcd', 10000.0 * k_ + np.arange(15, 7201.0, 15),
+              {'E_Stack (V)': 0.95}, columns=NO_WET)
+late_b = tmp / 'rh_between_late'
+write_four(late_b / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_four(late_b / 'c4_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7500, 30, t0=120)
+write_four(late_b / 'c5_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_four(late_b / 'c6_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7260, 30, t0=45)
+got_b = {}
+for d_ in (chain, dew, late_b):
+    tl_b = build_timeline(str(d_))
+    got_b[d_.name] = [(f.step, round(f.RH_pct, 1), None if f.rh_ends_s is None else f.rh_ends_s.tolist())
+                      for f in tl_b.holds] + [tl_b.cycles_tested, round(tl_b.rh_between_h, 6)]
+check('... falls in a row count each, a rise none; a dew point\'s RH counts as its name gives it, at a '
+      '.fcd hold\'s first sample; a late log\'s cycle 1 s into its hold, an early one\'s at its first '
+      'sample; the cycle in hours from one such end to the next',
+      got_b,
+      {'rh_between_chain': [('c3', 100.0, None), ('c4', 30.0, [30.0]), ('c5', 0.0, [30.0]),
+                            ('c6', 30.0, None), ('c7', 0.0, [30.0]), 3, 3.0],
+       'rh_between_dew': [('c3', 100.0, None), ('c4', 89.2, [15.0]), ('c5', 100.0, None),
+                          ('c6', 89.2, [15.0]), 2, 4.0],
+       'rh_between_late': [('c3', 30.0, None), ('c4', 0.0, [1.0]), ('c5', 30.0, None),
+                           ('c6', 0.0, [45.0]), 2, 4.062222]})
+
+# A hold whose Wet flag falls counts its own cycles, however it is named, and
+# no fall into or out of it: neither from a wetter hold into it, nor from it
+# into a drier one; between the steady holds after it, a fall counts. A hold
+# named for RH cycling whose cycles cannot be read breaks the chain the same
+# way.
+RULE_BETWEEN = ('a cycle counts at every fall in RH from one hold to the next, once the drier hold logs '
+                'its first sample: from wet to dry of a Wet flag both log, where they log one, else in the '
+                'RH their names give; only between hold files in which no Wet flag falls')
+around = tmp / 'rh_between_around'
+write_four(around / 'c3_S_OCV_90Cell-100RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_fcd(around / 'c4_OCV_90C-30RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': (np.arange(15, 7201.0, 15) % 75 < 30).astype(float)})
+write_four(around / 'c5_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7200, 30)
+write_four(around / 'c6_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_four(around / 'c7_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7200, 30)
+unread = tmp / 'rh_between_unread'
+write_four(unread / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_fcd(unread / 'c4_OCV-RHC_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95}, columns=[c for c in FCD_COLS if not c.startswith('Wet_')])
+write_four(unread / 'c5_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7200, 30)
+tl_ar, tl_un = build_timeline(str(around)), build_timeline(str(unread))
+check('... a hold cycling RH in itself counts its own and no fall into or out of it; the steady holds '
+      'after it count theirs; one whose cycles cannot be read breaks the chain too',
+      ([(f.step, f.rh_cycles, f.rh_between) for f in tl_ar.holds], tl_ar.cycles_within,
+       [(f.step, f.rh_cycles) for f in tl_un.holds], rh_cycles_absent(tl_un)),
+      ([('c3', 0, False), ('c4', 96, False), ('c5', 0, False), ('c6', 0, False), ('c7', 1, True)], 96,
+       [('c3', 0), ('c4', 0), ('c5', 0)],
+       'none counted: c4: named for RH cycling, but no Wet flag falls in it; the other holds give none'))
+res_ar = quiet(run, str(around), str(tmp / 'out_rh_around'), {'image_format': 'none'})
+wb_ar = openpyxl.load_workbook(tmp / 'out_rh_around' / 'fc_durability.xlsx', read_only=True)
+sum_ar = {r_[0]: r_[1] for r_ in wb_ar['Summary'].iter_rows(min_row=2, values_only=True)}
+wb_ar.close()
+check('... and its Summary: both rules, the cycle in seconds from the Wet flags',
+      [(k, sum_ar.get(k)) for k in ('RH cycles tested', 'RH cycle (s)', 'RH cycle (h)', 'RH cycle rule')],
+      [('RH cycles tested', 97), ('RH cycle (s)', 75), ('RH cycle (h)', None),
+       ('RH cycle rule', "a cycle counts once its wet half is over: every fall from wet to dry of the "
+                         "station's Wet flag (the one that falls most, the cathode's on a tie), in any "
+                         "hold; and " + RULE_BETWEEN + "; cycles, like hours, count in OCV holds only")])
+
+# Between .fcd holds that both log a Wet flag, the flags decide: RH falls
+# when a flag both read is wet at the one's last reading and dry at the
+# next's first, the cathode's or the anode's (as in a hold, the flag that
+# falls counts), whatever the names say -- a step in cell temperature at one
+# dew point (100% to 89.2% by the names) is no fall while the flags stay
+# wet. Where either hold reads none (a station CSV, or blank Wet columns), or
+# they read different flags, the names decide.
+FLAG_RUNS = {
+    'stays wet': [('c3', '90C-100RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0}),
+                  ('c4', '93C-(90C)RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0}),
+                  ('c5', '93C-(90C)RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0})],
+    'wet to dry': [('c3', '90C-30RH', {'Wet_Cathode': 1.0}), ('c4', '90C-0RH', {'Wet_Cathode': 0.0})],
+    'names rise, flags fall': [('c3', '90C-0RH', {'Wet_Cathode': 1.0}), ('c4', '90C-30RH', {'Wet_Cathode': 0.0})],
+    'anode only': [('c3', '90C-30RH', {'Wet_Anode': 1.0}), ('c4', '90C-0RH', {'Wet_Anode': 0.0})],
+    'the anode falls, the cathode stays wet': [('c3', '90C-100RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0}),
+                                                ('c4', '90C-50RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 0.0})],
+    'the cathode falls, the anode stays wet': [('c3', '90C-100RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0}),
+                                                ('c4', '90C-50RH', {'Wet_Cathode': 0.0, 'Wet_Anode': 1.0})],
+    'each reads another flag': [('c3', '90C-30RH', {'Wet_Cathode': 1.0}), ('c4', '90C-50RH', {'Wet_Anode': 0.0})],
+    'one reads blanks': [('c3', '90C-100RH', {'Wet_Cathode': 1.0, 'Wet_Anode': 1.0}),
+                         ('c4', '93C-(90C)RH', {'Wet_Cathode': np.nan, 'Wet_Anode': np.nan})],
+    # A flag that rises in a hold (no fall in it) is wet at its last reading,
+    # and one that rises in the next is dry at its first.
+    'rises in the one': [('c3', '90C-30RH', {'Wet_Cathode': (np.arange(15, 7201.0, 15) >= 3600).astype(float)}),
+                         ('c4', '90C-0RH', {'Wet_Cathode': 0.0})],
+    'rises in the next': [('c3', '90C-30RH', {'Wet_Cathode': 1.0}),
+                          ('c4', '90C-0RH', {'Wet_Cathode': (np.arange(15, 7201.0, 15) >= 3600).astype(float)})],
+}
+got_fl = {}
+for label_, holds_ in FLAG_RUNS.items():
+    d_ = tmp / ('rh_flags_' + label_.replace(' ', '_').replace(',', ''))
+    for k_, (step_, trh_, flags_) in enumerate(holds_):
+        cols_ = [c for c in FCD_COLS if not c.startswith('Wet_') or c in flags_]
+        write_fcd(d_ / f'{step_}_OCV_{trh_}_0o1H2-0o1Air_0kPa.fcd', 10000.0 * k_ + np.arange(15, 7201.0, 15),
+                  dict({'E_Stack (V)': 0.95}, **flags_), columns=cols_)
+    tl_f = build_timeline(str(d_))
+    got_fl[label_] = ([(f.step, None if f.rh_ends_s is None else f.rh_ends_s.tolist()) for f in tl_f.holds],
+                      rh_cycles_absent(tl_f))
+half_ = tmp / 'rh_flags_half'
+write_fcd(half_ / 'c3_OCV_90C-30RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+write_four(half_ / 'c4_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7200, 30)
+tl_f = build_timeline(str(half_))
+got_fl['one logs none'] = ([(f.step, None if f.rh_ends_s is None else f.rh_ends_s.tolist()) for f in tl_f.holds],
+                           rh_cycles_absent(tl_f))
+NO_FALL_FL = 'none: no Wet flag falls from wet to dry, in a hold or from one hold to the next'
+check('between .fcd holds that log a Wet flag, the flags decide: one both read wet at the one\'s last reading, '
+      'dry at the next\'s first, the cathode\'s or the anode\'s, whatever the names; a temperature step at one '
+      'dew point is no fall; the names where a hold reads none, or they read different flags',
+      got_fl,
+      {'stays wet': ([('c3', None), ('c4', None), ('c5', None)], NO_FALL_FL),
+       'wet to dry': ([('c3', None), ('c4', [15.0])], None),
+       'names rise, flags fall': ([('c3', None), ('c4', [15.0])], None),
+       'anode only': ([('c3', None), ('c4', [15.0])], None),
+       'the anode falls, the cathode stays wet': ([('c3', None), ('c4', [15.0])], None),
+       'the cathode falls, the anode stays wet': ([('c3', None), ('c4', [15.0])], None),
+       'each reads another flag': ([('c3', None), ('c4', None)], NO_FALL_FL),
+       'one reads blanks': ([('c3', None), ('c4', [15.0])], None),
+       'rises in the one': ([('c3', None), ('c4', [15.0])], None),
+       'rises in the next': ([('c3', None), ('c4', [15.0])], None),
+       'one logs none': ([('c3', None), ('c4', [30.0])], None)})
+# Why none, with one hold, and where holds with and without a Wet flag meet.
+single_fl = tmp / 'rh_flags_single'                 # one hold, rolled over into two files
+for k_, step_ in enumerate(('c4', 'c5')):
+    write_fcd(single_fl / f'{step_}_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 10000.0 * k_ + np.arange(15, 7201.0, 15),
+              {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+half_rise = tmp / 'rh_flags_half_rise'
+write_four(half_rise / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_fcd(half_rise / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(15, 7201.0, 15),
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+check('... why none: one hold, rolled over into two files, that logs a flag; holds with and without one, '
+      'RH rising',
+      [rh_cycles_absent(build_timeline(str(d_))) for d_ in (single_fl, half_rise)],
+      ['none: one hold, in which no Wet flag falls',
+       NO_FALL_FL + '; nor RH, as their names give it, from one hold to the next where either logs none'])
+
+# Hold files are taken one by one: a hold whose flag falls once in its first
+# file and stays wet in the file it rolls over into, then a Dry hold whose
+# flag is dry, has two falls of the flag, one in it and one into the Dry hold.
+roll_fl = tmp / 'rh_flags_rollover'
+t_rl = np.arange(15, 7201.0, 15)
+write_fcd(roll_fl / 'c2_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + t_rl,
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': np.where((t_rl > 3000) & (t_rl < 3100), 0.0, 1.0)})
+write_fcd(roll_fl / 'c3_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 7400.0 + t_rl, {'E_Stack (V)': 0.95, 'Wet_Cathode': 1.0})
+write_fcd(roll_fl / 'c4_OCV_90C-Dry_0o1H2-0o1Air_0kPa.fcd', 15000.0 + t_rl, {'E_Stack (V)': 0.95, 'Wet_Cathode': 0.0})
+tl_rl = build_timeline(str(roll_fl))
+check('a fall of the flag in a hold file, and one from the file it rolls over into to a Dry hold: two',
+      ([(f.step, f.segment, f.rh_cycles, f.rh_between) for f in tl_rl.holds], tl_rl.cycles_tested),
+      ([('c2', 1, 1, False), ('c3', 1, 0, False), ('c4', 2, 1, True)], 2))
+
+# A fall across folders counts as one within a folder does: FCTS folders run
+# one after another, whatever the gap between them.
+across = tmp / 'rh_between_folders'
+write_four(across / '40H_1' / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30)
+write_four(across / '40H_2' / 'c3_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7200, 30)
+check('a fall in RH from the last hold of one folder to the first of the next counts',
+      [(f.folder.split('/')[-1], f.step, f.rh_between) for f in build_timeline(str(across)).holds],
+      [('40H_1', 'c3', False), ('40H_2', 'c3', True)])
+
+# The cycle in hours, where falls between holds are the only cycles: the
+# median from one to the next, said to keep no steady pace when they do not
+# (falls 2 h and 4 h apart); in a test whose Wet flags fall too, the cycle
+# in seconds alone, in the Summary and the readout alike.
+from scripts.fc_durability_analysis import plot_rh_cycles
+mix_one = tmp / 'rh_between_mix_one'
+t_once = np.arange(15, 7201.0, 15)
+write_fcd(mix_one / 'c3_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + t_once,
+          {'E_Stack (V)': 0.95, 'Wet_Cathode': (t_once < 3600).astype(float)})     # falls once
+for step_, rh_ in (('c4', 30), ('c5', 0), ('c6', 30), ('c7', 0)):
+    write_four(mix_one / f'{step_}_S_OCV_90Cell-{rh_}RH_0.1WH2-0.1WA.csv', 7200, 30)
+got_cy = []
+for d_ in (chain, mix_one):
+    tl_c = build_timeline(str(d_))
+    quiet(run, str(d_), str(tmp / f'out_{d_.name}'), {'image_format': 'none'})
+    wb_c = openpyxl.load_workbook(tmp / f'out_{d_.name}' / 'fc_durability.xlsx', read_only=True)
+    sum_c = {r_[0]: r_[1] for r_ in wb_c['Summary'].iter_rows(min_row=2, values_only=True)}
+    wb_c.close()
+    fig_c = plot_rh_cycles(tl_c)
+    got_cy.append(([(k, sum_c[k]) for k in ('RH cycle (s)', 'RH cycle (h)') if k in sum_c],
+                   [ln for t_ in fig_c.axes[0].texts for ln in t_.get_text().split('\n')
+                    if ln.startswith('RH cycle ') or ln.startswith('RH cycle:')], (tl_c.cycles_within, tl_c.cycles_tested)))
+    _plt.close(fig_c)
+check('... the cycle in hours at no steady pace said so, in the Summary and the readout; beside cycles '
+      'within holds, only the cycle in seconds, none from one fall, in both',
+      got_cy,
+      [([('RH cycle (h)', '3, the median: the falls keep no steady pace')], ['RH cycle: no steady pace'], (0, 3)),
+       ([('RH cycle (s)', None)], [], (1, 3))])
+
+# The FCTS fixture end to end: the Summary, every sheet that counts cycles,
+# the stored row, and the map and readout of the RH cycles plot.
+res_ft = quiet(run, str(tmp / 'fcts'), str(tmp / 'out_rh_fcts'), {'image_format': 'png'})
+wb_ft = openpyxl.load_workbook(tmp / 'out_rh_fcts' / 'fc_durability.xlsx', read_only=True)
+sum_ft = {r_[0]: r_[1] for r_ in wb_ft['Summary'].iter_rows(min_row=2, values_only=True)}
+
+
+def sheet_ft(name):
+    rows_ = list(wb_ft[name].iter_rows(values_only=True))
+    return [dict(zip(rows_[0], r_)) for r_ in rows_[1:]]
+
+
+check('the FCTS fixture: RH cycles in the Summary, from falls between holds alone, with no hold left '
+      'uncounted; stored',
+      ([(k, sum_ft.get(k)) for k in ('RH cycles tested', 'RH cycle (s)', 'RH cycle (h)', 'RH cycle rule',
+                                     'RH cycles not counted in')],
+       res_ft['summary'][0].get('RH cycles tested')),
+      ([('RH cycles tested', 3), ('RH cycle (s)', None), ('RH cycle (h)', 20.425),
+        ('RH cycle rule', RULE_BETWEEN + '; cycles, like hours, count in OCV holds only'),
+        ('RH cycles not counted in', None)], 3))
+trace_ft = sheet_ft('OCV trace')
+fall_at = (10.0 + 30 / 3600, 30.425 + 30 / 3600, 50.85 + 30 / 3600)
+check('... each hold and its files, each characterization, the manifest, and the OCV trace\'s bins, '
+      'the 0% holds\' a cycle on',
+      ([(r_['RH cycles'], r_['RH cycles before']) for r_ in sheet_ft('Holds')],
+       [r_['RH cycles'] for r_ in sheet_ft('Hold files')],
+       [(r_['Characterization'], r_['RH cycles before']) for r_ in sheet_ft('Cycles')],
+       sorted({(r_['Step'], r_['RH cycles before']) for r_ in sheet_ft('Characterizations')}),
+       [(m['Folder'].split('/')[-1], m['Step'], m['RH cycles']) for m in sheet_ft('Manifest')
+        if m['RH cycles'] is not None],
+       [r_['RH cycles'] for r_ in trace_ft] == [sum(h >= a for a in fall_at)
+                                                for h in (r_['Hold hours (h)'] for r_ in trace_ft)],
+       sorted({r_['RH cycles'] for r_ in trace_ft})),
+      ([(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)], [None, 1, None, 1, None, 1],
+       [('BOL', 0), ('20.43 h', 1), ('40.85 h', 2), ('61.28 h', 3)],
+       [('b20', 0), ('e11', 1), ('e11', 2), ('e11', 3)],
+       [('40H_1', 'c6', 1), ('40H_2', 'c6', 1), ('40H_10', 'c6', 1)],
+       True, [0, 1, 2, 3]))
+wb_ft.close()
+rc_ft = json.loads((tmp / 'out_rh_fcts' / '_plot_data' / 'fcdur_rh_cycles.json').read_text(),
+                   parse_constant=_no_nan)
+line_ft = next(ln for ln in rc_ft['data']['axes'][0]['lines'] if ln['label'] == 'RH cycles completed')
+check('... the RH cycles plot holds the staircase, and its readout the cycle in hours',
+      (list(zip(line_ft['x'], line_ft['y'])) == list(zip(mx_b.tolist(), my_b.tolist())),
+       [t_['text'] for t_ in rc_ft['data']['axes'][0]['texts'] if 'RH cycle' in t_['text']]),
+      (True, ['RH cycles tested = 3\nRH cycle = 20.43 h\nHours tested = 61.28 h']))
+
+# A characterization run between a hold and a drier one comes before the
+# fall: its hours, rounded as a plot stores them, read the count before it
+# off the stored map too, as Comparisons and Export do. The 30% hold ends at
+# 9.994491 h, which a plot stores as 9.9945 h: past the hold's end on the map.
+fall_c = tmp / 'rh_between_char'
+XO_NAME = '{}_S_H2X_80.3Cell-100RH_0.4WH2-0.4WN2.csv'
+write_cv(fall_c / XO_NAME.format('b20'), 3.0)
+write_four(fall_c / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 36000, 30, v=0.92, t0=10.17)
+write_cv(fall_c / XO_NAME.format('c4'), 3.2)
+write_four(fall_c / 'c6_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 36000, 30, v=0.90)
+write_cv(fall_c / XO_NAME.format('c7'), 3.4)
+res_fc = quiet(run, str(fall_c), str(tmp / 'out_rh_char'), {'image_format': 'png'})
+wb_fc = openpyxl.load_workbook(tmp / 'out_rh_char' / 'fc_durability.xlsx', read_only=True)
+cyc_fc = [(r_[0], r_[2], r_[3]) for r_ in list(wb_fc['Cycles'].iter_rows(values_only=True))[1:]]
+hdr_fc = next(wb_fc['Characterizations'].iter_rows(values_only=True))
+chr_fc = [(r_[hdr_fc.index('Step')], r_[hdr_fc.index('RH cycles before')])
+          for r_ in list(wb_fc['Characterizations'].iter_rows(values_only=True))[1:]]
+wb_fc.close()
+pd_fc = tmp / 'out_rh_char' / '_plot_data'
+sc_fc = {p_.stem: json.loads(p_.read_text()) for p_ in pd_fc.glob('fcdur_*.json')}
+hours_fc, cyc_map_fc = viewstore.rh_cycle_map({'m': sc_fc['fcdur_rh_cycles']})
+x_fc = next(ln['x'] for ln in sc_fc['fcdur_xover_vs_time']['data']['axes'][0]['lines']
+            if ln['label'].endswith('window mean'))
+check('a characterization between a hold and a drier one: before the fall in the workbook, and read '
+      'so off the stored map at the hours its plot stores',
+      (cyc_fc, chr_fc, x_fc, [viewstore.cycles_at(hours_fc, cyc_map_fc, x) for x in x_fc]),
+      ([('BOL', 0, 0), ('9.99 h', 9.9945, 0), ('19.99 h', 19.9945, 1)],
+       [('b20', 0), ('c4', 0), ('c7', 1)], [0.0, 9.9945, 19.9945], [0.0, 0.0, 1.0]))
+
+# However the drier hold's log starts -- late, placed from the hold's start,
+# or at 0 s -- the fall ends 1 s into it (RH_FALL_MIN_S): a characterization
+# run between the two holds reads the cycles before it, in the workbook and
+# off the stored map at the hours its plot stores (2.0 h here, the boundary).
+got_lc = []
+for label_, t0_ in (('late', 120), ('at 0 s', 0)):
+    d_ = tmp / f'rh_between_char_{t0_}'
+    write_cv(d_ / XO_NAME.format('b20'), 3.0)
+    write_four(d_ / 'c3_S_OCV_90Cell-30RH_0.1WH2-0.1WA.csv', 7200, 30, v=0.92)
+    write_cv(d_ / XO_NAME.format('c4'), 3.2)
+    write_four(d_ / 'c6_S_OCV_90Cell-0RH_0.1WH2-0.1DA.csv', 7500, 30, v=0.90, t0=t0_)
+    quiet(run, str(d_), str(tmp / f'out_{d_.name}'), {'image_format': 'png'})
+    wb_c = openpyxl.load_workbook(tmp / f'out_{d_.name}' / 'fc_durability.xlsx', read_only=True)
+    cyc_c = [(r_[0], r_[3]) for r_ in list(wb_c['Cycles'].iter_rows(values_only=True))[1:]]
+    wb_c.close()
+    sc_c = {p_.stem: json.loads(p_.read_text()) for p_ in (tmp / f'out_{d_.name}' / '_plot_data').glob('fcdur_*.json')}
+    h_c, c_c = viewstore.rh_cycle_map({'m': sc_c['fcdur_rh_cycles']})
+    x_c = next(ln['x'] for ln in sc_c['fcdur_xover_vs_time']['data']['axes'][0]['lines']
+               if ln['label'].endswith('window mean'))
+    got_lc.append((label_, cyc_c, x_c, [viewstore.cycles_at(h_c, c_c, x) for x in x_c]))
+check('... and with the drier hold\'s log starting late or at 0 s, the characterization between still '
+      'reads the cycles before the fall, in the workbook and off the stored map',
+      got_lc,
+      [('late', [('BOL', 0), ('2 h', 0)], [0.0, 2.0], [0.0, 0.0]),
+       ('at 0 s', [('BOL', 0), ('2 h', 0)], [0.0, 2.0], [0.0, 0.0])])
+
+# Cycles to death are those completed by the death: dead in the 0% hold, the
+# fall into it is one; dead in the 30% hold before, none, of the one tested.
+for label_, die_h, want_ in (('in the 0% hold', 15.0, (15.0, 1, 1)), ('before the fall', 5.0, (5.0, 0, 1))):
+    dd_ = tmp / f'rh_between_death_{int(die_h)}'
+    drop_ = lambda H, die_h=die_h: np.where(H < die_h * 3600, 0.92, 0.5)
+    write_ocv(dd_ / HOLD.format('c3'), 36000, 30, 0, drop_)
+    write_ocv(dd_ / DRY.format('c6'), 36000, 30, 36000, drop_)
+    row_dd = quiet(run, str(dd_), str(tmp / f'out_{dd_.name}'), {'image_format': 'none'})['summary'][0]
+    check(f'cycles to death between holds, dead {label_}: those completed by the death, of all tested',
+          (round(row_dd['Hours to death'], 2), row_dd['RH cycles to death'], row_dd['RH cycles tested']),
+          want_)
 
 # RH cycles from the Wet flags: the cathode's when it cycles, else the
 # anode's; every fall from wet to dry is a cycle, at a steady RH too (Corey:
@@ -2901,7 +3284,8 @@ check('a 2 h hold under its limit throughout: a station death from its first sam
       'rule\'s stretch after it',
       ([(r.trigger, r.verdict) for r in ocv.runs], round(ocv.death.start_h * 3600, 3)),
       ([('station', 'death'), ('median', 'after death')], 10.0))
-# A Wet flag that cannot be read is said so, and not also said never to switch.
+# A Wet flag that cannot be read is said so, and not also said never to
+# switch, or not to be logged.
 _ends = FD.fcd_rh_cycle_ends
 FD.fcd_rh_cycle_ends = lambda *a, **k: (_ for _ in ()).throw(ValueError('unreadable'))
 try:
@@ -2909,7 +3293,7 @@ try:
 finally:
     FD.fcd_rh_cycle_ends = _ends
 check('... a Wet flag that cannot be read is said so, once',
-      [n_ for n_ in tl_e.notes if 'Wet flags' in n_],
+      [n_ for n_ in tl_e.notes if 'Wet flag' in n_],
       ['c4: its Wet flags could not be read (ValueError: unreadable), so its RH cycles are not counted'])
 cut3 = tmp / 'fcd_cut_then_dip'
 write_fcd(cut3 / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 500.0 + np.arange(10, 721.0, 10),
@@ -3609,6 +3993,34 @@ heads = {c for ws in wb.worksheets for row in ws.iter_rows(min_row=3, max_row=3,
 wb.close()
 true('... and its workbook\'s traces against RH cycles', 'RH cycles' in heads and 'Hold time (h)' not in heads,
      heads)
+
+# A station-CSV test whose RH falls from hold to hold (the FCTS fixture) is
+# stored with its RH cycles and its map, and drawn against them as a .fcd
+# test is: its characterizations at the cycles completed before each.
+FCTS_S = '261015_SYN-FCTS'
+submit('job-fcts-rh', tmp / 'fcts', {'sample_name': FCTS_S, 'image_format': 'png', 'stand': 'FCTS 2'})
+key_ft = next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == FCTS_S)
+with contextlib.redirect_stdout(io.StringIO()):
+    got = viewstore.plot_series_batch([dict(ask_c, key=key_ft)])
+    ocv_ft = next(s['plot'] for s in viewstore.plot_series_batch(
+        [{'key': key_ft, 'analysis': 'fc_durability', 'step': '', 'plot_type': 'fcdur_ocv_vs_time'}])['series'])
+    src_ft = viewstore.materialize_for_compare(
+        [{'key': key_ft, 'plot': ocv_ft, 'label': FCTS_S, 'band': True, 'x': 'cycles'}], tmp / 'cyc_in_fcts')
+sent_ft = next((ln for s in got['series'] for ax in s['axes'] for ln in ax['lines']
+                if ln['label'] == 'RH cycles completed'), {})
+staged_ft = plot_compare.load_sidecar(plot_compare.find_sidecar(
+    src_ft[0]['output_dir'], src_ft[0]['filename']))['data']['axes'][0] if src_ft else {}
+check('a station-CSV test with falls in RH between holds: its RH cycles in the index beside the hours, '
+      'its staircase sent to the chart, and Export staging it against them: each hold\'s OCV at the '
+      'cycles completed before it, a characterization at each count before it',
+      ({k: v for k, v in kv_of(FCTS_S).items() if k.startswith(('Hours', 'RH'))},
+       list(zip(sent_ft.get('x') or [], sent_ft.get('y') or [])) == list(zip(mx_b.tolist(), my_b.tolist())),
+       [s['label'] for s in src_ft],
+       sorted({round(x, 6) for tr in staged_ft.get('lines', []) + staged_ft.get('scatters', [])
+               for x in tr['x']}),
+       sorted(round(v['x'], 6) for v in staged_ft.get('axvlines') or []), staged_ft.get('xlabel')),
+      ({'Hours tested': 61.275, 'RH cycles tested': 3}, True, [FCTS_S], [0.0, 1.0, 2.0, 3.0],
+       [0.0, 1.0, 2.0, 3.0], 'RH cycles'))
 
 # Export pairs a durability plot's panels by label: a test stored before
 # j @ 0.65 V replaced j @ 0.6 V draws nothing on the j @ 0.65 V panel, and one
