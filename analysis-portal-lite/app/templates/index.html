@@ -6086,12 +6086,12 @@ function cmpSetBin(v) {
 // FC Durability stores, with a test that cycles RH, a map from hold hours to
 // RH cycles completed: its fcdur_rh_cycles plot, a point at each hold's start
 // and end, its first and last cycle, every 25th cycle and both ends of any
-// pause in the cycling; a fall in RH from one hold to the next is a step at
-// the drier hold's first sample. Each x drawn is read off it, straight
-// between two of its points, within a cycle of the count. A sample without
-// one (no Wet flag falls in its holds, and RH never falls from one to the
-// next; or a test stored before falls between holds were counted) is left
-// off and named in the note, and Export leaves it out.
+// pause in the cycling. Each x drawn is read off it, straight between two of
+// its points, within a cycle of the count. A sample without one (RH held
+// steady: no Wet flag falls in its holds, and where none is logged their OCV
+// shows no RH cycling; holds that could not be read; or a test stored before
+// cycles were read off the OCV) is left off and named in the note, and Export
+// leaves it out.
 // Hold hours stay underneath: smoothing bins hold time, and the chart
 // converts what it would have drawn.
 const CMP_CYC_X = 'RH cycles';
@@ -6194,8 +6194,10 @@ function cmpSetX(v) {
 // is still being fetched): said on its row and, longer, in the note.
 const CMP_UNDRAWN_WHY = {
   'no RH cycles counted': 'no RH cycles counted: a cycle is a fall of a Scribner FuelCell (.fcd) '
-    + 'hold\'s Wet flag, or a fall in RH from one hold to the next; a test with neither has none, '
-    + 'and one stored before falls between holds were counted needs analysing again',
+    + 'hold\'s Wet flag or, in a hold that logs none, a rise of its OCV from its wet level to its '
+    + 'dry one, at a steady pace for 10 cycles or more; a test with neither held RH steady or '
+    + 'could not be read (its Summary says which), and one stored before cycles were read off the '
+    + 'OCV needs analysing again',
   'RH cycles not loaded': 'RH cycles could not be fetched (set x to hold hours and back to try again)',
   'no j @ 0.65 V stored': 'stored before j @ 0.65 V replaced j @ 0.6 V '
     + '(analyse and store it again to add it)',
@@ -6266,8 +6268,8 @@ function cmpChart(series, cfg) {
     if (V.y0 != null) y0 = V.y0;
     if (V.y1 != null) y1 = V.y1;
   }
-  // On RH cycles, a hold before any fall in RH between holds sits at 0 whole
-  // (a station-CSV test's first hold): unless a minimum is set, the axis
+  // On RH cycles, a hold before the cycling starts sits at 0 whole (an FCTS
+  // folder's first, 30% RH hold): unless a minimum is set, the axis
   // starts before 0 by 3% of its right end as shown, its ticks from 0, so
   // that hold is not drawn on the axis line. A chart whose points are all at
   // 0 is a cycle wide.
