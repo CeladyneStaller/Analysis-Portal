@@ -9521,10 +9521,12 @@ const cpTrace = l => !!l && l !== 'bin minimum' && l !== CMP_BAND_LOW && l !== C
 // analysis, a series a step (CP_STD finds the line). `evo`: a durability
 // evolution plot, a series each line of each condition's panel; `power` is
 // current density times voltage. `kind` says how it is marked: `pts` at every
-// point, a `trace` or a `curve` every so far along it (cpMarks).
+// point, a `trace` or a `curve` every so far along it (cpMarks). `band`: its
+// plot stores each bin's lowest and highest sample beside the trace, shaded
+// under it as on the Durability — OCV chart (cpBandFor), unless turned off.
 const CP_Q = {
   dur: [
-    { id: 'ocv', grp: 'Durability — OCV', name: 'Hold OCV', unit: 'V', kind: 'trace',
+    { id: 'ocv', grp: 'Durability — OCV', name: 'Hold OCV', unit: 'V', kind: 'trace', band: true,
       dur: { plot: 'fcdur_ocv_vs_time', axis: /^Hold OCV/i, lines: cpTrace } },
     { id: 'dec', grp: 'Durability — OCV', name: 'OCV decay rate', unit: 'μV/h', kind: 'trace',
       dur: { plot: 'fcdur_ocv_vs_time', axis: /^OCV decay/i, lines: () => true, points: () => true,
@@ -9579,7 +9581,7 @@ const CP_STD = {
 // ids [sample key, quantity, series] as JSON. Ranges are kept as typed, per x.
 function cpFresh() {
   return { x: 'time', assign: { dur: {}, j: {}, pot: {} }, curves: { dur: [], j: [], pot: [] },
-           scale: { dur: {}, j: {}, pot: {} }, rng: {}, hidden: {}, layout: 'dual',
+           scale: { dur: {}, j: {}, pot: {} }, rng: {}, hidden: {}, noband: {}, layout: 'dual',
            has: 'any', order: [] };
 }
 let CP = cpFresh();
@@ -9739,15 +9741,33 @@ function cpSeriesOf(run, q) {
   }
   return { list, loading, failed };
 }
+// A trace's high–low band, paired as the Durability — OCV chart pairs it
+// (cmpPickSeries): the stored bin low and bin high lines on the trace's own
+// x, each pair taken once; none for a trace the store thinned, or one stored
+// before the band. Points [x, low, high].
+function cpBandFor(ax, line, taken) {
+  if (!line || line.decimated) return null;
+  const x = line.x || [];
+  const on = (label, e) => e.label === label && !taken.has(e) && !e.decimated
+    && (e.x || []).length === x.length && (e.x || []).every((v, i) => v === x[i]);
+  const lo = (ax.lines || []).find(e => on(CMP_BAND_LOW, e));
+  const hi = lo && (ax.lines || []).find(e => on(CMP_BAND_HIGH, e));
+  if (!lo || !hi) return null;
+  taken.add(lo);
+  taken.add(hi);
+  const band = x.map((v, i) => [v, (lo.y || [])[i], (hi.y || [])[i]]).filter(q => q.every(Number.isFinite));
+  return band.length ? band : null;
+}
 // A curve's parts as stored, [[x, y], ...] for each line and set of points it
 // takes, both numbers, in order of their first x (a pick lists lines before
 // points: a short hold's decay windows, stored as points, can come before a
 // long one's line); null when they are not where its pick says. The workbook
-// lists them in the same order (viewstore.custom_plot_curves).
-function cpPartsOf(sr, pick) {
+// lists them in the same order (viewstore.custom_plot_curves). With `banded`,
+// each line's band rides with it (`band` on the part, cpBandFor).
+function cpPartsOf(sr, pick, banded) {
   const ax = ((sr && sr.axes) || [])[pick.axis];
   if (!ax) return null;
-  const parts = [];
+  const parts = [], taken = new Set();
   for (const kind of ['lines', 'points']) {
     const have = ax[kind] || [], want = pick[kind] || [];
     for (let j = 0; j < want.length; j++) {
@@ -9758,6 +9778,7 @@ function cpPartsOf(sr, pick) {
         const y = (t.y || [])[i];
         if (Number.isFinite(x) && Number.isFinite(y)) pts.push(pick.power ? [x, x * y * 1000] : [x, y]);
       });
+      if (banded && kind === 'lines') pts.band = cpBandFor(ax, t, taken);
       parts.push(pts);
     }
   }
@@ -9846,8 +9867,8 @@ function cpCurve(id, X, A, colours, vocab) {
   const c = { id, key, q, sid, side: a.side, axKey: a.side + '|' + q.unit,
     shape: CP_SHAPES[a.shape], shapeIx: a.shape, color: colours.get(key) || CMP_PAL[0],
     sample: Math.max(0, [...colours.keys()].indexOf(key)), label: cpLabelOfSid(sid), sub: '',
-    si: 0, dash: cpDashOf(vocab || [], cpMatchOfSid(sid)), segs: [], why: '', loading: false,
-    stored: run ? String(run.sample_name || key) : key };
+    si: 0, dash: cpDashOf(vocab || [], cpMatchOfSid(sid)), segs: [], bands: [], banded: false,
+    shade: false, why: '', loading: false, stored: run ? String(run.sample_name || key) : key };
   if (!run) { c.why = 'no longer stored'; return c; }
   const { list, loading } = cpSeriesOf(run, q);
   const si = list.findIndex(s => s.sid === sid), ser = list[si];
@@ -9866,7 +9887,7 @@ function cpCurve(id, X, A, colours, vocab) {
   if (sr === null) { c.why = 'no plot data stored'; return c; }
   const pick = ser.src.plot ? ((cpPicks(q, sr).find(s => s.sid === sid) || {}).pick || null)
     : cpStdPick(q, sr);
-  const parts = pick && cpPartsOf(sr, pick);
+  const parts = pick && cpPartsOf(sr, pick, !!q.band);
   if (!parts || !parts.some(pt => pt.length)) {
     c.why = q.id === 'virf' ? 'no iR-free voltage stored for this step' : `no ${q.name} stored`;
     return c;
@@ -9877,8 +9898,16 @@ function cpCurve(id, X, A, colours, vocab) {
     if (m === undefined) { c.loading = true; return c; }
     if (m === null) { c.why = 'no RH cycles counted (RH held steady)'; return c; }
     if (m === false) { c.why = 'RH cycles could not be fetched (pick hold time and back to try again)'; return c; }
-    c.segs = parts.map(pts => pts.map(pt => [cmpCycAt(m, pt[0]), pt[1]])).filter(pts => pts.length);
-  } else c.segs = parts.filter(pts => pts.length);
+    const kept = parts.filter(pts => pts.length);
+    c.segs = kept.map(pts => pts.map(pt => [cmpCycAt(m, pt[0]), pt[1]]));
+    c.bands = kept.map(pts => (pts.band ? pts.band.map(b => [cmpCycAt(m, b[0]), b[1], b[2]]) : null));
+  } else {
+    c.segs = parts.filter(pts => pts.length);
+    c.bands = c.segs.map(pts => pts.band || null);
+  }
+  // Its stored high–low band is shaded unless turned off (CP.noband).
+  c.banded = !!q.band && c.bands.some(Boolean);
+  c.shade = c.banded && !(CP.noband || {})[c.id];
   return c;
 }
 // The colour of each sample on a family's chart, by its place in the legend.
@@ -10009,6 +10038,7 @@ function cpSetCurves(fam, list) {
   CP.curves = { ...CP.curves, [fam]: list };
   const live = new Set(Object.values(CP.curves).flat());
   CP.hidden = Object.fromEntries(Object.entries(CP.hidden).filter(([id]) => live.has(id)));
+  CP.noband = Object.fromEntries(Object.entries(CP.noband || {}).filter(([id]) => live.has(id)));
   cpSyncOrder();
   cmpRender();
 }
@@ -10022,6 +10052,13 @@ function cpAddCurves(fam, ids) {
 }
 function cpDropCurves(fam, ids) {
   cpSetCurves(fam, (CP.curves[fam] || []).filter(id => !ids.includes(id)));
+}
+function cpToggleBand(id) {
+  const nb = { ...(CP.noband || {}) };
+  if (nb[id]) delete nb[id]; else nb[id] = true;
+  CP.noband = nb;
+  cpChanged();
+  cmpRender();
 }
 function cpToggleHidden(id) {
   const h = { ...CP.hidden };
@@ -10097,8 +10134,12 @@ function cpLoad() {
     if (!q || !run || !A[q.id] || (q.only && q.only !== X.key)) return;
     const ser = cpSeriesOf(run, q).list.find(s => s.sid === p[2]);
     if (!ser) return;
+    // A durability plot is asked for whole (`full`), which the store keeps for
+    // the OCV trace (and the RH cycles map): its stored points and its band
+    // edges, as the Durability — OCV chart draws them, not bucket extremes.
+    // Its other plots are thinned as before.
     want(cpDataKey(p[0], ser.src), ser.src.plot
-      ? { key: p[0], analysis: 'fc_durability', step: '', plot_type: ser.src.plot, points: true }
+      ? { key: p[0], analysis: 'fc_durability', step: '', plot_type: ser.src.plot, points: true, full: true }
       : { key: p[0], analysis: ser.src.analysis, step: ser.src.step }, data);
     if (X.key === 'cyc' && !cyc.includes(p[0])) cyc.push(p[0]);
   });
@@ -10198,11 +10239,28 @@ function cpClip(pts, b) {
 }
 const cpPath = segs => segs.filter(s => s.length > 1).map(s => 'M' + s.map(q =>
   `${Math.round(q[0] * 10) / 10} ${Math.round(q[1] * 10) / 10}`).join('L')).join('');
-// Markers: on every point of a characterization (pts), and along a trace or a
-// curve every 84 px of its length, staggered by sample and series so they do
-// not stack; a part of fewer than four points (a decay window or two) is
-// marked at each. The spacing runs on from one part to the next, so a trace
-// stored as many short parts (a hold each) is marked as one would be.
+// A high–low band's outline: along its highs and back along its lows, points
+// [x, low, high] placed by px and py. A band with no width (one bin, or a
+// hold at one x: one before the RH cycling starts, against cycles) is a short
+// bar from its lowest low to its highest high.
+function cpBandPath(pts, px, py) {
+  const at = pts.map(p => [px(p[0]), p]), f = v => v.toFixed(1);
+  const x0 = at.reduce((m, a) => Math.min(m, a[0]), Infinity), x1 = at.reduce((m, a) => Math.max(m, a[0]), -Infinity);
+  if (!(x1 - x0 >= 1)) {
+    const top = at.reduce((m, a) => Math.min(m, py(a[1][2])), Infinity);
+    const bot = at.reduce((m, a) => Math.max(m, py(a[1][1])), -Infinity), x = at[0][0];
+    return `M${f(x - 3)},${f(top)} L${f(x + 3)},${f(top)} L${f(x + 3)},${f(bot)} L${f(x - 3)},${f(bot)} Z`;
+  }
+  const up = at.map(([x, p], j) => `${j ? 'L' : 'M'}${f(x)},${f(py(p[2]))}`).join(' ');
+  const dn = at.slice().reverse().map(([x, p]) => `L${f(x)},${f(py(p[1]))}`).join(' ');
+  return `${up} ${dn} Z`;
+}
+// Markers: on every point of a characterization (pts), along a trace every
+// 84 px across (its x: a trace's length is mostly its noise, drawn whole), and
+// along a curve every 84 px of its length, staggered by sample and series so
+// they do not stack; a part of fewer than four points (a decay window or two)
+// is marked at each. The spacing runs on from one part to the next, so a
+// trace stored as many short parts (a hold each) is marked as one would be.
 function cpMarks(c, parts, b) {
   const r = 4.2, out = [];
   const inside = p => p && p[0] >= b.x0 - 0.5 && p[0] <= b.x1 + 0.5 && p[1] >= b.y0 - 0.5 && p[1] <= b.y1 + 0.5;
@@ -10214,7 +10272,8 @@ function cpMarks(c, parts, b) {
     }
     cpClip(pts, b).forEach(s => {
       for (let i = 1; i < s.length; i++) {
-        const dx = s[i][0] - s[i - 1][0], dy = s[i][1] - s[i - 1][1], d = Math.hypot(dx, dy);
+        const dx = s[i][0] - s[i - 1][0], dy = s[i][1] - s[i - 1][1];
+        const d = c.q.kind === 'trace' ? Math.abs(dx) : Math.hypot(dx, dy);
         let pos = 0;
         while (d > 0 && rem <= d - pos) {
           pos += rem;
@@ -10225,6 +10284,13 @@ function cpMarks(c, parts, b) {
       }
     });
   });
+  // A trace narrower than its first spacing (a short hold of a condition of
+  // its own, or a hold at one x against RH cycles) would carry no marker, and
+  // so no sign of its quantity: it is marked once, at its middle.
+  if (!out.length && c.q.kind === 'trace') {
+    const held = parts.flatMap(pts => cpClip(pts, b)).flat();
+    if (held.length) { const p = held[held.length >> 1]; out.push(cpShapePath(c.shape, p[0], p[1], r)); }
+  }
   return out.join('');
 }
 // Text widths, for laying out the quantity names over the plot.
@@ -10318,12 +10384,16 @@ function cpChart(X, A, all) {
   const top = panels[0].y0, bot = panels[panels.length - 1].y1;
   const ext = (curves, k, log) => {
     let lo = Infinity, hi = -Infinity;
-    curves.forEach(c => c.segs.forEach(pts => pts.forEach(p => {
-      const v = p[k];
+    const see = v => {
       if (log && !(v > 0)) return;
       if (v < lo) lo = v;
       if (v > hi) hi = v;
-    })));
+    };
+    curves.forEach(c => {
+      c.segs.forEach(pts => pts.forEach(p => see(p[k])));
+      // A shaded high–low band reaches past its trace.
+      if (k === 1 && c.shade) c.bands.forEach(b => (b || []).forEach(p => { see(p[1]); see(p[2]); }));
+    });
     return lo <= hi ? [lo, hi] : null;
   };
   // Against RH cycles, a hold before the cycling starts sits at 0: kept clear
@@ -10379,6 +10449,27 @@ function cpChart(X, A, all) {
         + ` text-anchor="middle">${cmpFmtTick(v, xs.step, false)}</text>`; });
     }
   });
+  // High–low bands first, under every line, each clipped to its panel: along
+  // a part's highs and back along its lows, in its sample's colour, as the
+  // Durability — OCV chart draws them; a part of one bin is a short bar.
+  let bands = '';
+  panels.forEach((pn, i) => {
+    let g = '';
+    drawn.forEach(c => {
+      const s = ys[c.axKey];
+      if (!c.shade || !s || s.panel !== pn) return;
+      c.bands.forEach(band => {
+        const pts = (band || []).filter(p => !s.log || (p[1] > 0 && p[2] > 0));
+        if (!pts.length) return;
+        g += `<path class="band hl" d="${cpBandPath(pts, xs.px, s.px)}" fill="${c.color}"><title>${escapeHtml(
+          `${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label} · high–low of each bin`)}</title></path>`;
+      });
+    });
+    if (g) {
+      bands += `<defs><clipPath id="cpBandClip${i}"><rect x="${px0}" y="${pn.y0}" width="${px1 - px0}"`
+        + ` height="${pn.y1 - pn.y0}"/></clipPath></defs><g clip-path="url(#cpBandClip${i})">${g}</g>`;
+    }
+  });
   let lines = '', marks = '';
   drawn.forEach(c => {
     const s = ys[c.axKey];
@@ -10405,7 +10496,7 @@ function cpChart(X, A, all) {
     : all.length ? 'Nothing here can be drawn against ' + X.lower + '.'
     : 'Add curves from the list below.';
   const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"`
-    + ` aria-label="${escapeAttr(aria)}">${grid}${axl}${lines}${marks}`
+    + ` aria-label="${escapeAttr(aria)}">${grid}${axl}${bands}${lines}${marks}`
     + `<line id="cpCross" class="cp-cross" x1="0" y1="${top}" x2="0" y2="${bot}" visibility="hidden"/>`
     + (head ? head.svg : '') + titles + ticks
     + `<text class="alab" x="${(px0 + px1) / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(X.title)}</text>`
@@ -10669,7 +10760,7 @@ function cpRenderLegend(X, A, all) {
           <span class="cmp-scol2"><span class="cp-tag">${escapeHtml(c.side + ' · ' + c.q.unit)}</span>${
             kv.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.k)}</span><span class="v">${
               escapeHtml(m.v)}</span></span>`).join('')}</span>
-          <span class="cmp-sacts">
+          <span class="cmp-sacts">${c.q.band && !c.why && !c.loading ? cpBandAct(c) : ''}
             <span class="cmp-act" role="button" title="${escapeAttr((CP.hidden[c.id] ? 'Show ' : 'Hide ') + what)}"
               onclick="${cpOn('legend', () => cpToggleHidden(c.id))})">${CP.hidden[c.id] ? '○' : '●'}</span>
             <span class="cmp-act" role="button" title="${escapeAttr('Remove ' + what)}"
@@ -10678,6 +10769,17 @@ function cpRenderLegend(X, A, all) {
   }).join('');
   document.getElementById('cmpCurves').innerHTML = html
     || '<div class="cmp-empty" style="padding:26px 16px;font-size:12px">No curves yet. Add them from the list below.</div>';
+}
+// A Hold OCV curve's high–low toggle, with the Durability — OCV chart's icon;
+// a test stored before the band has none to shade, and says so.
+function cpBandAct(c) {
+  if (!c.banded) {
+    return `<span class="cmp-act band dis" title="No high–low stored with this test: `
+      + `analysed before the band was added. Run it again to store one.">${cmpBandSvg(c.color, false)}</span>`;
+  }
+  return `<span class="cmp-act band${c.shade ? ' on' : ''}" role="button" aria-pressed="${c.shade}"
+    title="${escapeAttr(`${c.shade ? 'Hide' : 'Shade'} the high–low of each bin, its lowest to its highest sample`)}"
+    onclick="${cpOn('legend', () => cpToggleBand(c.id))})">${cmpBandSvg(c.color, c.shade)}</span>`;
 }
 // What a curve measured, beside it in the legend. Start and end are its
 // earliest and latest points in x, whichever of its parts holds them.
@@ -10861,7 +10963,7 @@ async function cpExport() {
     glyph: { shape: c.shape, fill: c.side === 'L' ? c.color : surface },
     name: cmpNameOf(c.key, c.stored),
     note: `${c.q.name} · ${c.label}${c.sub ? ' — ' + c.sub : ''} · ${c.side === 'L' ? 'left' : 'right'}, ${c.q.unit}`
-      + (c.why ? ` · not drawn: ${c.why}` : ''),
+      + (c.shade ? ' · high–low shaded' : '') + (c.why ? ` · not drawn: ${c.why}` : ''),
     kv: {} }));
   const axisText = side => AX[side].map((ax, i) => ({
     side: `${side === 'L' ? 'Left' : 'Right'} axis${AX[side].length > 1 ? ' ' + (i + 1) : ''}`,
@@ -10988,6 +11090,7 @@ function cpRestore(s) {
   });
   const live = new Set(Object.values(c.curves).flat());
   Object.keys(s.hidden || {}).forEach(id => { if (live.has(id) && s.hidden[id]) c.hidden[id] = true; });
+  Object.keys(s.noband || {}).forEach(id => { if (live.has(id) && s.noband[id]) c.noband[id] = true; });
   c.layout = s.layout === 'stack' ? 'stack' : 'dual';
   c.has = s.has === 'all' ? 'all' : 'any';
   c.order = Array.isArray(s.order) ? s.order.filter(str) : [];
