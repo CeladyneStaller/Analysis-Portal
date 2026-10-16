@@ -22,7 +22,7 @@ import traceback
 import threading
 from datetime import datetime
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
@@ -46,6 +46,13 @@ jobs_lock = threading.Lock()
 
 app = FastAPI(title="Analysis Portal")
 executor = ProcessPoolExecutor(max_workers=MAX_WORKERS, max_tasks_per_child=1)
+
+# Pushes to JSONBin run here, one at a time in the order jobs finish, rather
+# than in the job-completion callback. That callback runs on the process
+# pool's management thread, so a push made there held up the completion and
+# dispatch of every other job for as long as it took — and a push can now
+# wait for a sample an admin operation holds (scripts/helpers/admin.py).
+push_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="push")
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -201,8 +208,10 @@ def _on_job_done(job_id: str, future):
                     'stand': (jobs[job_id].get("params") or {}).get("stand"),
                 }
                 # Set with "complete", so a poll never sees the job finished
-                # with its push still to come: the page reads the store again
-                # once this is cleared (viewIndexChanged).
+                # with its push still to come. Cleared when the push has
+                # recorded its outcome: the page keeps polling a finished job
+                # until then, or a push warning would only appear after a
+                # reload, and then reads the store again (viewIndexChanged).
                 jobs[job_id]["push_pending"] = True
         except Exception as e:
             jobs[job_id].update({
@@ -212,48 +221,62 @@ def _on_job_done(job_id: str, future):
                 "completed_at": datetime.now().isoformat(),
             })
 
-    # Push to JSONBin OUTSIDE the lock (HTTP call can take up to ~20s
-    # under retry; we don't want to block status polls).
+    # Push to JSONBin outside the lock (an HTTP call can take up to ~20s under
+    # retry; status polls must not wait for it) and off this thread.
     if should_push:
         try:
-            from scripts.helpers.jsonbin import push_job_metrics
-            # push_job_metrics performs its own configuration check and returns
-            # a descriptive reason. Guarding this call with is_configured() made
-            # an unconfigured environment completely silent — no warning, no
-            # metrics_push entry, nothing to diagnose from. Always call, always
-            # record the outcome.
-            push_result = push_job_metrics(**push_args)
-            if push_result.get('pushed'):
-                # The views' copy of the index is up to 30 s old; a read made
-                # now must find this run's entry as just written.
-                try:
-                    from scripts.helpers import viewstore
-                    viewstore.forget_index()
-                except Exception as e:
-                    print(f"[metrics] job={job_id} index cache not cleared: {e}", flush=True)
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]["metrics_push"] = push_result
-                    jobs[job_id]["push_pending"] = False
-                    if not push_result.get('pushed'):
-                        current_msg = jobs[job_id].get("message", "")
-                        warning = ("Metrics push warning: "
-                                   + str(push_result.get('reason', 'unknown')))
-                        jobs[job_id]["message"] = (
-                            f"{current_msg} ({warning})" if current_msg else warning)
-            print(f"[metrics] job={job_id} pushed={push_result.get('pushed')} "
-                  f"bin={push_result.get('bin_id')} "
-                  f"reason={push_result.get('reason')}", flush=True)
-        except Exception as e:
-            # Never let a metrics-push failure mark the analysis as failed.
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]["metrics_push"] = {
-                        'pushed': False,
-                        'reason': f'unexpected error: {e}'
-                    }
-                    jobs[job_id]["push_pending"] = False
-            print(f"[metrics] job={job_id} unexpected error: {e}", flush=True)
+            push_executor.submit(_push_metrics, job_id, push_args)
+        except RuntimeError:
+            # The push thread has already been stopped: the interpreter is
+            # shutting down, and the process pool is waiting for its jobs to
+            # finish. Push here, as it always used to be, rather than lose it.
+            _push_metrics(job_id, push_args)
+
+
+def _push_metrics(job_id: str, push_args: dict):
+    """Persist a finished job's metrics and record the outcome on the job."""
+    try:
+        from scripts.helpers.jsonbin import push_job_metrics
+        # push_job_metrics performs its own configuration check and returns
+        # a descriptive reason. Guarding this call with is_configured() made
+        # an unconfigured environment completely silent — no warning, no
+        # metrics_push entry, nothing to diagnose from. Always call, always
+        # record the outcome.
+        push_result = push_job_metrics(**push_args)
+        if push_result.get('pushed'):
+            # The views' copy of the index is up to 30 s old; a read made
+            # now must find this run's entry as just written. Dropped before
+            # push_pending clears, which is when the page reads it.
+            try:
+                from scripts.helpers import viewstore
+                viewstore.forget_index()
+            except Exception as e:
+                print(f"[metrics] job={job_id} index cache not cleared: {e}", flush=True)
+        with jobs_lock:
+            if job_id in jobs:
+                jobs[job_id]["metrics_push"] = push_result
+                if not push_result.get('pushed'):
+                    current_msg = jobs[job_id].get("message", "")
+                    warning = ("Metrics push warning: "
+                               + str(push_result.get('reason', 'unknown')))
+                    jobs[job_id]["message"] = (
+                        f"{current_msg} ({warning})" if current_msg else warning)
+        print(f"[metrics] job={job_id} pushed={push_result.get('pushed')} "
+              f"bin={push_result.get('bin_id')} "
+              f"reason={push_result.get('reason')}", flush=True)
+    except Exception as e:
+        # Never let a metrics-push failure mark the analysis as failed.
+        with jobs_lock:
+            if job_id in jobs:
+                jobs[job_id]["metrics_push"] = {
+                    'pushed': False,
+                    'reason': f'unexpected error: {e}'
+                }
+        print(f"[metrics] job={job_id} unexpected error: {e}", flush=True)
+    finally:
+        with jobs_lock:
+            if job_id in jobs:
+                jobs[job_id]["push_pending"] = False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -338,24 +361,27 @@ async def list_scripts():
     # "Internal Server Error", which strands the caller with a JSON parse
     # failure and no idea what broke.
     try:
-        from scripts import SCRIPT_REGISTRY, SCRIPT_PARAMS
+        from scripts import SCRIPT_REGISTRY, SCRIPT_PARAMS, SCRIPT_MENU, SCRIPT_LABELS
     except Exception as e:
         raise HTTPException(
             500, f"Script registry failed to import — {type(e).__name__}: {e}. "
                  f"See /api/diag/imports for detail.")
-    # Internal scripts that should not appear in the user-facing dropdown.
-    # These are invoked via dedicated endpoints (e.g. /api/compare) instead.
-    INTERNAL_ONLY = {"Plot Comparison"}
+    # The dropdown offers SCRIPT_MENU, in its order, under each script's display
+    # name. The other registered scripts — "Plot Comparison", which /api/compare
+    # runs, among them — are not offered, though /api/upload still runs them.
+    # `labels` names every script that is shown under another name, so the page
+    # can call a job or a stored run's script by the same name the menu does.
     return {
         "scripts": [
             {
                 "name": name,
-                "description": (fn.__doc__ or "").strip().split("\n")[0],
+                "label": SCRIPT_LABELS.get(name, name),
+                "description": (SCRIPT_REGISTRY[name].__doc__ or "").strip().split("\n")[0],
                 "params": SCRIPT_PARAMS.get(name, []),
             }
-            for name, fn in SCRIPT_REGISTRY.items()
-            if name not in INTERNAL_ONLY
-        ]
+            for name in SCRIPT_MENU
+        ],
+        "labels": dict(SCRIPT_LABELS),
     }
 
 
@@ -635,6 +661,10 @@ def view_series(payload: dict):
     per record not cached, and decoding it) would otherwise stall every other
     request while they run, and the custom plot lists what each test stores
     through it.
+
+    Each selection is {key, analysis, step} — the analysis's main plot for
+    that unit — or names one plot outright with `plot`, or one type of plot
+    in the unit with `plot_type` (viewstore.plot_series).
     """
     from scripts.helpers import viewstore
     sels = payload.get('selections') or []
@@ -680,6 +710,11 @@ def _admin_call(fn, *a, **kw):
     The operations raise ValueError for the things an operator can fix — a
     name already in use, a family change not acknowledged — and those should
     reach the modal as a sentence, not as a 500.
+
+    A change that was applied empties the View tab's caches: they would
+    otherwise go on serving the index and records as they were for up to the
+    index's TTL, and a rewritten record for as long as its entry's timestamp
+    stays the same — which for an admin change is indefinitely.
     """
     from scripts.helpers import admin  # noqa: F401
     try:
@@ -690,10 +725,12 @@ def _admin_call(fn, *a, **kw):
         raise
     except Exception as e:
         raise HTTPException(502, f"{type(e).__name__}: {e}")
-    if kw.get('apply'):
-        # An applied change rewrites detail bins without moving their index
-        # entries' timestamps, which the views' detail cache is keyed by: the
-        # views read the store afresh.
+    # An applied change rewrites detail bins without moving their index
+    # entries' timestamps, which the views' detail cache is keyed by: the
+    # views read the store afresh. `rebuilt` too: a rebuild whose index write
+    # failed has still rewritten records.
+    if kw.get('apply') or (isinstance(out, dict) and (out.get("applied") is True
+                                                       or out.get("rebuilt"))):
         try:
             from scripts.helpers import viewstore
             viewstore.clear_cache()
@@ -702,8 +739,15 @@ def _admin_call(fn, *a, **kw):
     return out
 
 
+# The handlers below are plain functions, not coroutines, so FastAPI runs them
+# in its worker threads. Each one makes blocking JSONBin calls — a duplicate
+# scan or a rebuild preview reads a record per sample — and as coroutines
+# they ran on the event loop and stalled every other request, job polling
+# included, until they finished. Running concurrently is safe because the
+# writes take the push locks (admin.py).
+
 @app.post("/api/admin/unlock")
-async def admin_unlock(payload: dict):
+def admin_unlock(payload: dict):
     """Check the access code and report what the store holds."""
     _require_admin(payload)
     from scripts.helpers import admin
@@ -711,14 +755,14 @@ async def admin_unlock(payload: dict):
 
 
 @app.post("/api/admin/duplicates")
-async def admin_duplicates(payload: dict):
+def admin_duplicates(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.find_duplicates)
 
 
 @app.post("/api/admin/merge")
-async def admin_merge(payload: dict):
+def admin_merge(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.merge_duplicate_group,
@@ -728,7 +772,7 @@ async def admin_merge(payload: dict):
 
 
 @app.post("/api/admin/rename")
-async def admin_rename(payload: dict):
+def admin_rename(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.rename_sample,
@@ -738,7 +782,7 @@ async def admin_rename(payload: dict):
 
 
 @app.post("/api/admin/stand")
-async def admin_stand(payload: dict):
+def admin_stand(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.set_stand,
@@ -749,22 +793,44 @@ async def admin_stand(payload: dict):
 
 
 @app.post("/api/admin/repair-stands")
-async def admin_repair_stands(payload: dict):
+def admin_repair_stands(payload: dict):
     """Restore numbered stands the index lost to a derived family."""
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.repair_stands, apply=bool(payload.get("apply")))
 
 
+@app.post("/api/admin/rebuild-electrolyzer")
+def admin_rebuild_electrolyzer(payload: dict):
+    """Rebuild electrolyzer entries stored under earlier rules.
+
+    A preview by default, reading one record per electrolyzer sample and
+    writing nothing. `prepare` adds the backup of everything the rebuild would
+    replace, with the `keys` and `token` that `apply` must be given back: it
+    writes only if those samples are still exactly as the backup holds them
+    (admin.rebuild_electrolyzer).
+    """
+    _require_admin(payload)
+    from scripts.helpers import admin
+    keys = payload.get("keys") or []
+    if not isinstance(keys, list):
+        raise HTTPException(400, "keys must be a list")
+    return _admin_call(admin.rebuild_electrolyzer,
+                       apply=bool(payload.get("apply")),
+                       prepare=bool(payload.get("prepare")),
+                       keys=[str(k) for k in keys],
+                       token=str(payload.get("token") or ""))
+
+
 @app.post("/api/admin/backup")
-async def admin_backup(payload: dict):
+def admin_backup(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.build_backup, payload.get("keys"))
 
 
 @app.post("/api/admin/delete")
-async def admin_delete(payload: dict):
+def admin_delete(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.delete_samples,
@@ -774,14 +840,14 @@ async def admin_delete(payload: dict):
 
 
 @app.post("/api/admin/inspect-backup")
-async def admin_inspect_backup(payload: dict):
+def admin_inspect_backup(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.inspect_backup, payload.get("backup") or {})
 
 
 @app.post("/api/admin/restore")
-async def admin_restore(payload: dict):
+def admin_restore(payload: dict):
     _require_admin(payload)
     from scripts.helpers import admin
     return _admin_call(admin.restore_backup,
@@ -847,7 +913,7 @@ async def upload_and_run(
 ):
     import json
     import zipfile as zipmod
-    from scripts import SCRIPT_REGISTRY
+    from scripts import SCRIPT_REGISTRY, SCRIPT_LABELS
     if script not in SCRIPT_REGISTRY:
         raise HTTPException(400, f"Unknown script: {script}")
     # Block internal-only scripts from the upload endpoint
@@ -921,7 +987,8 @@ async def upload_and_run(
         jobs[job_id] = {
             "job_id": job_id,
             "status": "running",
-            "message": f"Running {script}...",
+            # The script by the name the dropdown gives it; `script` keeps its id.
+            "message": f"Running {SCRIPT_LABELS.get(script, script)}...",
             "script": script,
             "input_files": filenames,
             # Read back when the run is pushed, to record the stand that was
@@ -1251,7 +1318,7 @@ async def upload_multi(
     """
     import json
     import zipfile as zipmod
-    from scripts import SCRIPT_REGISTRY
+    from scripts import SCRIPT_REGISTRY, SCRIPT_LABELS
 
     if script not in SCRIPT_REGISTRY:
         raise HTTPException(400, f"Unknown script: {script}")
@@ -1338,7 +1405,7 @@ async def upload_multi(
             jobs[job_id] = {
                 "job_id": job_id,
                 "status": "running",
-                "message": f"Running {script} on {sample_name}...",
+                "message": f"Running {SCRIPT_LABELS.get(script, script)} on {sample_name}...",
                 "script": script,
                 "input_files": filenames,
                 # Same reason as the single-sample path: the push reads the

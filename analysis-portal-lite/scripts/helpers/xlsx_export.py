@@ -199,18 +199,23 @@ def _summary_table(detail: Dict[str, Any], bucket: str):
     """(headers, rows) for a bucket's Summary sheet, union of all row keys."""
     rows = _summary_rows_for(detail, bucket)
     step_by_label = {}
+    cond_by_step = {}
     for _b, name, entry in _plots_of(detail, bucket):
         step = str((entry.get('conditions') or {}).get('step') or '')
         cond = _fmt_conditions(entry.get('conditions') or {})
+        if step:
+            cond_by_step.setdefault(step, cond)
         for row in rows:
             label = str(row.get('Label') or row.get('label') or '')
             if label and label in name:
                 step_by_label.setdefault(label, (step, cond))
 
+    # A row that names its own step (the electrolyzer cell) fills the Step
+    # column with it rather than adding a column of its own.
     keys: List[str] = []
     for row in rows:
         for k in row:
-            if k in ('Label', 'label', 'Analysis') or k in keys:
+            if k in ('Label', 'label', 'Analysis', 'step') or k in keys:
                 continue
             keys.append(k)
 
@@ -219,6 +224,9 @@ def _summary_table(detail: Dict[str, Any], bucket: str):
     for row in rows:
         label = str(row.get('Label') or row.get('label') or '')
         step, cond = step_by_label.get(label, ('', ''))
+        own = str(row.get('step') or '')
+        if own:
+            step, cond = own, cond_by_step.get(own, cond)
         table.append([label, step, cond] + [row.get(k) for k in keys])
     return headers, table
 

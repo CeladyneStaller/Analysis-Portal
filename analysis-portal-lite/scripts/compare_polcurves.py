@@ -28,6 +28,20 @@ from scripts.helpers.plot_compare import (
 )
 
 
+def _declared_signature(sidecar):
+    """Same-conditions signature from the conditions a script declared, or None.
+
+    The electrolyzer scripts declare theirs in the sidecar (temperature and
+    pressure, or hold current) and put the cell id in the filename, where the
+    filename signature would read 'a1' as a protocol letter and split cells
+    a1 and b1 apart. The cell is not a condition, so the step is left out.
+    """
+    cond = ((sidecar or {}).get('metadata') or {}).get('conditions')
+    if not isinstance(cond, dict) or not cond:
+        return None
+    return '_'.join(f'{k}={cond[k]}' for k in sorted(cond) if k != 'step')
+
+
 def _parse_condition_signature(filename):
     """Extract a condition signature from a filename for matching.
 
@@ -220,6 +234,8 @@ def _friendly_plot_type(plot_type):
         'elx_eis_for_ir': 'Electrolyzer EIS (for iR Correction)',
         'elx_eis_losses_vs_cycle': 'Electrolyzer EIS Losses vs Cycle',
         'elx_nyquist': 'Electrolyzer Nyquist',
+        'elx_clr_analysis': 'Electrolyzer Catalyst Layer Resistance',
+        'elx_clr_model_fit': 'Electrolyzer CLR Model Fit',
         'durability_voltage': 'Durability — Voltage vs Time',
         'durability_hfr': 'Durability — HFR vs Time',
         'durability_degradation': 'Durability — Degradation Rate',
@@ -590,7 +606,10 @@ def _plot_type_to_subfolder(plot_type):
     if pt.startswith('crossover') or 'h2x' in pt:
         return 'crossover'
     if pt.startswith('elx'):
-        return 'elx_eis' if ('eis' in pt or 'nyquist' in pt) else 'elx_polcurve'
+        # Same rule as record.plot_bucket: the catalyst-layer (CLR) plots are
+        # fitted from the impedance spectra.
+        return ('elx_eis' if ('eis' in pt or 'nyquist' in pt or 'clr' in pt)
+                else 'elx_polcurve')
     if pt.startswith('eis') or pt.startswith('nyquist'):
         return 'eis'
     if pt.startswith('ecsa'):
@@ -665,7 +684,9 @@ def run(input_dir, output_dir, params=None):
         plot_type = sidecar.get('plot_type', 'unknown')
 
         if grouping_mode == 'plot_type_conditions':
-            cond_sig = _parse_condition_signature(filename)
+            cond_sig = _declared_signature(sidecar)
+            if cond_sig is None:
+                cond_sig = _parse_condition_signature(filename)
             group_key = (plot_type, cond_sig)
         else:
             group_key = (plot_type, '')

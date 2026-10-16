@@ -1765,6 +1765,9 @@ def submit(job_id, src, params, keep=lambda rel: True):
         except Exception as e:                       # noqa: BLE001
             fut.set_exception(e)
         portal._on_job_done(job_id, fut)
+        # The push runs after, on the portal's one push thread, in order: a
+        # no-op queued behind it returns once it has reported.
+        portal.push_executor.submit(lambda: None).result()
     return portal.jobs[job_id]
 
 

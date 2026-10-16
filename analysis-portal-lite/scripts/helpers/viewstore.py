@@ -25,7 +25,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from scripts.helpers import jsonbin
+from scripts.helpers import jsonbin, registry
 from scripts.helpers.record import (
     STAND_OPTIONS, decode_sidecars, plot_bucket, stand_matches,
 )
@@ -129,6 +129,15 @@ def list_runs(*, sample: Optional[str] = None,
         'total': total,
         'returned': len(runs),
         'facets': index_facets(index),
+        # What each analysis and value is: labels, units, which direction is
+        # better. Sent with the runs so the views read one table rather than
+        # keeping their own copies of it.
+        'registry': registry.as_json(),
+        # Old per-plot-type buckets still named in the index, and the analysis
+        # each belongs to. Empty once the electrolyzer rebuild has run.
+        'analysis_aliases': registry.aliases(
+            sorted({a for e in index.get('runs', []) for a in _entry_analyses(e)}),
+            plot_bucket),
     }
 
 
@@ -293,19 +302,25 @@ def run_plots(key: str) -> List[Dict[str, Any]]:
     excluded at write time because they dominate the transport budget, so
     cleaning plots appear here with `renderable: False` — their metrics are
     intact, only the plot data is absent.
+
+    `plot_type` comes from the sidecar, so it is '' for a plot without one.
+    Run detail orders an analysis's main plots by it.
     """
     detail = fetch_detail(key)
-    stored = set(decode_sidecars(detail).keys())
+    sidecars = decode_sidecars(detail)
 
     out: List[Dict[str, Any]] = []
     for bucket, plots in (detail.get('metrics') or {}).items():
         for plot_name, entry in plots.items():
+            sc = sidecars.get(plot_name)
             out.append({
                 'plot': plot_name,
                 'analysis': bucket,
                 'conditions': entry.get('conditions') or {},
                 'values': entry.get('values') or {},
-                'renderable': plot_name in stored,
+                'renderable': plot_name in sidecars,
+                'plot_type': str((sc or {}).get('plot_type') or '')
+                             if isinstance(sc, dict) else '',
             })
     out.sort(key=lambda p: (p['analysis'], p['plot']))
     return out
@@ -418,6 +433,39 @@ def _read_record(key: str, memo: Optional[Dict[str, Any]] = None):
     return got
 
 
+def _unit_plot(detail: Dict[str, Any], sidecars: Dict[str, Any],
+               analysis: str, step: str, plot_type: str = '') -> str:
+    """The plot a request by (analysis, step) gets, or '' for none.
+
+    With `plot_type`, the first plot of that type in the unit. Without it, the
+    analysis's main plot: an electrolyzer unit holds a dozen plots — the curve,
+    its fits, iR correction, per-spectrum fits — and the first one stored is
+    whichever the script happened to write first ('ir_correction' for a pol
+    curve). The registry lists each analysis's main plots in order; the first
+    of them that is stored is the one returned, and its type comes back in
+    the payload. A unit none of whose main plots is stored returns nothing
+    rather than a plot of some other kind.
+
+    Analyses that list no main plots — the fuel-cell ones — keep the rule they
+    have always had: the first plot filed under the unit.
+    """
+    names = [name for bucket, plots in (detail.get('metrics') or {}).items()
+             if not analysis or bucket == analysis
+             for name, entry in plots.items()
+             if str((entry.get('conditions') or {}).get('step') or '') == step]
+
+    def typed(pt: str) -> str:
+        return next((n for n in names
+                     if (sidecars.get(n) or {}).get('plot_type') == pt), '')
+
+    if plot_type:
+        return typed(plot_type)
+    main = registry.main_plots(analysis)
+    if not main:
+        return names[0] if names else ''
+    return next((n for n in map(typed, main) if n), '')
+
+
 def plot_series(key: str, analysis: str = '', step: str = '',
                 plot: str = '', plot_type: str = '',
                 full: bool = False, points: bool = False, labels: bool = False,
@@ -434,7 +482,8 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     for. `plot_type` narrows (analysis, step) to one type of plot: a step-less
     analysis such as FC Durability stores ten plots under its one unit, and
     the first of them is not the one a chart of OCV against hours wants. A
-    name, when given, still wins.
+    name, when given, still wins. See `_unit_plot` for which plot an
+    (analysis, step) request gets without one.
 
     Lines longer than MAX_SERIES_POINTS come back thinned to bucket extremes
     and marked `decimated`; with `full`, on a plot type in
@@ -456,20 +505,7 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     if not sidecars:
         return None
 
-    name = plot
-    if not name:
-        for bucket, plots in (detail.get('metrics') or {}).items():
-            if analysis and bucket != analysis:
-                continue
-            for pname, entry in plots.items():
-                if str((entry.get('conditions') or {}).get('step') or '') != step:
-                    continue
-                if plot_type and (sidecars.get(pname) or {}).get('plot_type') != plot_type:
-                    continue
-                name = pname
-                break
-            if name:
-                break
+    name = plot or _unit_plot(detail, sidecars, analysis, step, plot_type)
     sc = sidecars.get(name)
     if not sc:
         return None

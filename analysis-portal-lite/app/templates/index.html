@@ -29,6 +29,10 @@
     --amber-bg: rgba(251, 191, 36, 0.1);
     --red: #f87171;
     --red-bg: rgba(248, 113, 113, 0.1);
+    /* Electrolyzer analyses: their letters, tags and cell tabs. */
+    --elx: #2dd4bf;
+    --elx-bg: rgba(45, 212, 191, 0.12);
+    --elx-border: rgba(45, 212, 191, 0.28);
     --radius: 6px;
     --font: 'Outfit', sans-serif;
     --mono: 'IBM Plex Mono', monospace;
@@ -55,6 +59,9 @@
       --amber-bg: rgba(183, 121, 31, 0.12);
       --red: #d13438;
       --red-bg: rgba(209, 52, 56, 0.10);
+      --elx: #0d9488;
+      --elx-bg: rgba(13, 148, 136, 0.12);
+      --elx-border: rgba(13, 148, 136, 0.30);
     }
   }
   /* Explicit light override (user chose Light regardless of OS) */
@@ -75,6 +82,9 @@
     --amber-bg: rgba(183, 121, 31, 0.12);
     --red: #d13438;
     --red-bg: rgba(209, 52, 56, 0.10);
+    --elx: #0d9488;
+    --elx-bg: rgba(13, 148, 136, 0.12);
+    --elx-border: rgba(13, 148, 136, 0.30);
   }
   /* data-theme="dark" keeps the :root defaults, so no extra block needed. */
 
@@ -260,6 +270,24 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
+
+  /* Fuel cell / Electrolyzer / All. Present only when the index holds both
+     families; each button carries the number of samples it would show. */
+  .vf-family {
+    display: none; height: 34px; overflow: hidden; flex: 0 0 auto;
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .vf-family.show { display: inline-flex; }
+  .vf-fam {
+    display: inline-flex; align-items: center; padding: 0 13px;
+    background: var(--surface-raised); border: none; color: var(--text-dim);
+    font-family: var(--font); font-size: 12.5px; font-weight: 500;
+    cursor: pointer; white-space: nowrap;
+  }
+  .vf-fam:not(:last-child) { border-right: 1px solid var(--border); }
+  .vf-fam:hover:not(.active) { color: var(--text); }
+  .vf-fam.active { background: var(--accent); color: #fff; }
+  .vf-famn { font-family: var(--mono); font-size: 10.5px; opacity: .7; margin-left: 6px; }
 
   .vf-search { flex: 1 1 220px; min-width: 170px; position: relative; }
   .vf-search input {
@@ -490,6 +518,11 @@
   .runs-table th.sortable:hover { color: var(--text); }
   .runs-table th.sorted { color: var(--accent); }
   .runs-table th .car { font-size: 9px; opacity: .8; }
+  /* Units keep their case: an uppercased mΩ·cm² reads as megaohms. */
+  .runs-table th .vr-unit {
+    margin-left: 5px; font-size: 10px; font-weight: 400; font-family: var(--mono);
+    color: var(--text-dim); text-transform: none; letter-spacing: 0;
+  }
   /* Only the extremes are tinted — colour should mark an outlier, not fill
      the table. */
   .runs-table td.num.best { color: var(--green); }
@@ -518,6 +551,11 @@
   .adot.nodata {
     background: var(--amber-bg); border-color: var(--amber-bg);
     color: var(--amber);
+  }
+  /* Electrolyzer analyses in teal, so P for an electrolyzer pol curve does not
+     read as the fuel-cell one. */
+  .adot.has.elx {
+    background: var(--elx-bg); border-color: var(--elx-border); color: var(--elx);
   }
 
   /* ── Comparisons tab ─────────────────────────────────────── */
@@ -1289,6 +1327,41 @@
   .pg-src.miss { opacity: .45; }
 
   .pg-unit { opacity: .6; }
+  /* A value whose unit is not the row's says so beside the number. */
+  .pg-vunit { font-size: 10px; opacity: .6; }
+  /* Values kept out of the index — fit-derived, for now — are still here. */
+  .pg-tag {
+    font-size: 9.5px; color: var(--amber); background: var(--amber-bg);
+    border-radius: 3px; padding: 0 4px; margin-left: 4px;
+    font-family: var(--font); white-space: nowrap;
+  }
+
+  /* Electrolyzer sections: a tab per cell in the header, one pane per cell. */
+  .rd-cells { display: inline-flex; gap: 4px; margin-left: 6px; align-self: center; }
+  .rd-cell {
+    font-family: var(--mono); font-size: 11px; line-height: 1.5; padding: 0 9px;
+    border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+    color: var(--text-dim); background: var(--surface);
+    text-transform: none; letter-spacing: 0;
+  }
+  .rd-cell:hover:not(.on) { color: var(--text); }
+  .rd-cell.on { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+  .rd-cellpane { display: none; }
+  .rd-cellpane.on { display: block; }
+  /* Everything but the main plots, closed until asked for. */
+  .rd-fold { margin: 10px 2px 2px; border: 1px dashed var(--border); border-radius: var(--radius); }
+  .rd-fold-head {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; width: 100%;
+    background: none; border: none; text-align: left; font-family: var(--font);
+    font-size: 12.5px; color: var(--text-dim); cursor: pointer; user-select: none;
+  }
+  .rd-fold-head:hover { color: var(--text); }
+  .rd-fold-head .rd-caret { font-size: 9px; transition: transform 0.15s; }
+  .rd-fold.open .rd-fold-head .rd-caret { transform: rotate(90deg); }
+  .rd-fold-hint { margin-left: auto; font-size: 11px; opacity: .8; }
+  .rd-fold.open .rd-fold-hint { display: none; }
+  .rd-fold-body { display: none; padding: 4px 10px 0; }
+  .rd-fold.open .rd-fold-body { display: block; }
   .pg-val {
     font-family: var(--mono); font-size: 12px; padding: 5px 0;
     text-align: center; border-bottom: 1px solid var(--border);
@@ -2865,6 +2938,14 @@
       </div>
       <div class="section-body">
         <div class="view-filters">
+          <div class="vf-family" id="vfFamily" role="group" aria-label="Which runs to show">
+            <button type="button" class="vf-fam" data-fam="fc"
+                    onclick="vfSetFamily('fc')">Fuel cell<span class="vf-famn"></span></button>
+            <button type="button" class="vf-fam" data-fam="elx"
+                    onclick="vfSetFamily('elx')">Electrolyzer<span class="vf-famn"></span></button>
+            <button type="button" class="vf-fam" data-fam=""
+                    onclick="vfSetFamily('')">All<span class="vf-famn"></span></button>
+          </div>
           <div class="vf-search">
             <span class="vf-mag">⌕</span>
             <input type="text" id="vf-sample" placeholder="Search samples…"
@@ -3238,13 +3319,144 @@ let _viewReload = null;
 let _viewLoadSeq = 0;      // only the latest read of the index is kept
 let _viewGen = 0;          // analyses seen stored (viewIndexChanged)
 let _viewReadAt = 0;       // when the index was last read (ms)
-let _viewShown = '';       // the runs and facets last read, as JSON
+let _viewShown = '';       // the runs, facets and registry last read, as JSON
 let _viewReading = false;  // the latest read is still out
 let _viewRetryMs = 0;      // the wait before a failed background read is tried again
 // Analyses stored elsewhere (another tab, another person) reach this page when
 // one of the three tabs is opened, or the page come back to, this long after
 // the last read: the server's copy of the index is never older.
 const VIEW_REREAD_MS = 30000;
+
+// ── Registry ────────────────────────────────────
+// What each analysis is and what its numbers mean: label, family, letter, the
+// unit a value is stored in and the unit it is shown in, and which direction
+// is better. The server sends it with /api/view/runs (registry.py), so Recall
+// reads one table instead of the copies the page used to keep, which had
+// drifted apart. Direction belongs to the analysis as well as the metric:
+// V @ 1 A/cm² is higher-is-better for a fuel cell and lower-is-better for an
+// electrolyzer.
+let REG = { families: {}, analyses: {}, metrics: {} };
+// Analysis ids in the index that the registry does not list, mapped by the
+// server to the analysis they belong to: electrolyzer runs stored between
+// Aug 4 and the record fix have one bucket per plot type (elx_model_fit,
+// elx_nyquist …). Used for letters, families and grouping, never to address
+// stored data.
+let REG_ALIASES = {};
+let _regByName = {};     // analysis → {metric name → entry}
+let _regBySource = {};   // analysis → {summary field or readout key → name}
+
+function regLoad(reg, aliases) {
+  REG = reg && typeof reg === 'object' && reg.analyses
+    ? reg : { families: {}, analyses: {}, metrics: {} };
+  REG_ALIASES = aliases && typeof aliases === 'object' ? aliases : {};
+  _regByName = {};
+  _regBySource = {};
+  Object.entries(REG.metrics || {}).forEach(([a, list]) => {
+    const byName = _regByName[a] = {}, bySource = _regBySource[a] = {};
+    (list || []).forEach(m => {
+      byName[m.name] = m;
+      (m.sources || []).forEach(s => { if (!(s in bySource)) bySource[s] = m.name; });
+    });
+  });
+}
+
+const anaOf = a => REG_ALIASES[a] || a;
+const regAnalysis = a => (REG.analyses || {})[anaOf(a)] || null;
+const anaLabel = a => (regAnalysis(a) || {}).label || a || '—';
+const regMetric = (a, m) => (_regByName[anaOf(a)] || {})[m] || null;
+// The registry's analyses in its own order, which is the display order.
+const regOrder = () => Object.keys(REG.analyses || {});
+
+// 'fc' or 'elx'. An id the registry has never heard of is placed by its name,
+// so an electrolyzer bucket nobody listed still lands with the electrolyzer
+// runs rather than among the fuel-cell ones.
+function anaFamily(a) {
+  const e = regAnalysis(a);
+  if (e && e.family) return e.family;
+  return /^(elx|durability)/i.test(String(a || '')) ? 'elx' : 'fc';
+}
+
+// What a cell, a column or a tooltip calls one step of this analysis. For an
+// electrolyzer it is the cell id, not a protocol step.
+const stepWord = a => ((regAnalysis(a) || {}).step_label || 'Step');
+
+// +1 higher is better, -1 lower is better, 0 not ranked. A metric the
+// registry does not list keeps the direction its bare name always had.
+function metricDir(a, m) {
+  const e = regMetric(a, m);
+  if (e) return e.better || 0;
+  return UNTINTED_METRICS.has(m) ? 0 : (METRIC_DIR[m] || 1);
+}
+
+// A stored index value as it is shown: scaled to the display unit, which
+// for area resistances is mΩ·cm² though they are stored in Ω·cm².
+function shownValue(a, m, v) {
+  const e = regMetric(a, m);
+  return e ? { value: v * (e.scale || 1), unit: e.show || e.unit || '' }
+           : { value: v, unit: '' };
+}
+
+// Ranks for ordering. Analyses follow the registry, then anything it does not
+// list alphabetically. Within a fuel-cell analysis the metrics keep the order
+// Recall has always used (its preference list, then alphabetical), so the
+// fuel-cell table is unchanged; electrolyzer metrics follow the registry,
+// which reads V_initial before V_final where the alphabet would not.
+function anaRank(a) {
+  const i = regOrder().indexOf(a);
+  return i < 0 ? 999 : i;
+}
+const byAnaOrder = (a, b) => anaRank(a) - anaRank(b) || String(a).localeCompare(String(b));
+function metricRank(a, m) {
+  if (anaFamily(a) === 'elx') {
+    const list = (REG.metrics || {})[anaOf(a)] || [];
+    const i = list.findIndex(e => e.name === m);
+    if (i >= 0) return i;
+  } else {
+    const i = COLUMN_ORDER.indexOf(m);
+    if (i >= 0) return i;
+  }
+  return 999;
+}
+const byMetricOrder = a => (x, y) =>
+  metricRank(a, x) - metricRank(a, y) || x.localeCompare(y);
+
+// ── Family switch ───────────────────────────────
+// Fuel cell, Electrolyzer or All. It narrows the column groups, the Analysis
+// filter, the trend picker and run detail to one family; a sample holding both
+// kinds of run is listed under both. Shown only when the index holds both, and
+// remembered per browser.
+let VF_FAMILY = (() => {
+  try { return localStorage.getItem('recallFamily') || ''; } catch (_) { return ''; }
+})();
+let _vfBothFamilies = false;
+// What is in force: a remembered family means nothing while the switch is
+// hidden, or an index of one family could open on an empty table with no
+// control in sight to undo it.
+const vfFamily = () => (_vfBothFamilies && (VF_FAMILY === 'fc' || VF_FAMILY === 'elx'))
+  ? VF_FAMILY : '';
+const familyName = f => ((REG.families || {})[f] || {}).label
+  || ({ fc: 'Fuel cell', elx: 'Electrolyzer' })[f] || f;
+
+// The family a script's runs belong to, where the registry says.
+function scriptFamily(script) {
+  return Object.keys(REG.families || {}).find(f =>
+    ((REG.families[f] || {}).scripts || []).includes(script)) || '';
+}
+
+// A run belongs to the families of its analyses, and to its script's: the
+// electrolyzer runs of Jul 27 before 16:15 were filed under fuel-cell
+// analyses, so only the script says what they are. Added rather than
+// substituted, because the script is that of the sample's latest run and the
+// analyses may be an earlier, genuine fuel-cell one's. A run with no analyses
+// goes by its script alone.
+function runFamilies(run) {
+  const fams = new Set(allRunAnalyses(run).map(anaFamily));
+  const byScript = scriptFamily(run.script);
+  if (byScript) fams.add(byScript);
+  if (!fams.size) fams.add('fc');
+  return fams;
+}
+const inFamily = (run, fam) => !fam || runFamilies(run).has(fam);
 
 function switchTab(name) {
   document.getElementById('tab-analysis').classList.toggle('active', name === 'analysis');
@@ -3350,10 +3562,13 @@ async function loadViewRuns(force, quiet) {
     const data = await r.json();
     if (seq !== _viewLoadSeq) return;
     _viewRetryMs = 0;
+    // What each analysis and value is (registry.py), sent with every read.
+    regLoad(data.registry, data.analysis_aliases);
     // An answer read in the background that is the one shown changes nothing,
     // so nothing is redrawn: an open run detail, the Comparisons picker and
     // the Trends panel stay as they are.
-    const json = JSON.stringify([data.runs || [], data.facets || null]);
+    const json = JSON.stringify([data.runs || [], data.facets || null,
+                                 data.registry || null, data.analysis_aliases || null]);
     const same = quiet && json === _viewShown;
     _viewShown = json;
     const was = new Map(_viewRuns.map(e => [runKey(e), runStamp(e)]));
@@ -3368,6 +3583,9 @@ async function loadViewRuns(force, quiet) {
       _viewLoaded = true;
       if (force) _viewForce = false;
     }
+    // The family switch shows only while the index holds both families.
+    const fams = new Set(_viewRuns.flatMap(r => [...runFamilies(r)]));
+    _vfBothFamilies = fams.has('fc') && fams.has('elx');
     if (same) return;
     // The run detail open now, with its sections as they are, to open again
     // on its entry as now read; one a sort or filter already closed is not.
@@ -3375,8 +3593,9 @@ async function loadViewRuns(force, quiet) {
     const openRow = open && document.querySelector(`tr.detail-row[data-job="${cssEscape(open)}"]`);
     const openBuckets = openRow ? [...openRow.querySelectorAll('.rd-analysis.open')]
       .map(sec => sec.dataset.bucket) : [];
+    // An electrolyzer section's chosen cell and opened folds go back too.
+    const openCells = openRow ? rdCellState(openRow) : {};
     populateViewFacets();
-    populateMetricPicker();
     applyViewFilters();
     // Comparisons and Trends draw from this index, and switchTab starts the
     // fetch then renders immediately — so whichever is open redraws once the
@@ -3387,6 +3606,7 @@ async function loadViewRuns(force, quiet) {
       _openDetailJob = null;
       await openRunDetail(open);
       const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(open)}"]`);
+      if (dr) rdRestoreCellState(dr, openCells);
       if (dr && openBuckets.length) {
         dr.querySelectorAll('.rd-analysis').forEach(sec =>
           sec.classList.toggle('open', openBuckets.includes(sec.dataset.bucket)));
@@ -3427,7 +3647,7 @@ function populateViewFacets() {
   standSel.value = keepT;
   scriptSel.innerHTML = '<option value="">All scripts</option>'
     + _viewFacets.scripts.map(s =>
-        `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
+        `<option value="${escapeAttr(s)}">${escapeHtml(scriptDisplayName(s))}</option>`).join('');
   scriptSel.value = keepS;
 }
 
@@ -3449,15 +3669,18 @@ function clearFilter(id) {
   applyViewFilters();
 }
 
+// The family switch is a view, not a filter, so Clear all leaves it alone.
 function clearAllFilters() {
   FILTER_FIELDS.forEach(([, id]) => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  applyViewFilters();
+  // Reset before drawing: drawing first rendered the table with the old
+  // analysis, column and condition choices still in force.
   VF_ANALYSES = new Set();
   VF_COLS = null;
   VF_COND = {};
+  applyViewFilters();
 }
 
 function renderFilterChips(active) {
@@ -3479,19 +3702,19 @@ function renderFilterChips(active) {
     .filter(([key]) => active[key])
     .map(([key, id, label]) =>
       `<span class="vf-chip"><span class="k">${escapeHtml(label)}</span>`
-      + `${escapeHtml(String(active[key]))}`
+      + `${escapeHtml(key === 'script' ? scriptDisplayName(active[key]) : String(active[key]))}`
       + `<span class="x" title="Remove this filter"`
       + ` onclick="clearFilter('${escapeAttr(id)}')">×</span></span>`);
   // The analysis filter holds several values and the column override is a
   // filter on what is shown, so both get chips of their own rather than
   // living only inside their popovers.
   [...VF_ANALYSES].forEach(a => chips.push(
-    `<span class="vf-chip"><span class="k">analysis</span>${escapeHtml(a)}`
+    `<span class="vf-chip"><span class="k">analysis</span>${escapeHtml(anaLabel(a))}`
     + `<span class="x" title="Remove this filter"`
     + ` onclick="vfToggleAnalysis('${escapeAttr(a)}')">×</span></span>`));
   Object.keys(VF_COND).forEach(a => {
     const c = vfCondCount(_vfRows || [], a);
-    chips.push(`<span class="vf-chip"><span class="k">${escapeHtml(a)} conditions</span>`
+    chips.push(`<span class="vf-chip"><span class="k">${escapeHtml(anaLabel(a))} conditions</span>`
       + `${c.chosen} of ${c.total}`
       + `<span class="x" title="Use every condition again"`
       + ` onclick="vfClearSteps('${escapeAttr(a)}')">×</span></span>`);
@@ -3513,12 +3736,6 @@ function renderFilterChips(active) {
 // resistances and most cells were blank. Now the filter decides: nothing
 // selected gives the headline metric from each analysis, and each analysis
 // selected contributes its own group.
-// Which analysis reports which metric, read from the index rather than
-// declared here. A hardcoded map goes stale the moment a script starts
-// reporting something new, and offers columns that no stored run can fill.
-// Within an analysis the canonical order wins and anything unrecognised
-// follows alphabetically, so a new metric appears rather than being invisible.
-const VF_ANALYSIS_ORDER = ['polcurve', 'eis', 'crossover', 'ecsa'];
 
 // A unit's index values as [metric, value, censored]. FC Durability stores
 // Hours to death only for a sample that died (decision 7); one still running
@@ -3545,26 +3762,28 @@ function unitValues(d) {
   return out;
 }
 
+// Which analysis reports which metric, read from the index rather than
+// declared here. A hardcoded map goes stale the moment a script starts
+// reporting something new, and offers columns that no stored run can fill.
+// Analyses and metrics are ordered by the registry (anaRank, metricRank), and
+// anything it does not list follows alphabetically, so a new metric appears
+// rather than being invisible. Only the family in view is catalogued: the
+// columns, the Analysis filter and the column picker all draw from this.
 function vfCatalog(rows) {
   const out = {};
+  const fam = vfFamily();
   rows.forEach(r => (r.Data || []).forEach(d => {
     const a = String(d.Analysis || '');
-    if (!a) return;
-    unitValues(d).forEach(([m]) => (out[a] || (out[a] = new Set())).add(m));
-  }));
-  const rank = n => {
-    const i = COLUMN_ORDER.indexOf(n);
-    return i < 0 ? COLUMN_ORDER.length : i;
-  };
-  const cat = {};
-  Object.keys(out)
-    .sort((a, b) => {
-      const ia = VF_ANALYSIS_ORDER.indexOf(a), ib = VF_ANALYSIS_ORDER.indexOf(b);
-      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-    })
-    .forEach(a => {
-      cat[a] = [...out[a]].sort((x, y) => rank(x) - rank(y) || x.localeCompare(y));
+    if (!a || (fam && anaFamily(a) !== fam)) return;
+    unitValues(d).forEach(([m]) => {
+      if ((regMetric(a, m) || {}).index === false) return;
+      (out[a] || (out[a] = new Set())).add(m);
     });
+  }));
+  const cat = {};
+  Object.keys(out).sort(byAnaOrder).forEach(a => {
+    cat[a] = [...out[a]].sort(byMetricOrder(a));
+  });
   return cat;
 }
 
@@ -3588,6 +3807,8 @@ const VF_FACETS = [
   ['Air_slpm', 'Air flow',    v => `${v} slpm`],
   ['N2_slpm',  'N₂ flow',     v => `${v} slpm`],
   ['O2_slpm',  'O₂ flow',     v => `${v} slpm`],
+  // Durability tests are told apart by the current they were held at.
+  ['j_hold_Acm2', 'Hold current', v => `${v} A/cm²`],
 ];
 
 // The facets an analysis actually varies on. A field every measurement agrees
@@ -3613,14 +3834,16 @@ function vfFacetsFor(rows, analysis) {
         .sort((a, b) => (parseFloat(a.v) - parseFloat(b.v)) || a.v.localeCompare(b.v)),
     }));
   // Nothing recorded to choose between, so fall back to the step code — it is
-  // the only handle an analysis without stored conditions has.
+  // the only handle an analysis without stored conditions has. For an
+  // electrolyzer analysis that is the cell id.
   if (!out.length) {
     const steps = new Set();
     rows.forEach(r => (r.Data || []).forEach(d => {
       if (String(d.Analysis || '') === analysis) steps.add(String(d.step || ''));
     }));
-    if (steps.size > 1) out.push({ key: 'step', label: 'Step',
-      values: [...steps].sort().map(v => ({ v, text: v || '(no step)' })) });
+    const word = stepWord(analysis);
+    if (steps.size > 1) out.push({ key: 'step', label: word,
+      values: [...steps].sort().map(v => ({ v, text: v || `(no ${word.toLowerCase()})` })) });
   }
   return out;
 }
@@ -3713,10 +3936,7 @@ function vfGrouped(cols) {
     const { analysis } = vfColParts(id);
     if (!seen.includes(analysis)) seen.push(analysis);
   });
-  seen.sort((a, b) => {
-    const ia = VF_ANALYSIS_ORDER.indexOf(a), ib = VF_ANALYSIS_ORDER.indexOf(b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-  });
+  seen.sort(byAnaOrder);
   return seen.map(a => ({
     analysis: a,
     metrics: cols.filter(id => vfColParts(id).analysis === a),
@@ -3765,7 +3985,7 @@ function vfRenderStepPop() {
   pop.dataset.facets = facets.map(f =>
     f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   pop.innerHTML = `
-    <div class="vf-pophead">${escapeHtml(a)} conditions<span class="spacer"></span>
+    <div class="vf-pophead">${escapeHtml(anaLabel(a))} conditions<span class="spacer"></span>
       <span class="vf-hint" id="vfStepCount"></span></div>
     <div class="vf-popbody" id="vfStepBody">
       ${facets.length ? facets.map(f => `
@@ -3784,7 +4004,7 @@ function vfRenderStepPop() {
       <button class="btn btn-sm" onclick="vfClearSteps('${escapeAttr(a)}')">All</button>
       <button class="btn btn-sm" onclick="vfNoSteps('${escapeAttr(a)}')">None</button>
       <span class="spacer"></span>
-      <span class="vf-hint">Each cell is the best of these</span></div>`;
+      <span class="vf-hint">Each number is the best of these</span></div>`;
   vfSyncStepPop();
 }
 
@@ -3859,39 +4079,66 @@ function vfGroupAll(a) {
 }
 function vfResetCols() { VF_COLS = null; applyViewFilters(); }
 
+// Switching family drops whatever was chosen from the other one — analyses,
+// columns, conditions — so nothing outside the view stays in force unseen.
+// "All" drops nothing.
+function vfSetFamily(fam) {
+  VF_FAMILY = fam === 'fc' || fam === 'elx' ? fam : '';
+  try { localStorage.setItem('recallFamily', VF_FAMILY); } catch (_) { /* per-browser nicety */ }
+  const f = vfFamily();
+  if (f) {
+    VF_ANALYSES = new Set([...VF_ANALYSES].filter(a => anaFamily(a) === f));
+    if (VF_COLS) {
+      const kept = [...VF_COLS].filter(id => anaFamily(vfColParts(id).analysis) === f);
+      VF_COLS = kept.length ? new Set(kept) : null;
+    }
+    Object.keys(VF_COND).forEach(a => { if (anaFamily(a) !== f) delete VF_COND[a]; });
+    if (_sortKey && _sortKey !== 'sample' && _sortKey !== 'date'
+        && anaFamily(vfColParts(_sortKey).analysis) !== f) _sortKey = null;
+  }
+  applyViewFilters();
+}
+
 // Populated by applyViewFilters so the popovers can seed from the same rows
 // the table is drawing.
 let _vfRows = [];
 
-// Units come from the stored values rather than a table in the page, so a
-// metric gains its unit the moment an analysis starts reporting one.
+// The unit a column is shown in, from the registry.
 function vfUnitOf(rows, analysis, metric) {
-  for (const r of rows) {
-    const u = (sampleMetrics(r, analysis)[metric] || {}).unit;
-    if (u) return u;
-  }
-  return '';
+  const e = regMetric(analysis, metric);
+  return e ? (e.show || e.unit || '') : '';
 }
 
 function vfRenderControls(rows) {
   const cols = vfActiveColumns(rows);
+  const fam = vfFamily();
   const wrap = document.getElementById('vf-analysis-wrap');
   if (wrap) wrap.classList.toggle('set', VF_ANALYSES.size > 0);
   const val = document.getElementById('vf-analysis-val');
-  if (val) val.textContent = !VF_ANALYSES.size ? 'All'
-    : VF_ANALYSES.size === 1 ? [...VF_ANALYSES][0] : `${VF_ANALYSES.size} types`;
+  if (val) val.textContent = !VF_ANALYSES.size
+    ? (fam ? `All ${familyName(fam).toLowerCase()}` : 'All')
+    : VF_ANALYSES.size === 1 ? anaLabel([...VF_ANALYSES][0]) : `${VF_ANALYSES.size} types`;
 
   // Both menus are built from what the index holds, so neither offers a
-  // choice that would come back empty.
+  // choice that would come back empty. Under "All" with both families
+  // present, each family gets a heading of its own.
   const cat = vfCatalog(rows);
+  const famHead = (names, a, i) => {
+    if (fam || !_vfBothFamilies) return '';
+    const f = anaFamily(a);
+    return i && anaFamily(names[i - 1]) === f ? ''
+      : `<div class="vf-grp">${escapeHtml(familyName(f))}</div>`;
+  };
   const list = document.getElementById('vfAnaList');
   if (list) {
-    const names = [...new Set([...Object.keys(cat), ...VF_ANALYSES])];
-    list.innerHTML = names.length ? names.map(a => `
+    const names = [...new Set([...Object.keys(cat), ...VF_ANALYSES])]
+      .sort((x, y) => (anaFamily(x) === anaFamily(y) ? 0 : anaFamily(x) === 'fc' ? -1 : 1)
+                      || byAnaOrder(x, y));
+    list.innerHTML = names.length ? names.map((a, i) => famHead(names, a, i) + `
       <label class="vf-opt${VF_ANALYSES.has(a) ? ' on' : ''}">
         <input type="checkbox" ${VF_ANALYSES.has(a) ? 'checked' : ''}
                onchange="vfToggleAnalysis('${escapeAttr(a)}')">
-        ${escapeHtml(a)}
+        ${escapeHtml(anaLabel(a))}
         <span class="vf-unit">${(cat[a] || []).length}</span></label>`).join('')
       : '<div class="vf-hint" style="padding:10px 12px">No analyses in view</div>';
   }
@@ -3914,7 +4161,7 @@ function vfRenderControls(rows) {
     clist.innerHTML = names.length ? names.map(a => {
       const ids = cat[a].map(m => vfColId(a, m));
       const all = ids.every(id => cols.includes(id));
-      return `<div class="vf-grp">${escapeHtml(a)}
+      return `<div class="vf-grp">${escapeHtml(anaLabel(a))}
           <span class="all" onclick="vfGroupAll('${escapeAttr(a)}')">${all ? 'none' : 'all'}</span></div>`
         + cat[a].map(m => {
             const id = vfColId(a, m);
@@ -3936,20 +4183,39 @@ function applyViewFilters() {
   const stand = document.getElementById('vf-stand').value;
   const since = document.getElementById('vf-since').value;   // yyyy-mm-dd or ''
   const until = document.getElementById('vf-until').value;
+  const fam = vfFamily();
 
-  const rows = _viewRuns.filter(r => {
+  const passes = r => {
     if (sample && !String(r.sample_name || '').toLowerCase().includes(sample)) return false;
     if (script && r.script !== script) return false;
     if (stand && !standMatches(r.stand, stand)) return false;
-    // Unfiltered analysis list — a row qualifies on what it actually holds,
-    // not on the narrowed view shown in the table.
-    if (VF_ANALYSES.size
-        && !allRunAnalyses(r).some(a => VF_ANALYSES.has(a))) return false;
     // timestamps are ISO Z, so a plain string prefix compare works by date
     if (since && String(r.timestamp || '') < since) return false;
     if (until && String(r.timestamp || '') > until + 'T99') return false;
     return true;
-  });
+  };
+  // Unfiltered analysis list — a row qualifies on what it actually holds,
+  // not on the narrowed view shown in the table.
+  const holds = (r, chosen) => !chosen.size
+    || allRunAnalyses(r).some(a => chosen.has(a));
+  const rows = _viewRuns.filter(r => passes(r) && inFamily(r, fam) && holds(r, VF_ANALYSES));
+
+  // Each family button counts the rows it would show if pressed, which is
+  // the other filters plus the analyses that survive the switch.
+  const sw = document.getElementById('vfFamily');
+  if (sw) {
+    sw.classList.toggle('show', _vfBothFamilies);
+    sw.querySelectorAll('.vf-fam').forEach(b => {
+      const f = b.dataset.fam || '';
+      const kept = f ? new Set([...VF_ANALYSES].filter(a => anaFamily(a) === f)) : VF_ANALYSES;
+      const n = _vfBothFamilies
+        ? _viewRuns.filter(r => passes(r) && inFamily(r, f) && holds(r, kept)).length : 0;
+      b.classList.toggle('active', f === fam);
+      b.setAttribute('aria-pressed', String(f === fam));
+      const c = b.querySelector('.vf-famn');
+      if (c) c.textContent = String(n);
+    });
+  }
 
   // The count says filtering is happening even once the bar has scrolled away.
   document.getElementById('viewCount').textContent =
@@ -3968,6 +4234,7 @@ function applyViewFilters() {
   if (document.getElementById('cmpPick')) cmpRenderPick();
   renderViewRuns(rows);
   _lastViewRows = rows;
+  populateMetricPicker();
   updateTrend();
 }
 
@@ -4006,11 +4273,23 @@ function standMatches(entryStand, selected) {
 }
 
 // Everything a run contains, regardless of the active filter. Used to decide
-// whether a row qualifies.
+// whether a row qualifies. A bucket filed under an old per-plot-type name
+// counts as the analysis it belongs to.
 function allRunAnalyses(run) {
-  const set = new Set();
-  (run.Data || []).forEach(d => { if (d.Analysis) set.add(d.Analysis); });
-  return Array.from(set).sort();
+  const ids = (run.Data || []).map(d => d.Analysis).filter(Boolean);
+  const clr = clrIsElx(ids);
+  return [...new Set(ids.map(a => clr && a === 'CLR' ? 'elx_eis' : anaOf(a)))].sort();
+}
+
+// Until the record fix the electrolyzer script filed its catalyst-layer plots
+// under the fuel-cell CLR bucket. Where every other analysis of a run is an
+// electrolyzer one, that is what its CLR is, and it is shown with the
+// electrolyzer EIS rather than making the run count as a fuel-cell one too.
+// The rebuild re-files these.
+function clrIsElx(ids) {
+  const others = ids.filter(a => a !== 'CLR');
+  return ids.includes('CLR') && others.length > 0
+    && others.every(a => anaFamily(a) === 'elx');
 }
 
 // The analyses being filtered on. Several may be selected, so callers that
@@ -4089,6 +4368,10 @@ function runKeyValues(run) {
 // is the question the column is scanned for. The cell shows how many steps it
 // stands for and which one it came from, so the reduction is visible rather
 // than implied; the expanded grid shows every step.
+//
+// Direction comes from the registry by (analysis, metric) — metricDir. This
+// table by bare name is the fallback for names the registry does not list,
+// and Trends still reads it until it moves over too.
 const METRIC_DIR = {
   'OCV': 1, 'V @ 1 A/cm²': 1, 'Peak P': 1, 'Average ECSA': 1, 'Average RF': 1,
   'j @ 0.7 V': 1, 'j @ 0.65 V': 1, 'j @ 0.6 V': 1, 'j @ 0.5 V': 1, 'j @ 0.4 V': 1,
@@ -4110,18 +4393,24 @@ const COLUMN_ORDER = ['OCV', 'V @ 1 A/cm²', 'j @ 0.65 V', 'HFR', '|j_xover|',
                       'RH cycles to death', 'RH cycles tested'];
 const MAX_METRIC_COLUMNS = 5;
 // How long a test has run is neither good nor bad, so its column is sortable
-// but never tinted: a long test that died is not the best sample.
+// but never tinted: a long test that died is not the best sample. The registry
+// says so for FC Durability (better 0); this is the fallback by bare name,
+// read by metricDir and by the Trends tab.
 const UNTINTED_METRICS = new Set(['Hours tested', 'RH cycles tested']);
 
 let _sortKey = null, _sortDir = -1;
 
-// {metric: {value, step, count}} — best per metric across the sample's units.
+// {metric: {value, unit, step, count, steps, censored}} — best per metric
+// across the sample's units, in the unit it is shown in: the step it came
+// from, how many units (or cells) it stands for, and whether it is a lower
+// bound (a live FC Durability sample's lifetime, unitValues).
 function sampleMetrics(run, analysis, scope) {
   const out = {};
   // Scoped when an analysis is named, because a metric name is not unique:
-  // HFR is reported by both the polarization curve and EIS, and under the EIS
-  // heading it has to be the EIS one rather than whichever the sample-wide
-  // reduction happened to pick.
+  // HFR is reported by both fuel-cell and electrolyzer EIS, and V @ 1 A/cm²
+  // by both polarization curves with opposite directions, so under each
+  // heading it has to be that analysis's value rather than whichever the
+  // sample-wide reduction happened to pick.
   //
   // `scope` narrows it further. Each cell is the best across a sample's
   // measurements, so which ones are in the running decides the number — a
@@ -4132,14 +4421,23 @@ function sampleMetrics(run, analysis, scope) {
     .filter(d => !scope || scope(d))
     .forEach(d => {
     unitValues(d).forEach(([name, v, censored]) => {
-      const dir = METRIC_DIR[name] || 1;
+      const shown = shownValue(d.Analysis, name, v);
+      // An unranked metric still needs one value per sample; it keeps the
+      // largest, as every metric did before directions were known.
+      const dir = metricDir(d.Analysis, name) || 1;
+      // An electrolyzer value is counted per cell, since an older entry can
+      // hold one cell's value several times over; a fuel-cell one per unit,
+      // as it always was.
+      const perCell = !!(regAnalysis(d.Analysis) || {}).step_label;
       const cur = out[name];
       if (!cur) {
-        out[name] = { value: v, step: d.step || '', count: 1, censored };
+        out[name] = { value: shown.value, unit: shown.unit, step: d.step || '', count: 1,
+                      steps: new Set([d.step || '']), censored };
       } else {
-        cur.count += 1;
-        if ((v - cur.value) * dir > 0) {
-          cur.value = v; cur.step = d.step || ''; cur.censored = censored;
+        cur.steps.add(d.step || '');
+        cur.count = perCell ? cur.steps.size : cur.count + 1;
+        if ((shown.value - cur.value) * dir > 0) {
+          cur.value = shown.value; cur.step = d.step || ''; cur.censored = censored;
         }
       }
     });
@@ -4158,7 +4456,8 @@ function metricColumns(rows) {
 }
 
 // Tint only the extremes of a column, so colour marks an outlier rather than
-// decorating every cell.
+// decorating every cell. Best and worst are judged by the column's own
+// (analysis, metric), and a metric the registry marks unranked gets neither.
 //
 // A censored value (a sample still alive) is a lower bound, not a result: it
 // is never tinted itself, and it decides which exact values can be. While any
@@ -4166,7 +4465,8 @@ function metricColumns(rows) {
 // yet outlive them all; the lowest exact value is known to be the lowest only
 // if no live sample is below it, since one that is may still die sooner.
 function columnExtremes(rows, metric, analysis, steps) {
-  if (UNTINTED_METRICS.has(metric)) return {};
+  const dir = metricDir(analysis, metric);
+  if (!dir) return {};
   const ents = rows.map(r => sampleMetrics(r, analysis, steps)[metric])
                    .filter(e => e && typeof e.value === 'number');
   const exact = ents.filter(e => !e.censored).map(e => e.value);
@@ -4175,30 +4475,29 @@ function columnExtremes(rows, metric, analysis, steps) {
   const lo = Math.min(...exact), hi = Math.max(...exact);
   const hiKnown = !bounds.length;
   const loKnown = !bounds.length || lo <= Math.min(...bounds);
-  const dir = METRIC_DIR[metric] || 1;
   const out = {};
   if (dir > 0) { if (hiKnown) out.best = hi; if (loKnown) out.worst = lo; }
   else { if (loKnown) out.best = lo; if (hiKnown) out.worst = hi; }
   return out;
 }
 
-// One slot per analysis the portal knows, filled when the sample has it.
-const STRIP_ORDER = [['polcurve','P'], ['eis','E'], ['crossover','X'],
-                     ['ecsa','A'], ['ocv','O'], ['activation','B'],
-                     ['cleaning','C']];
+// One slot per analysis the sample holds, in registry order, with the
+// registry's letter: P, E, X, A, O, B, C for the fuel-cell analyses and P, Z,
+// D tinted for the electrolyzer ones. Anything unlisted shows its initial.
 function analysisStrip(run) {
-  const have = new Set(allRunAnalyses(run));
-  const shown = STRIP_ORDER.filter(([name]) => have.has(name));
-  const extra = allRunAnalyses(run).filter(
-    a => !STRIP_ORDER.some(([n]) => n === a));
-  return '<span class="astrip">' + shown.map(([name, letter]) => {
+  const have = allRunAnalyses(run);
+  const order = regOrder();
+  const shown = order.filter(a => have.includes(a))
+    .concat(have.filter(a => !order.includes(a)));
+  return '<span class="astrip">' + shown.map(a => {
+    const e = regAnalysis(a);
+    const letter = (e && e.letter) || String(a)[0].toUpperCase();
     // Cleaning keeps its metrics but stores no plots; amber says so without
     // a sentence.
-    const cls = name === 'cleaning' ? 'adot nodata' : 'adot has';
-    return `<span class="${cls}" title="${escapeAttr(name)}">${letter}</span>`;
-  }).join('') + extra.map(a =>
-    `<span class="adot has" title="${escapeAttr(a)}">${escapeHtml(a[0].toUpperCase())}</span>`
-  ).join('') + '</span>';
+    const cls = a === 'cleaning' ? 'adot nodata'
+      : 'adot has' + (anaFamily(a) === 'elx' ? ' elx' : '');
+    return `<span class="${cls}" title="${escapeAttr(anaLabel(a))}">${escapeHtml(letter)}</span>`;
+  }).join('') + '</span>';
 }
 
 function sortRuns(rows) {
@@ -4234,11 +4533,16 @@ function setSort(key) {
   if (_sortKey === key) { _sortDir = -_sortDir; applyViewFilters(); return; }
   _sortKey = key;
   // The first click should put the best value on top, and "best" is not
-  // always the largest — a low HFR is a good cell. Sorting HFR descending
-  // by default surfaced the worst membrane first, which reads as a bug.
+  // always the largest — a low HFR is a good cell, and a low voltage a good
+  // electrolyzer. The key is a column id, so the direction is that column's
+  // (analysis, metric); looking the id up by bare name found nothing and
+  // sorted every column descending.
   if (key === 'sample') _sortDir = 1;
   else if (key === 'date') _sortDir = -1;
-  else _sortDir = (METRIC_DIR[key] || 1) > 0 ? -1 : 1;
+  else {
+    const k = vfColParts(key);
+    _sortDir = metricDir(k.analysis, k.metric) < 0 ? 1 : -1;
+  }
   applyViewFilters();
 }
 
@@ -4250,9 +4554,12 @@ function renderViewRuns(rows) {
   }
   // Grouped once there is something to group by. Unfiltered and unoverridden
   // the headline set is flat, because four one-column groups would be a
-  // second header row saying nothing.
-  const grouped = VF_ANALYSES.size > 0 || !!VF_COLS;
+  // second header row saying nothing — unless the columns span both families,
+  // where two columns can share a name (EIS HFR from a fuel cell and from an
+  // electrolyzer) and only the group says which is which.
   const _picked = vfActiveColumns(rows);
+  const grouped = VF_ANALYSES.size > 0 || !!VF_COLS
+    || new Set(_picked.map(id => anaFamily(vfColParts(id).analysis))).size > 1;
   const groups = grouped ? vfGrouped(_picked)
                          : [{ analysis: '', metrics: _picked }];
   // The groups decide the order and the flattened list follows, rather than
@@ -4284,7 +4591,8 @@ function renderViewRuns(rows) {
       const e = m[metric];
       if (!e) return `<td class="num miss${sep}">—</td>`;
       if (e.censored) {
-        const unit = KV_UNITS[metric] ? ' ' + KV_UNITS[metric] : '';
+        // The column's display unit, from the registry (sampleMetrics).
+        const unit = e.unit ? ' ' + e.unit : '';
         return `<td class="num cens${sep}" title="${escapeAttr(
             `still alive: tested ${fmtNum(e.value)}${unit} without dying, so its `
             + `lifetime is at least that (censored)`)}">≥ ${escapeHtml(fmtNum(e.value))}</td>`;
@@ -4294,12 +4602,13 @@ function renderViewRuns(rows) {
                  : e.value === x.worst ? ' worst' : '';
       // The superscript says how many steps this stands for; the tooltip says
       // which one it came from, so the reduction can be checked rather than
-      // trusted.
+      // trusted. For an electrolyzer the step is the cell.
       const many = e.count > 1
         ? `<span class="ofn">${e.count}</span>` : '';
+      const word = stepWord(analysis).toLowerCase();
       const title = e.count > 1
-        ? `best of ${e.count} steps — from ${e.step || 'unnamed step'}`
-        : (e.step ? `step ${e.step}` : '');
+        ? `best of ${e.count} ${word}s — from ${e.step || 'unnamed ' + word}`
+        : (e.step ? `${word} ${e.step}` : '');
       return `<td class="num${tone}${sep}" title="${escapeAttr(title)}">`
            + `${escapeHtml(fmtNum(e.value))}${many}</td>`;
     }).join('');
@@ -4314,9 +4623,11 @@ function renderViewRuns(rows) {
   }).join('');
 
   const caret = k => _sortKey === k ? (_sortDir > 0 ? ' ▲' : ' ▼') : '';
-  const sortable = (k, label, cls) =>
+  // A metric header carries the unit its numbers are shown in.
+  const sortable = (k, label, cls, unit) =>
     `<th class="${cls || ''} sortable${_sortKey === k ? ' sorted' : ''}"
          onclick="setSort('${escapeAttr(k)}')">${escapeHtml(label)}`
+    + (unit ? `<span class="vr-unit">${escapeHtml(unit)}</span>` : '')
     + `<span class="car">${caret(k)}</span></th>`;
 
   // The group title is where the step scope belongs: it is the heading over
@@ -4330,7 +4641,7 @@ function renderViewRuns(rows) {
           + `<span class="vr-gtitle${c.constrained ? ' set' : ''}"`
           + ` onclick="vfToggleStepPop(event,'${escapeAttr(g.analysis)}')"`
           + ` title="Choose which conditions these numbers come from">`
-          + `${escapeHtml(g.analysis)}`
+          + `${escapeHtml(anaLabel(g.analysis))}`
           + (c.total ? ` <span class="vr-gsteps">${c.chosen} of ${c.total} conditions ▾</span>` : '')
           + '</span></th>';
       }).join('')}
@@ -4343,7 +4654,8 @@ function renderViewRuns(rows) {
       <th>Stand</th><th>Analyses</th>
       ${groups.map(g => g.metrics.map(c =>
           sortable(c, colInfo[c].metric,
-                   'num' + (starts.has(c) ? ' vr-sep' : ''))).join('')).join('')}
+                   'num' + (starts.has(c) ? ' vr-sep' : ''),
+                   vfUnitOf(rows, colInfo[c].analysis, colInfo[c].metric))).join('')).join('')}
     </tr></thead>
     <tbody>${body}</tbody>
   </table>`;
@@ -4440,10 +4752,24 @@ function fileForStep(src, step) {
 function renderRunDetail(detail, key) {
   // With an analysis filter active, show only that analysis — the row was
   // listed because it holds it, so the detail should not reintroduce the rest.
+  // The family switch narrows it the same way.
   const only = activeAnalysis();
-  const plots = (detail.plots || []).filter(p => !only || p.analysis === only);
+  const fam = vfFamily();
+  // Sections are analyses, so buckets filed under old per-plot-type names
+  // gather under the analysis they belong to (see allRunAnalyses).
+  const clr = clrIsElx((detail.plots || []).map(p => p.analysis).filter(Boolean));
+  const sectionOf = p => clr && p.analysis === 'CLR' ? 'elx_eis' : anaOf(p.analysis);
+  const chosen = (detail.plots || []).filter(p => !only || sectionOf(p) === only);
+  const inFam = chosen.filter(p => !fam || anaFamily(sectionOf(p)) === fam);
+  // A run listed under the family by its script (a Jul 27 electrolyzer run
+  // filed under fuel-cell analyses) has nothing of the family to narrow to,
+  // so it shows what it has.
+  const plots = inFam.length ? inFam : chosen;
   const byBucket = {};
-  plots.forEach(p => { (byBucket[p.analysis] = byBucket[p.analysis] || []).push(p); });
+  plots.forEach(p => {
+    const a = sectionOf(p);
+    (byBucket[a] = byBucket[a] || []).push(p);
+  });
 
   const jobId = key || detail.job_id;
   const allRenderable = plots.filter(p => p.renderable).map(p => p.plot);
@@ -4466,8 +4792,14 @@ function renderRunDetail(detail, key) {
              ⭳ Download xlsx — whole sample</button>`;
   html += `</div>`;
 
-  Object.keys(byBucket).sort().forEach(bucket => {
+  rdSectionOrder(Object.keys(byBucket)).forEach(bucket => {
     const bucketPlots = byBucket[bucket];
+    // An analysis that names its main plots — the electrolyzer ones — opens
+    // per cell, main plots first, the rest folded.
+    if (((regAnalysis(bucket) || {}).main_plots || []).length) {
+      html += rdCellSection(detail, bucket, bucketPlots, jobId);
+      return;
+    }
     const anyRenderable = bucketPlots.some(p => p.renderable);
     const renderableInBucket = bucketPlots.filter(p => p.renderable).map(p => p.plot);
 
@@ -4488,14 +4820,18 @@ function renderRunDetail(detail, key) {
                  onclick="event.stopPropagation(); selectAllRdPlots('${escapeAttr(jobId)}', ${plotsAttr(renderableInBucket)})">
            Select all ${renderableInBucket.length}</button>`
       : '';
-    const typeDl = `<button class="rd-dl"
-           onclick="event.stopPropagation(); downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(bucket)}')"
-           title="Download every ${escapeAttr(bucket)} step in this sample">⭳ xlsx</button>`;
+    // Export addresses a stored bucket, so a section gathered from several
+    // old per-plot-type buckets (an early FC Durability run's, say) leaves it
+    // to the whole-sample download.
+    const stored = [...new Set(bucketPlots.map(p => p.analysis))];
+    const typeDl = stored.length === 1 ? `<button class="rd-dl"
+           onclick="event.stopPropagation(); downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(stored[0])}')"
+           title="Download every ${escapeAttr(bucket)} step in this sample">⭳ xlsx</button>` : '';
 
     html += `<div class="rd-analysis${openClass}" data-bucket="${escapeAttr(bucket)}">
       <div class="rd-analysis-head collapsible" onclick="toggleRdAnalysis(this)">
         <span class="rd-caret">▶</span>
-        <span>${escapeHtml(bucket)}</span>
+        <span>${escapeHtml(anaLabel(bucket))}</span>
         <span class="rd-head-spacer"></span>
         ${note}
         ${typeSelAll}
@@ -4514,6 +4850,241 @@ function renderRunDetail(detail, key) {
 
   html += '</div>';
   return html;
+}
+
+// Fuel-cell sections keep the alphabetical order they always had; electrolyzer
+// sections follow, in the registry's order (pol curve, EIS, durability).
+function rdSectionOrder(ids) {
+  const fc = ids.filter(a => anaFamily(a) !== 'elx').sort();
+  const elx = ids.filter(a => anaFamily(a) === 'elx').sort(byAnaOrder);
+  return fc.concat(elx);
+}
+
+// ── Electrolyzer sections: one per analysis, a tab per cell ─────────────────
+// A cell's pol curve alone is five plots and its EIS thirteen, nine of them
+// per-spectrum fits, so a sample with two cells laid out flat is three dozen
+// thumbnails. Each analysis shows once instead: a tab per cell, the main plots
+// (registry main_plots, in that order) with the cell's values beneath them,
+// and everything else folded until asked for — its thumbnails are not even
+// requested until then.
+
+const rdCellOf = p => String((p.conditions || {}).step || '');
+
+function rdSplitMain(a, plots) {
+  const order = (regAnalysis(a) || {}).main_plots || [];
+  const rank = p => order.indexOf(p.plot_type || '');
+  const main = plots.filter(p => rank(p) >= 0).sort((x, y) => rank(x) - rank(y));
+  const rest = plots.filter(p => rank(p) < 0);
+  // A cell with none of its main plots stored (an old record trimmed to fit)
+  // shows what it has rather than an empty grid above a fold.
+  return main.length ? { main, rest } : { main: rest, rest: [] };
+}
+
+// The label a folded plot is grouped under: the registry's name for its type,
+// else the type itself made readable (an older run's CLR_analysis reads
+// "CLR analysis"), else what is known about it.
+function rdPlotGroup(a, p) {
+  const t = p.plot_type || '';
+  const named = ((regAnalysis(a) || {}).other_plots || {})[t];
+  if (named) return named;
+  if (t) return t.replace(/^(elx|durability)_/, '').replace(/_/g, ' ');
+  return p.renderable ? 'other' : 'plot data not stored';
+}
+
+function rdCellSection(detail, a, plots, jobId) {
+  const word = stepWord(a);
+  const cells = [...new Set(plots.map(rdCellOf))].sort();
+  const anyRenderable = plots.some(p => p.renderable);
+  const panes = cells.map((cell, i) => {
+    const mine = plots.filter(p => rdCellOf(p) === cell);
+    const { main, rest } = rdSplitMain(a, mine);
+    const sel = mine.filter(p => p.renderable).map(p => p.plot);
+    return `<div class="rd-cellpane${i ? '' : ' on'}" data-cell="${escapeAttr(cell)}"
+                 data-sel="${escapeAttr(JSON.stringify(sel))}">`
+      + rdUnitGrid(detail, a, main, jobId, { cell, cells, summary: true })
+      + rdFold(detail, a, rest, jobId)
+      + '</div>';
+  }).join('');
+  const tabs = cells.length > 1
+    ? `<span class="rd-cells" role="tablist">${cells.map((c, i) =>
+        `<button type="button" class="rd-cell${i ? '' : ' on'}" role="tab"
+                 aria-selected="${i ? 'false' : 'true'}" data-cell="${escapeAttr(c)}"
+                 title="${escapeAttr(word)} ${escapeAttr(c || '(none)')}"
+                 onclick="event.stopPropagation(); rdSetCell(this)">`
+        + `${escapeHtml(c || '(no ' + word.toLowerCase() + ')')}</button>`).join('')}</span>`
+    : '';
+  const first = plots.filter(p => rdCellOf(p) === cells[0] && p.renderable).length;
+  const note = anyRenderable ? ''
+    : `<span class="rd-nostore-note">Plot data not stored — expand for key values only</span>`;
+  // Export addresses a stored bucket, so a section gathered from several old
+  // per-plot-type buckets leaves it to the whole-sample download.
+  const stored = [...new Set(plots.map(p => p.analysis))];
+  const dl = stored.length === 1
+    ? `<button class="rd-dl"
+           onclick="event.stopPropagation(); downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(stored[0])}')"
+           title="Download every ${escapeAttr(anaLabel(a))} ${escapeAttr(word.toLowerCase())} in this sample">⭳ xlsx</button>`
+    : '';
+  return `<div class="rd-analysis" data-bucket="${escapeAttr(a)}">
+      <div class="rd-analysis-head collapsible" onclick="toggleRdAnalysis(this)">
+        <span class="rd-caret">▶</span>
+        <span>${escapeHtml(anaLabel(a))}</span>
+        ${tabs}
+        <span class="rd-head-spacer"></span>
+        ${note}
+        <button class="rd-type-selall" data-job="${escapeAttr(jobId)}"
+                style="${first > 1 ? '' : 'display:none'}"
+                onclick="event.stopPropagation(); rdSelectCell(this)">Select all ${first}</button>
+        ${dl}
+      </div>
+      <div class="rd-analysis-body">${panes}</div>
+    </div>`;
+}
+
+// The plots of the cell on show, for the section's "Select all".
+function rdActivePane(section) {
+  return section && (section.querySelector('.rd-cellpane.on')
+                     || section.querySelector('.rd-cellpane'));
+}
+function rdPaneSel(pane) {
+  try { return JSON.parse((pane && pane.dataset.sel) || '[]'); } catch (_) { return []; }
+}
+
+// Show one cell of a section: its tab chosen, its pane on, and the section's
+// "Select all" counting that cell's plots.
+function rdShowCell(section, btn) {
+  const cell = btn.dataset.cell || '';
+  section.querySelectorAll('.rd-cell').forEach(b => {
+    const on = b === btn;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  section.querySelectorAll('.rd-cellpane').forEach(p =>
+    p.classList.toggle('on', (p.dataset.cell || '') === cell));
+  const sel = section.querySelector('.rd-analysis-head .rd-type-selall');
+  if (sel) {
+    const n = rdPaneSel(rdActivePane(section)).length;
+    sel.textContent = `Select all ${n}`;
+    sel.style.display = n > 1 ? '' : 'none';
+  }
+}
+
+function rdSetCell(btn) {
+  const section = btn.closest('.rd-analysis');
+  if (!section) return;
+  rdShowCell(section, btn);
+  // Choosing a cell on a closed section is asking to see it.
+  section.classList.add('open');
+  const dr = section.closest('tr.detail-row');
+  if (dr) hydrateThumbs(dr.dataset.job);
+}
+
+// What a run detail's sections show besides being open: the cell chosen in
+// each and the cells whose fold is open, by section. A background read that
+// finds the index changed draws the open detail again (loadViewRuns), and
+// puts these back with it.
+function rdCellState(row) {
+  const out = {};
+  row.querySelectorAll('.rd-analysis').forEach(sec => {
+    const on = sec.querySelector('.rd-cell.on');
+    const folds = [...sec.querySelectorAll('.rd-cellpane')]
+      .filter(p => p.querySelector('.rd-fold.open')).map(p => p.dataset.cell || '');
+    if (on || folds.length) out[sec.dataset.bucket] = { cell: on ? on.dataset.cell || '' : null, folds };
+  });
+  return out;
+}
+function rdRestoreCellState(row, state) {
+  row.querySelectorAll('.rd-analysis').forEach(sec => {
+    const st = state[sec.dataset.bucket];
+    if (!st) return;
+    const btn = st.cell == null ? null
+      : [...sec.querySelectorAll('.rd-cell')].find(b => (b.dataset.cell || '') === st.cell);
+    if (btn) rdShowCell(sec, btn);
+    sec.querySelectorAll('.rd-cellpane').forEach(p => {
+      const fold = p.querySelector('.rd-fold');
+      if (!fold) return;
+      const open = st.folds.includes(p.dataset.cell || '');
+      fold.classList.toggle('open', open);
+      const head = fold.querySelector('.rd-fold-head');
+      if (head) head.setAttribute('aria-expanded', String(open));
+    });
+  });
+}
+
+function rdSelectCell(btn) {
+  const section = btn.closest('.rd-analysis');
+  selectRdPlots(btn.dataset.job || '', rdPaneSel(rdActivePane(section)));
+}
+
+function rdFold(detail, a, plots, jobId) {
+  if (!plots.length) return '';
+  const groups = new Map();
+  plots.forEach(p => {
+    const g = rdPlotGroup(a, p);
+    groups.set(g, (groups.get(g) || 0) + 1);
+  });
+  const what = [...groups].map(([g, n]) => `${escapeHtml(g)} (${n})`).join(', ');
+  return `<div class="rd-fold">
+      <button type="button" class="rd-fold-head" aria-expanded="false"
+              onclick="rdToggleFold(this)">
+        <span class="rd-caret">▶</span>
+        <span>${plots.length} more plot${plots.length > 1 ? 's' : ''} — ${what}</span>
+        <span class="rd-fold-hint">thumbnails load when opened</span>
+      </button>
+      <div class="rd-fold-body">${rdUnitGrid(detail, a, plots, jobId, {})}</div>
+    </div>`;
+}
+
+function rdToggleFold(head) {
+  const open = head.parentElement.classList.toggle('open');
+  head.setAttribute('aria-expanded', String(open));
+  const dr = head.closest('tr.detail-row');
+  if (dr) hydrateThumbs(dr.dataset.job);
+}
+
+// One cell's plots with their values beneath. `opts.summary` lays the cell's
+// summary row over the readouts (the main grid); the fold shows readouts only,
+// and skips the cell and condition rows the main grid already gave.
+function rdUnitGrid(detail, a, plots, jobId, opts) {
+  if (!plots.length) return '';
+  const rows = opts.summary ? rdRowsFor(detail, a, opts.cell, opts.cells || [opts.cell]) : [];
+  // What a plot declares wins; the summary fills in what an older plot did not.
+  const known = rdRowConditions(a, rows);
+  const cols = plots.map(p => ({
+    plot: p, cond: conditionSummary({ ...known, ...(p.conditions || {}) }),
+    vals: rdReadouts(a, p),
+  }));
+  rdOverlaySummary(a, rows, cols);
+
+  // Registry metrics first, in its order; then anything else, as first seen.
+  const names = [];
+  (((REG.metrics || {})[anaOf(a)]) || []).forEach(m => {
+    if (cols.some(c => m.name in c.vals)) names.push(m.name);
+  });
+  cols.forEach(c => Object.keys(c.vals).forEach(n => {
+    if (!names.includes(n)) names.push(n);
+  }));
+
+  const n = cols.length;
+  const template = n === 1
+    ? 'minmax(132px, max-content) minmax(150px, 300px)'
+    : `minmax(132px, max-content) repeat(${n}, minmax(122px, 1fr))`;
+  let cells = '';
+  if (plots.some(p => p.renderable)) {
+    cells += '<div class="pg-head"></div>' + cols.map(c => pgHead(detail, c.plot, jobId)).join('');
+  }
+  let first = ' first';
+  if (opts.summary && !(regAnalysis(a) || {}).stepless) {
+    cells += `<div class="pg-label first">${escapeHtml(stepWord(a))}</div>`
+      + cols.map(c => `<div class="pg-step">${escapeHtml(rdCellOf(c.plot) || '—')}</div>`).join('');
+    first = '';
+  }
+  if (opts.summary && cols.some(c => c.cond)) {
+    cells += `<div class="pg-label${first}">Conditions</div>`
+      + cols.map(c => `<div class="pg-cond">${escapeHtml(c.cond || '—')}</div>`).join('');
+  }
+  names.forEach(name => cells += pgMetricRow(a, name, cols, true));
+  return `<div class="pg-scroll"><div class="pgrid"
+    style="grid-template-columns:${template}">${cells}</div></div>`;
 }
 
 // ── Per-analysis grid ───────────────────────────────────────────
@@ -4557,37 +5128,189 @@ const METRIC_CANON = (() => {
 })();
 function canonMetric(name) { return METRIC_CANON[name] || name; }
 
-// Values for one plot, preferring the tier-1 summary over the annotation text.
-// The summary carries full precision; annotation values are rounded for
-// display, and a record written before tier-1 existed has only the latter.
-// `ownRowsOnly` leaves the summary out, for an analysis whose summary is shown
-// once for the whole test (rdWholeTestRows).
-function plotMetrics(detail, bucket, plot, ownRowsOnly) {
+// The summary rows of a record, as a list. Older records hold a single row as
+// an object rather than a list of one.
+function summaryRows(detail) {
+  const s = detail && detail.summary;
+  const rows = Array.isArray(s) ? s : (s && typeof s === 'object' ? [s] : []);
+  return rows.filter(r => r && typeof r === 'object');
+}
+
+// A readout key or summary field as the metric it is: the registry's name
+// where the field is one of that analysis's sources, else the page's alias
+// table.
+const rdMetricName = (a, k) => (_regBySource[anaOf(a)] || {})[k] || canonMetric(k);
+
+// A plot's readouts — the values printed on it — with registry metrics in
+// their display unit. A readout in a unit the registry does not know is shown
+// in that unit rather than relabelled.
+function rdReadouts(a, plot) {
   const out = {};
   Object.entries(plot.values || {}).forEach(([k, v]) => {
     const num = (v && typeof v === 'object') ? v.value : v;
-    if (typeof num === 'number' && isFinite(num)) {
-      out[canonMetric(k)] = { value: num, unit: (v && v.unit) || '' };
-    }
+    if (typeof num !== 'number' || !isFinite(num)) return;
+    const name = rdMetricName(a, k);
+    const unit = (v && v.unit) || '';
+    const e = regMetric(a, name);
+    if (!e) { out[name] = { value: num, unit }; return; }
+    const show = e.show || e.unit || '';
+    out[name] = unit === show ? { value: num, unit: show }
+      : (!unit || unit === e.unit) ? { value: num * (e.scale || 1), unit: show }
+      : { value: num, unit };
   });
+  return out;
+}
+
+// A summary row's numbers. A registry metric takes its first source present,
+// as the index does, in the registry's stored unit scaled for display; any
+// other field keeps its own name and has no unit of its own (`bare`), except
+// the analysis's bookkeeping fields, which are not results and are left out.
+function rdRowValues(a, row) {
+  const out = {};
+  const e = regAnalysis(a) || {};
+  const skip = new Set(['Label', 'label', 'Analysis', 'step', ...(e.bookkeeping || []),
+                        ...Object.keys(e.summary_conditions || {})]);
+  const num = k => typeof row[k] === 'number' && isFinite(row[k]);
+  // In the row's own order, which is the order the grid lists new rows in.
+  Object.keys(row).forEach(k => {
+    if (skip.has(k) || !num(k)) return;
+    const name = (_regBySource[anaOf(a)] || {})[k];
+    const m = name && regMetric(a, name);
+    if (m) {
+      if (name in out && !out[name].bare) return;
+      const src = (m.sources || []).find(num);
+      out[name] = { value: row[src] * (m.scale || 1), unit: m.show || m.unit || '' };
+      return;
+    }
+    const bare = canonMetric(k);
+    if (!(bare in out)) out[bare] = { value: row[k], unit: '', bare: true };
+  });
+  return out;
+}
+
+// A summary value carries no unit, so where the plot's readout shows the same
+// quantity the readout's unit applies — once the two agree. Some scripts
+// print a value in a smaller unit than they store it (Peak P in mW/cm² over
+// W/cm², Mean HFR in mΩ·cm² over Ω·cm²), and taking the summary number with
+// the readout's unit showed "0.6768 mW/cm²". A value that differs from its
+// readout by a clean power of ten is rescaled to the readout's unit; one that
+// agrees with it on no scale leaves the readout standing.
+function rdReconcile(readout, s) {
+  if (!readout) return { value: s, unit: '' };
+  const r = readout.value;
+  if (r === s) return { value: s, unit: readout.unit };
+  if (!r || !s || (r > 0) !== (s > 0)) return readout;
+  const ratio = Math.log10(r / s), k = Math.round(ratio);
+  if (Math.abs(ratio - k) > 0.1) return readout;
+  if (!k) return { value: s, unit: readout.unit };
+  // Only a unit can account for a factor, and only a prefix-sized one:
+  // percent, milli, micro, nano.
+  if (!readout.unit || ![2, 3, 6, 9].includes(Math.abs(k))) return readout;
+  return { value: s * Math.pow(10, k), unit: readout.unit };
+}
+
+// Lay one summary value over a column's readouts.
+function rdLay(vals, name, val) {
+  vals[name] = val.bare ? rdReconcile(vals[name], val.value) : val;
+}
+
+// Values for one plot, preferring the tier-1 summary over the annotation text.
+// The summary carries full precision; annotation values are rounded for
+// display, and a record written before tier-1 existed has only the latter.
+// Fuel-cell rows name their plot by Label. `ownRowsOnly` leaves the summary
+// out, for an analysis whose summary is shown once for the whole test
+// (rdWholeTestRows).
+function plotMetrics(detail, bucket, plot, ownRowsOnly) {
+  const out = rdReadouts(bucket, plot);
   if (ownRowsOnly) return out;
   const step = String((plot.conditions || {}).step || '');
-  (detail.summary || []).forEach(row => {
-    if (!row || typeof row !== 'object') return;
+  summaryRows(detail).forEach(row => {
     if (row.Analysis && row.Analysis !== bucket) return;
     const label = String(row.Label || row.label || '');
     const belongs = label && (plot.plot.includes(label)
       || (step && String(parseStepOf(label)) === step));
     if (!belongs) return;
-    Object.entries(row).forEach(([k, v]) => {
-      if (k === 'Label' || k === 'label' || k === 'Analysis') return;
-      if (typeof v === 'number' && isFinite(v)) {
-        const c = canonMetric(k);
-        out[c] = { value: v, unit: (out[c] && out[c].unit) || '' };
-      }
-    });
+    Object.entries(rdRowValues(bucket, row)).forEach(([name, val]) => rdLay(out, name, val));
   });
   return out;
+}
+
+// Electrolyzer rows name their cell instead (`step`), as the record layer
+// files them. A row naming no cell belongs to an analysis only when the
+// record holds one cell of it, and a stepless analysis's row always does.
+function rdRowsFor(detail, a, cell, cells) {
+  return summaryRows(detail).filter(r => anaOf(r.Analysis) === a
+    && (r.step == null ? cells.length === 1 : String(r.step) === cell));
+}
+
+// The cell's summary at full precision over the readouts: each value under
+// every plot whose readout shows the same quantity, so a row reads alike
+// across its columns, or under the first plot when none does.
+function rdOverlaySummary(a, rows, cols) {
+  rows.forEach(row => {
+    Object.entries(rdRowValues(a, row)).forEach(([name, val]) => {
+      const showing = cols.filter(c => name in c.vals);
+      (showing.length ? showing : [cols[0]]).forEach(c => rdLay(c.vals, name, val));
+    });
+  });
+}
+
+// Conditions the summary rows carry as values (a durability test's hold
+// current), keyed as the plots would declare them.
+function rdRowConditions(a, rows) {
+  const map = (regAnalysis(a) || {}).summary_conditions || {};
+  const out = {};
+  rows.forEach(row => Object.entries(map).forEach(([field, key]) => {
+    if (typeof row[field] === 'number' && isFinite(row[field])) out[key] = row[field];
+  }));
+  return out;
+}
+
+// One metric row of a plot grid. The label carries the row's unit; a value in
+// a different unit — a readout the registry could not convert — says so
+// beside the number rather than borrowing the label's. `tags` marks values the
+// index leaves out (the electrolyzer grids, where fit values are kept out of
+// it on purpose).
+function pgMetricRow(a, name, cols, tags) {
+  const e = regMetric(a, name);
+  const unit = e ? (e.show || e.unit || '')
+    : (cols.map(c => c.vals[name] && c.vals[name].unit).find(Boolean) || '');
+  const tag = tags && e && e.index === false
+    ? ' <span class="pg-tag" title="Kept out of the index: shown here, not in the table or Trends">detail only</span>'
+    : '';
+  return `<div class="pg-label">${escapeHtml(name)}`
+    + (unit ? ` <span class="pg-unit">${escapeHtml(unit)}</span>` : '') + tag + '</div>'
+    + cols.map(c => {
+        const v = c.vals[name];
+        if (v == null) return '<div class="pg-val miss">—</div>';
+        const own = v.unit && v.unit !== unit
+          ? ` <span class="pg-vunit">${escapeHtml(v.unit)}</span>` : '';
+        return `<div class="pg-val">${escapeHtml(fmtNum(v.value))}${own}</div>`;
+      }).join('');
+}
+
+// The thumbnail, Compare and download buttons above one plot's column.
+function pgHead(detail, p, jobId) {
+  const key = jobId + '::' + p.plot;
+  const on = _viewCompareSel.has(key);
+  if (!p.renderable) {
+    return `<div class="pg-head"><div class="pg-thumb unrenderable"
+              title="sidecar not stored">plot data<br>not stored</div></div>`;
+  }
+  return `<div class="pg-head">
+    <div class="pg-thumb" data-plot="${escapeAttr(p.plot)}"
+         title="${escapeAttr(p.plot)}"
+         onclick="openHistoricalPlot('${escapeAttr(jobId)}','${escapeAttr(p.plot)}')">
+      <span class="thumb-spin">loading…</span></div>
+    <div class="pg-acts">
+      <button class="rd-select pg-sel ${on ? 'on' : ''}"
+              data-selkey="${escapeAttr(key)}"
+              onclick="toggleViewCompare('${escapeAttr(jobId)}','${escapeAttr(p.plot)}','${escapeAttr(detail.sample_name || '')}','${escapeAttr(p.analysis || '')}')">
+        ${on ? '✓' : 'Compare'}</button>
+      <button class="rd-dl pg-dl"
+              onclick="downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(p.analysis || '')}','${escapeAttr(p.plot)}')"
+              title="Download this plot's data">⭳</button>
+    </div></div>`;
 }
 
 // Steps look like b4, c6, b17b — a letter, digits, optionally one more letter.
@@ -4601,6 +5324,7 @@ function conditionSummary(cond) {
   if (cond.T_C != null) bits.push(`${cond.T_C} °C`);
   if (cond.RH_pct != null) bits.push(`${cond.RH_pct} % RH`);
   if (cond.P_value != null) bits.push(`${cond.P_value} ${cond.P_unit || ''}`.trim());
+  if (cond.j_hold_Acm2 != null) bits.push(`hold ${cond.j_hold_Acm2} A/cm²`);
   [['H2_slpm','H₂'], ['Air_slpm','Air'], ['N2_slpm','N₂'], ['O2_slpm','O₂']]
     .forEach(([k, lab]) => { if (cond[k] != null) bits.push(`${lab} ${cond[k]}`); });
   return bits.join(' · ');
@@ -4666,28 +5390,7 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
   const anyRenderable = plots.some(p => p.renderable);
   if (anyRenderable) {
     cells += '<div class="pg-head"></div>';
-    cells += cols.map(c => {
-      const key = jobId + '::' + c.plot.plot;
-      const on = _viewCompareSel.has(key);
-      if (!c.plot.renderable) {
-        return `<div class="pg-head"><div class="pg-thumb unrenderable"
-                  title="sidecar not stored">plot data<br>not stored</div></div>`;
-      }
-      return `<div class="pg-head">
-        <div class="pg-thumb" data-plot="${escapeAttr(c.plot.plot)}"
-             title="${escapeAttr(c.plot.plot)}"
-             onclick="openHistoricalPlot('${escapeAttr(jobId)}','${escapeAttr(c.plot.plot)}')">
-          <span class="thumb-spin">loading…</span></div>
-        <div class="pg-acts">
-          <button class="rd-select pg-sel ${on ? 'on' : ''}"
-                  data-selkey="${escapeAttr(key)}"
-                  onclick="toggleViewCompare('${escapeAttr(jobId)}','${escapeAttr(c.plot.plot)}','${escapeAttr(detail.sample_name || '')}','${escapeAttr(bucket)}')">
-            ${on ? '✓' : 'Compare'}</button>
-          <button class="rd-dl pg-dl"
-                  onclick="downloadXlsx('${escapeAttr(jobId)}','${escapeAttr(bucket)}','${escapeAttr(c.plot.plot)}')"
-                  title="Download this plot's data">⭳</button>
-        </div></div>`;
-    }).join('');
+    cells += cols.map(c => pgHead(detail, c.plot, jobId)).join('');
   }
 
   // A whole-test analysis has no steps, and its files feed every plot, so
@@ -4718,17 +5421,7 @@ function rdAnalysisGrid(detail, bucket, plots, jobId) {
     }
   }
 
-  names.forEach(name => {
-    const unit = cols.map(c => c.vals[name] && c.vals[name].unit).find(Boolean) || '';
-    cells += `<div class="pg-label">${escapeHtml(name)}`
-      + (unit ? ` <span class="pg-unit">${escapeHtml(unit)}</span>` : '') + '</div>';
-    cells += cols.map(c => {
-      const v = c.vals[name];
-      return v == null
-        ? '<div class="pg-val miss">—</div>'
-        : `<div class="pg-val">${escapeHtml(fmtNum(v.value))}</div>`;
-    }).join('');
-  });
+  names.forEach(name => { cells += pgMetricRow(bucket, name, cols); });
 
   return whole.map(rdWholeTestBlock).join('')
     + `<div class="pg-scroll"><div class="pgrid"
@@ -4857,7 +5550,11 @@ function analysisOf(detail, plot) {
 }
 
 function selectAllRdPlots(jobId, plotsEncoded) {
-  const plots = plotsFromAttr(plotsEncoded);
+  selectRdPlots(jobId, plotsFromAttr(plotsEncoded));
+}
+
+function selectRdPlots(jobId, plots) {
+  if (!plots.length) return;
   const detail = _detailCache[jobId] || {};
   const sample = detail.sample_name || '';
   const allSelected = plots.every(pl => _viewCompareSel.has(jobId + '::' + pl));
@@ -4882,25 +5579,21 @@ function selectAllRdPlots(jobId, plotsEncoded) {
 async function hydrateThumbs(jobId) {
   const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(jobId)}"]`);
   if (!dr) return;
-  // Only visible sections: rendering is a server-side matplotlib call per plot,
-  // so a collapsed section must not trigger one.
-  const thumbs = dr.querySelectorAll('.rd-analysis.open [data-plot]');
+  // Only what is on screen: rendering is a server-side matplotlib call per
+  // plot, so a collapsed section, a closed fold or another cell's tab must
+  // not trigger one. A thumbnail already drawn is left as it is.
+  const hidden = el => !el.isConnected
+    || !!el.closest('.rd-analysis:not(.open), .rd-fold:not(.open), .rd-cellpane:not(.on)');
+  const thumbs = [...dr.querySelectorAll('.rd-analysis.open [data-plot]')]
+    .filter(el => !hidden(el) && !el.querySelector('img'));
   for (const el of thumbs) {
+    // Passes overlap — a tab or a fold can start one while another runs — so
+    // each thumbnail is checked again when its turn comes.
+    if (hidden(el) || el.querySelector('img')) continue;
     const plot = el.dataset.plot;
     const key = jobId + '::' + plot;
     try {
-      let url = _thumbUrls[key];
-      if (!url) {
-        const epoch = CMP_EPOCH;
-        const r = await fetch('/api/view/render', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: jobId, plot })
-        });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        url = URL.createObjectURL(await r.blob());
-        if (epoch === CMP_EPOCH) _thumbUrls[key] = url;   // as the run detail
-      }
+      const url = await thumbUrl(jobId, plot);
       if (_openDetailJob !== jobId) return;  // collapsed mid-flight
       // One not kept (its run stored again meanwhile) is let go once drawn.
       el.innerHTML = `<img src="${url}" alt="${escapeAttr(plot)}"${_thumbUrls[key] === url ? ''
@@ -4913,22 +5606,36 @@ async function hydrateThumbs(jobId) {
   }
 }
 
+// One render request per plot: a second caller waits for the first. A render
+// that was out when its run was stored again is not kept (CMP_EPOCH), and a
+// caller after that starts its own.
+const _thumbPending = {};   // key -> {epoch, promise}
+function thumbUrl(jobId, plot) {
+  const key = jobId + '::' + plot;
+  if (_thumbUrls[key]) return Promise.resolve(_thumbUrls[key]);
+  const epoch = CMP_EPOCH;
+  const out = _thumbPending[key];
+  if (out && out.epoch === epoch) return out.promise;
+  const job = { epoch };
+  job.promise = (async () => {
+    const r = await fetch('/api/view/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: jobId, plot })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    if (epoch === CMP_EPOCH) _thumbUrls[key] = url;   // as the run detail
+    return url;
+  })().finally(() => { if (_thumbPending[key] === job) delete _thumbPending[key]; });
+  _thumbPending[key] = job;
+  return job.promise;
+}
+
 // Reuse the existing lightbox for a full-size historical plot.
 async function openHistoricalPlot(jobId, plot) {
-  const key = jobId + '::' + plot;
   try {
-    let url = _thumbUrls[key];
-    if (!url) {
-      const epoch = CMP_EPOCH;
-      const r = await fetch('/api/view/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: jobId, plot })
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      url = URL.createObjectURL(await r.blob());
-      if (epoch === CMP_EPOCH) _thumbUrls[key] = url;   // as the run detail
-    }
+    const url = await thumbUrl(jobId, plot);
     openLightbox(url, plot);
   } catch (e) {
     console.error('historical plot render failed', e);
@@ -5111,51 +5818,49 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s); }
 
 // ── Trends ──────────────────────────────────────
-// Units for the whitelisted key_values, mirroring record.py KEY_VALUE_UNITS.
-const KV_UNITS = {
-  'OCV': 'V', 'V @ 1 A/cm²': 'V', 'HFR': 'Ω·cm²',
-  '|j_xover|': 'mA/cm²', 'Average ECSA': 'm²/g',
-  'j @ 0.7 V': 'A/cm²', 'j @ 0.65 V': 'A/cm²', 'j @ 0.6 V': 'A/cm²',
-  'j @ 0.5 V': 'A/cm²', 'j @ 0.4 V': 'A/cm²',
-  'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',
-  'OCV decay rate': 'μV/h', 'OCV loss': '%', 'j_xover initial': 'mA/cm²',
-  'j_xover final': 'mA/cm²', 'R_short final': 'Ω·cm²',
-  'RH cycles tested': 'cycles', 'RH cycles to death': 'cycles',
-};
+// The trend under the Recall table. A choice is a column id — analysis and
+// metric together — because the bare name is not one quantity: V @ 1 A/cm²
+// from a fuel cell and from an electrolyzer would otherwise share a chart.
+// Units and scale come from the registry, as they do in the table.
 // Distinct hues legible on both dark and light backgrounds.
 const TREND_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
                       '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
+// Every (analysis, metric) the runs hold, in the table's column order.
 function availableMetrics(runs) {
-  const set = new Set();
-  runs.forEach(r => (r.Data || []).forEach(d =>
-    unitValues(d).forEach(([k]) => set.add(k))));
-  // Present whitelisted metrics in a stable, sensible order first.
-  const known = ['OCV', 'V @ 1 A/cm²',
-                 'j @ 0.7 V', 'j @ 0.65 V', 'j @ 0.6 V', 'j @ 0.5 V', 'j @ 0.4 V',
-                 'HFR', '|j_xover|', 'Average ECSA',
-                 'Hours to death', 'Hours tested', 'OCV initial', 'OCV decay rate',
-                 'OCV loss', 'j_xover initial', 'j_xover final', 'R_short final',
-                 'RH cycles to death', 'RH cycles tested'];
-  const ordered = known.filter(k => set.has(k));
-  Array.from(set).sort().forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
-  return ordered;
+  const cat = vfCatalog(runs);
+  return Object.keys(cat).flatMap(a => cat[a].map(m => vfColId(a, m)));
 }
 
+// Built from the whole index rather than the filtered rows, so the choice
+// does not vanish while typing in the search box; the family does narrow it.
+let _trendPickerFilled = false;
 function populateMetricPicker() {
   const sel = document.getElementById('vf-metric');
+  if (!sel) return;
   const keep = sel.value;
-  const metrics = availableMetrics(_viewRuns);
+  const ids = availableMetrics(_viewRuns);
   sel.innerHTML = '<option value="">Select a metric…</option>'
-    + metrics.map(m => `<option value="${escapeAttr(m)}">${escapeHtml(m)}</option>`).join('');
-  // Preserve selection if still available, else default to the first metric.
-  if (metrics.includes(keep)) sel.value = keep;
-  else if (metrics.length && !keep) sel.value = metrics[0];
+    + ids.map(id => {
+        const { analysis, metric } = vfColParts(id);
+        return `<option value="${escapeAttr(id)}">`
+          + `${escapeHtml(anaLabel(analysis))} · ${escapeHtml(metric)}</option>`;
+      }).join('');
+  // Preserve the selection while it is still on offer. A choice that has
+  // gone (another family) moves to the first metric, as does the first fill;
+  // "Select a metric…" chosen on purpose stays chosen.
+  if (ids.includes(keep)) sel.value = keep;
+  else if (keep || !_trendPickerFilled) sel.value = ids.length ? ids[0] : '';
+  else sel.value = '';
+  // A filter typed while the history is still loading fills an empty list;
+  // that is not the first fill.
+  if (ids.length) _trendPickerFilled = true;
 }
 
-// Extract (time, value, sample, step, analysis) points for a metric from the
-// currently-filtered rows.
-function trendPoints(rows, metric) {
+// Extract (time, value, sample, step, analysis) points for one column from
+// the currently-filtered rows, scaled to the unit the column is shown in.
+function trendPoints(rows, colId) {
+  const { analysis, metric } = vfColParts(colId);
   const pts = [];
   rows.forEach(r => {
     // Experiment date where known. Plotting against the analysis timestamp
@@ -5164,41 +5869,45 @@ function trendPoints(rows, metric) {
     const t = Date.parse(iso);
     if (isNaN(t)) return;
     (r.Data || []).forEach(d => {
-      const hit = unitValues(d).find(([k]) => k === metric);
-      if (hit) {
-        pts.push({ t, v: hit[1], censored: hit[2], sample: r.sample_name || '—',
-                   step: d.step || '', analysis: d.Analysis || '',
-                   dated: !!r.run_date });
-      }
+      if (String(d.Analysis || '') !== analysis) return;
+      unitValues(d).forEach(([m, v, censored]) => {
+        if (m !== metric) return;
+        pts.push({ t, v: shownValue(analysis, metric, v).value, censored,
+                   sample: r.sample_name || '—',
+                   step: d.step || '', analysis, dated: !!r.run_date });
+      });
     });
   });
   return pts;
 }
 
 function updateTrend() {
-  const metric = document.getElementById('vf-metric').value;
+  const id = document.getElementById('vf-metric').value;
   const host = document.getElementById('trendHost');
-  if (!metric) {
+  if (!id) {
     host.innerHTML = '<div class="empty">Pick a metric to plot it across runs over time</div>';
     return;
   }
-  const pts = trendPoints(_currentViewRows(), metric);
+  const pts = trendPoints(_currentViewRows(), id);
   if (!pts.length) {
-    host.innerHTML = `<div class="empty">No runs in the current filter have "${escapeHtml(metric)}"</div>`;
+    const { analysis, metric } = vfColParts(id);
+    host.innerHTML = `<div class="empty">No runs in the current filter have `
+      + `${escapeHtml(anaLabel(analysis))} "${escapeHtml(metric)}"</div>`;
     return;
   }
-  host.innerHTML = drawTrendChart(pts, metric);
+  host.innerHTML = drawTrendChart(pts, id);
 }
 
 // Rows currently shown in the table, so the trend tracks the filter bar.
 let _lastViewRows = [];
 function _currentViewRows() { return _lastViewRows; }
 
-function drawTrendChart(pts, metric) {
+function drawTrendChart(pts, colId) {
   const W = 720, H = 320;
   const m = { l: 58, r: 14, t: 14, b: 42 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const unit = KV_UNITS[metric] || '';
+  const { analysis, metric } = vfColParts(colId);
+  const unit = vfUnitOf([], analysis, metric);
 
   const ts = pts.map(p => p.t);
   let tMin = Math.min(...ts), tMax = Math.max(...ts);
@@ -5359,6 +6068,13 @@ function _updateCollapseAllBtn() {
 }
 
 // ── Load scripts ────────────────────────────────
+// The dropdown lists the scripts the server offers (scripts.SCRIPT_MENU), each
+// under its display name. A job's and a stored run's script is recorded by id,
+// so wherever one is named the id goes through the same table, and a script
+// shown under its id needs no entry.
+let SCRIPT_LABELS = {};
+const scriptDisplayName = id => SCRIPT_LABELS[id] || id;
+
 (async () => {
   const s = document.getElementById('sel');
   try {
@@ -5377,15 +6093,18 @@ function _updateCollapseAllBtn() {
       return;
     }
 
+    SCRIPT_LABELS = (d.labels && typeof d.labels === 'object') ? d.labels : {};
     s.innerHTML = '<option value="" disabled selected>Select a script…</option>';
     d.scripts.forEach(x => {
       scriptDefs[x.name] = x;
       const o = document.createElement('option');
       o.value = x.name;
-      o.textContent = x.name;
+      o.textContent = x.label || scriptDisplayName(x.name);
       o.title = x.description;
       s.appendChild(o);
     });
+    // The Recall tab may have listed its scripts before the names were here.
+    if (_viewLoaded) populateViewFacets();
   } catch(e) {
     s.innerHTML = '<option value="" disabled selected>Scripts unavailable</option>';
     showScriptLoadError(String(e && e.message || e));
@@ -11371,19 +12090,21 @@ function adminShowModal() {
 
 function admPane(i, btn) {
   ADM_PANE = i;
-  document.querySelectorAll('.adm-tab').forEach((b, n) =>
-    b.classList.toggle('on', n === i));
+  document.querySelectorAll('.adm-tab').forEach(b =>
+    b.classList.toggle('on', Number(b.dataset.pane) === i));
   ADM_STATE = { pane: i };
   const apply = document.getElementById('admApply');
   apply.className = 'btn ' + (i === 3 ? 'btn-danger' : 'btn-go');
-  apply.textContent = ['Merge group', 'Rename', 'Set stand', 'Unlist'][i];
+  apply.textContent = ['Merge group', 'Rename', 'Set stand', 'Unlist', 'Rebuild'][i];
   apply.disabled = true;
   document.getElementById('admFoot').textContent = [
     'Merging is one group at a time.',
     'Writes the index and the detail record together.',
     'Writes the index and the detail record together.',
-    'Restore and remove are applied separately.'][i];
-  [admPaneDuplicates, admPaneRename, admPaneStand, admPaneAddDelete][i]();
+    'Restore and remove are applied separately.',
+    'Rewrites the records it re-files, then the index once.'][i];
+  [admPaneDuplicates, admPaneRename, admPaneStand, admPaneAddDelete,
+   admPaneRebuild][i]();
 }
 
 const admOpts = (list, sel) => list.map(v =>
@@ -12002,12 +12723,207 @@ function admPurgeToggle(on) {
   apply.disabled = !n;
 }
 
+// ── electrolyzer rebuild ────────────────────────────────────────
+//
+// Electrolyzer runs pushed under earlier rules are stored in shapes the views
+// cannot read. The server rebuilds them from what each run stored; this pane
+// shows what that would change, sample by sample, before anything is written.
+// Scanning reads a record per electrolyzer sample, so it runs on request.
+function admPaneRebuild() {
+  document.getElementById('admBody').innerHTML = `
+    <p class="adm-lede">Electrolyzer runs pushed under earlier rules are stored
+      one bucket per plot type, without their cell or their values, and with a
+      stand guessed from .csv files, so Recall, Comparisons and Trends show
+      them as empty rows. This rebuilds their entries from what each run
+      already stored: every plot is filed under its pol curve, EIS or
+      durability test and its cell, each cell gets its values, repeated EIS
+      rows collapse to the latest, and the guessed stand is dropped. Nothing is
+      re-analysed and fuel-cell runs are left as they are.</p>
+    <div class="adm-row">
+      <button class="btn btn-sm" onclick="admRebuildScan()">Scan electrolyzer runs</button>
+      <span class="adm-note" id="admRbNote">Reads one record per electrolyzer
+        sample, so it is not run automatically.</span>
+    </div>
+    <div id="admRbOut"></div>`;
+}
+
+function admRbValue(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? String(Number(n.toPrecision(4))) : String(v);
+}
+
+// One unit per line: "elx_polcurve · a1   V @ 1 A/cm² 1.596, …". Identical
+// units are counted rather than repeated — an entry from Jul 27 to Aug 4 has
+// the same EIS unit six times over, split by a misread setpoint.
+function admRbUnits(units) {
+  if (!units.length) return '<span class="adm-dim">none</span>';
+  const bare = units.filter(u => !Object.keys(u.values).length);
+  const counted = new Map();
+  units.filter(u => Object.keys(u.values).length).forEach(u => {
+    const k = JSON.stringify([u.analysis, u.step, u.values]);
+    counted.set(k, { u, n: ((counted.get(k) || {}).n || 0) + 1 });
+  });
+  const lines = [...counted.values()].map(({ u, n }) => `<div>${escapeHtml(u.analysis)} ·
+      ${escapeHtml(u.step || 'no cell')}
+      <span class="adm-dim">${Object.entries(u.values).map(([k, v]) =>
+        `${escapeHtml(k)} ${escapeHtml(admRbValue(v))}`).join(', ')}</span>${n > 1
+        ? ` <span class="adm-pill warn" title="The same unit, ${n} times over">×${n}</span>` : ''}</div>`);
+  if (bare.length) {
+    // Old entries carry up to a dozen empty units, one per plot type; a list
+    // of names says nothing a count does not.
+    lines.push(`<div class="adm-dim">${bare.length} unit${bare.length === 1 ? '' : 's'}
+      without values${bare.length <= 3 ? ': ' + bare.map(u =>
+        escapeHtml(u.analysis + (u.step ? ' · ' + u.step : ''))).join(', ') : ''}</div>`);
+  }
+  return lines.join('');
+}
+
+function admRbNotes(r) {
+  const out = [];
+  if (r.gained.length) {
+    out.push(`<span class="adm-pill keep">+${r.gained.length} value${r.gained.length === 1 ? '' : 's'}</span>`);
+  }
+  const detail = r.removed.filter(x => x.detail_only);
+  const lost = r.removed.filter(x => !x.detail_only);
+  if (detail.length) {
+    out.push(`<div class="adm-dim" title="Fit-derived values stay out of the index until the model is fixed; run detail still shows them.">
+      ${detail.map(x => escapeHtml(x.name)).join(', ')} now in run detail only</div>`);
+  }
+  if (lost.length) {
+    out.push(`<div class="adm-note warn">no longer in the index:
+      ${lost.map(x => escapeHtml(x.analysis + ' ' + x.name)).join(', ')}</div>`);
+  }
+  if (r.stand_cleared) {
+    out.push(`<div class="adm-dim">guessed stand ${escapeHtml(r.stand_cleared)} dropped</div>`);
+  }
+  if (r.rows_collapsed) {
+    out.push(`<div class="adm-dim">${r.rows_collapsed} earlier summary
+      row${r.rows_collapsed === 1 ? '' : 's'} collapsed to the latest${
+      r.cells_missing.length ? ' — possibly the overwritten cell\'s; the backup keeps '
+        + (r.rows_collapsed === 1 ? 'it' : 'them') : ''}</div>`);
+  }
+  if (r.rows_unattributed) {
+    out.push(`<div class="adm-note warn">${r.rows_unattributed} summary
+      row${r.rows_unattributed === 1 ? ' names' : 's name'} no cell, and this
+      sample's older runs were on ${r.old_cells.length > 1 ? 'more than one' : 'no readable'}
+      cell — ${r.rows_unattributed === 1 ? 'it reaches' : 'they reach'} no unit</div>`);
+  }
+  if (r.plots_without_cell.length) {
+    out.push(`<div class="adm-note warn">${r.plots_without_cell.length}
+      plot${r.plots_without_cell.length === 1 ? '' : 's'} stored without plot data
+      could not be given a cell</div>`);
+  }
+  if (r.cells_missing.length) {
+    out.push(`<div class="adm-note warn" title="Before the cell id was in every file name, a second cell's plots replaced the first's.">
+      uploads also name ${r.cells_missing.map(escapeHtml).join(', ')}, which
+      has no plots stored — if it was analysed here, re-run it</div>`);
+  }
+  if (r.pre_elx_plots) {
+    out.push(`<div class="adm-dim">${r.pre_elx_plots} plot(s) from before Jul 27
+      stay filed as fuel-cell plots</div>`);
+  }
+  return out.join('') || '<span class="adm-dim">—</span>';
+}
+
+function admRebuildRender(d) {
+  const parts = [];
+  if (d.total) {
+    parts.push(`<div class="adm-prev" style="margin-top:14px">
+      <div class="adm-prevhead">${d.total} entr${d.total === 1 ? 'y' : 'ies'} would change</div>
+      <div class="adm-prevbody" style="max-height:420px"><table>
+        <thead><tr><th>Sample</th><th>Electrolyzer units now</th><th></th>
+          <th>After the rebuild</th><th>Notes</th></tr></thead>
+        <tbody>${d.entries.map(r => `<tr>
+          <td>${escapeHtml(r.sample_name)}</td>
+          <td class="adm-mono">${admRbUnits(r.units_before)}</td>
+          <td class="adm-arrow">→</td>
+          <td class="adm-mono">${admRbUnits(r.units_after)}</td>
+          <td>${admRbNotes(r)}</td></tr>`).join('')}
+        </tbody></table></div></div>`);
+    if (d.total > d.entries.length) {
+      parts.push(`<p class="adm-note">The first ${d.entries.length} are listed;
+        all ${d.total} are rebuilt.</p>`);
+    }
+  } else {
+    parts.push('<div class="adm-empty">Every electrolyzer entry is already current.</div>');
+  }
+  const old = d.left_as_stored || [];
+  if (old.length) {
+    const one = old.length === 1;
+    parts.push(`<p class="adm-note">${one ? 'One sample holds' : old.length + ' samples hold'}
+      electrolyzer runs from before Jul 27, filed as fuel-cell plots with no
+      cell and no values to recover, so ${one ? 'it is' : 'they are'} left as
+      ${one ? 'it is' : 'they are'} — re-run ${one ? 'it' : 'them'} to bring
+      ${one ? 'it' : 'them'} up to date:
+      ${old.map(x => escapeHtml(x.sample_name)).join(', ')}.</p>`);
+  }
+  const big = d.too_large || [];
+  if (big.length) {
+    parts.push(`<p class="adm-note warn">${big.length === 1 ? 'One record' : big.length + ' records'}
+      would go over the size limit once re-filed and ${big.length === 1 ? 'is' : 'are'}
+      left as stored, rather than lose plot data:
+      ${big.map(x => escapeHtml(x.sample_name)).join(', ')}.</p>`);
+  }
+  const bad = d.unreadable || [];
+  if (bad.length) {
+    parts.push(`<p class="adm-note bad">${bad.length === 1 ? 'One record' : bad.length + ' records'}
+      could not be read and ${bad.length === 1 ? 'is' : 'are'} left as stored:
+      ${bad.map(x => escapeHtml(x.sample_name + ' — ' + x.error)).join('; ')}</p>`);
+  }
+  return parts.join('');
+}
+
+async function admRebuildScan() {
+  const out = document.getElementById('admRbOut');
+  const note = document.getElementById('admRbNote');
+  const apply = document.getElementById('admApply');
+  apply.disabled = true;
+  apply.textContent = 'Rebuild';
+  ADM_STATE.rebuild = null;
+  note.textContent = 'Scanning…';
+  try {
+    const d = await adminPost('rebuild-electrolyzer', {});
+    ADM_STATE.rebuild = d;
+    note.textContent = `${d.scanned} electrolyzer sample${d.scanned === 1 ? '' : 's'}
+      checked: ${d.total} to rebuild, ${d.current} already current.`;
+    out.innerHTML = admRebuildRender(d);
+    apply.disabled = !d.total;
+    if (d.total) apply.textContent = `Rebuild ${d.total}`;
+  } catch (e) {
+    out.innerHTML = '';
+    note.textContent = e.message;
+  }
+}
+
+// The rebuild reports per record, so a partial run says what it did.
+function admRebuildDone(res, saved) {
+  const foot = document.getElementById('admFoot');
+  const failed = (res && res.failed) || [];
+  if (res && res.error) {
+    alert(res.error + (saved ? `\n\nThe backup was saved as ${saved}.` : ''));
+  } else if (failed.length) {
+    alert(`${failed.length} record(s) could not be written and were left as `
+      + `they are:\n` + failed.map(f => `${f.sample_name}: ${f.error}`).join('\n'));
+  }
+  const kept = saved ? ` — backup saved as ${saved}`
+    : '. The backup could not be saved to this browser; use ⭳ Backup before '
+      + 'the next change.';
+  if (res && res.error) {
+    foot.textContent = 'The index was not written — scan and rebuild again' + kept;
+  } else if (res && res.rebuilt) {
+    foot.textContent = `Rebuilt ${res.rebuilt} entr${res.rebuilt === 1 ? 'y' : 'ies'}` + kept;
+  } else {
+    foot.textContent = failed.length ? 'No entries were rebuilt.'
+      : 'Nothing needed rebuilding.';
+  }
+}
+
 // ── apply and backup ────────────────────────────────────────────
 async function adminApply() {
   const btn = document.getElementById('admApply');
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'Working…';
-  const tag = ['merge', 'rename', 'stand', 'delete'][ADM_PANE];
+  const tag = ['merge', 'rename', 'stand', 'delete', 'elx-rebuild'][ADM_PANE];
   let res = null;
   try {
     if (ADM_PANE === 0) {
@@ -12020,6 +12936,32 @@ async function adminApply() {
       res = await adminPost('stand', { keys: ADM_STATE.stand.keys,
         stand: ADM_STATE.stand.to, apply: true,
         allow_family_change: !!(document.getElementById('admFam') || {}).checked });
+    } else if (ADM_PANE === 4) {
+      // Two calls: the first reads everything and returns the backup without
+      // writing, which is saved here before the second may write anything.
+      // The second writes only if the store is still what the backup holds.
+      const prep = await adminPost('rebuild-electrolyzer', { prepare: true });
+      if (!prep.total) {
+        admPane(4);
+        document.getElementById('admFoot').textContent = 'Nothing needed rebuilding.';
+        return;
+      }
+      const saved = adminSaveBackup(prep.backup, tag);
+      // The page can start a download but cannot see it finish: a blocked or
+      // cancelled download looks the same from here. So ask.
+      if (!saved || !confirm(`The backup has been downloaded as ${saved}. `
+            + `Check that it was saved, then press OK to rebuild ${prep.total} `
+            + `entr${prep.total === 1 ? 'y' : 'ies'}.`)) {
+        if (!saved) alert('The backup could not be saved, so nothing was changed.');
+        btn.disabled = false; btn.textContent = label;
+        return;
+      }
+      res = await adminPost('rebuild-electrolyzer',
+                            { apply: true, keys: prep.keys, token: prep.token });
+      await adminRefresh();
+      admPane(4);
+      admRebuildDone(res, saved);
+      return;
     } else {
       const purge = document.getElementById('admPurge').checked;
       // A purge is irreversible, so the confirm names what is about to go and
@@ -12051,7 +12993,11 @@ async function adminRefresh() {
   ADM_STANDS = d.stands || [];
   document.getElementById('admCount').textContent = `${ADM_SAMPLES.length} samples`;
   // The history the View, Comparisons and Trends tabs share is stale the
-  // moment admin writes, as when an analysis is stored.
+  // moment admin writes, as when an analysis is stored — and so is what they
+  // fetched per run. A read drops that only for runs whose index entry moved
+  // (viewForgetRuns), and an admin change rewrites records without moving
+  // theirs, so all of it goes here.
+  viewForgetRuns([...new Set(Object.keys(_detailCache).concat(_viewRuns.map(runKey)))]);
   viewIndexChanged();
 }
 
@@ -13202,7 +14148,7 @@ document.getElementById('go').addEventListener('click', async () => {
 
       (d.jobs || []).forEach(j => {
         saveJobId(j.job_id);
-        renderJob(j.job_id, { status: 'running', message: `Running ${script} on ${j.sample_name}…`, script: script });
+        renderJob(j.job_id, { status: 'running', message: `Running ${scriptDisplayName(script)} on ${j.sample_name}…`, script: script });
         polling[j.job_id] = setInterval(() => poll(j.job_id), 2000);
       });
 
@@ -13245,7 +14191,7 @@ document.getElementById('go').addEventListener('click', async () => {
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
       saveJobId(d.job_id);
-      renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
+      renderJob(d.job_id, { status: 'running', message: `Running ${scriptDisplayName(script)}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
       markSubmittedName(submittedName);
@@ -13278,7 +14224,7 @@ document.getElementById('go').addEventListener('click', async () => {
       if (!r.ok) { alert(d.detail || 'Upload failed'); return; }
 
       saveJobId(d.job_id);
-      renderJob(d.job_id, { status: 'running', message: `Running ${script}…` });
+      renderJob(d.job_id, { status: 'running', message: `Running ${scriptDisplayName(script)}…` });
       polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
 
       markSubmittedName(submittedName);
@@ -13444,7 +14390,7 @@ function renderJob(id, d) {
   }
 
   const sampleLabel = d.sample_name ? `<span class="job-sample">${esc(d.sample_name)}</span>` : '';
-  const scriptLabel = d.script ? `<span class="job-script">${esc(d.script)}</span>` : '';
+  const scriptLabel = d.script ? `<span class="job-script">${esc(scriptDisplayName(d.script))}</span>` : '';
 
   // Per-sample batch compare button: select every comparable PNG in this job
   let sampleBatchBtn = '';
@@ -14010,10 +14956,11 @@ document.addEventListener('keydown', e => {
       <span class="adm-spacer"></span>
       <button class="adm-x" onclick="adminClose()">×</button></div>
     <div class="adm-tabs">
-      <button class="adm-tab on" onclick="admPane(0,this)">Duplicates</button>
-      <button class="adm-tab" onclick="admPane(1,this)">Rename</button>
-      <button class="adm-tab" onclick="admPane(2,this)">Test stand</button>
-      <button class="adm-tab danger" onclick="admPane(3,this)">Add / Delete</button>
+      <button class="adm-tab on" data-pane="0" onclick="admPane(0,this)">Duplicates</button>
+      <button class="adm-tab" data-pane="1" onclick="admPane(1,this)">Rename</button>
+      <button class="adm-tab" data-pane="2" onclick="admPane(2,this)">Test stand</button>
+      <button class="adm-tab" data-pane="4" onclick="admPane(4,this)">Electrolyzer</button>
+      <button class="adm-tab danger" data-pane="3" onclick="admPane(3,this)">Add / Delete</button>
     </div>
     <div class="adm-body" id="admBody"></div>
     <div class="adm-foot">

@@ -18,16 +18,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scripts.helpers.plot_compare import save_with_sidecar
+from scripts.helpers.record import normalise_step
 
-# The step this run belongs to, declared into every sidecar. None of this
-# script's output filenames encode one ('polcurve.png', 'model_fit.png'), so
-# without an explicit stamp every plot lands in the (bucket, '') merge unit and
-# a second cell analysed under the same sample name replaces the first.
+# The step this run belongs to — the cell id — and the conditions it ran at,
+# declared into every sidecar. The record layer takes declared conditions over
+# anything parsed from a filename: without the step, every plot lands in the
+# (bucket, '') merge unit and a second cell analysed under the same sample
+# name replaces the first; without temperature and pressure, nothing can be
+# coloured or filtered by them.
+#
+# The cell id also goes into every output filename (polcurve_a1.png, see
+# _named). Records key plots by name, so two cells writing 'polcurve.png'
+# would still overwrite each other there even with their steps declared.
 #
 # Module-level rather than threaded through fifteen plot signatures: the pool
 # runs one job per worker process (max_tasks_per_child=1), so there is exactly
 # one analysis in flight per interpreter. analyze() sets it on entry.
-_STEP_CTX = {'step': None}
+_STEP_CTX = {'step': None, 'conditions': {}}
 
 
 def _readout(ax, lines, loc='lower right'):
@@ -52,13 +59,27 @@ def _readout(ax, lines, loc='lower right'):
 
 
 def _save(fig, save_path, plot_type=None, **kw):
-    """save_with_sidecar with this run's step declared in the sidecar."""
+    """save_with_sidecar with this run's step and conditions declared in the sidecar."""
+    declared = dict(_STEP_CTX.get('conditions') or {})
     step = _STEP_CTX.get('step')
     if step:
+        declared['step'] = step
+    if declared:
         md = dict(kw.pop('metadata', None) or {})
-        md['conditions'] = {**(md.get('conditions') or {}), 'step': step}
+        md['conditions'] = {**(md.get('conditions') or {}), **declared}
         kw['metadata'] = md
     return save_with_sidecar(fig, save_path, plot_type=plot_type, **kw)
+
+
+def _named(stem, ext):
+    """An output filename carrying this run's cell id: 'polcurve_a1.png'.
+
+    The id is the step exactly as declared (already normalised by analyze),
+    so a plot's name and its declared step always agree. With no id the name
+    is unchanged.
+    """
+    tag = _STEP_CTX.get('step')
+    return f'{stem}_{tag}.{ext}' if tag else f'{stem}.{ext}'
 from pathlib import Path
 
 
@@ -1256,7 +1277,10 @@ def plot_v_and_hfr_vs_cycle(cycles, j_targets, eis_mapped, save_path=None):
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.18)
     if save_path:
-        _save(fig, save_path, plot_type='elx_losses_vs_cycle', bbox_inches='tight')
+        # The galvanostatic counterpart of plot_j_and_hfr_vs_cycle, which saves
+        # as elx_j_vs_cycle; this one was mislabelled elx_losses_vs_cycle, so a
+        # request for the voltage-per-cycle plot would never find it.
+        _save(fig, save_path, plot_type='elx_v_vs_cycle', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3292,7 +3316,9 @@ def plot_coth_analysis(coth_result, tafel_result, eis_fits, cycle_num=None,
 
     plt.tight_layout()
     if save_path:
-        _save(fig, save_path, plot_type='CLR_analysis', bbox_inches='tight')
+        # elx_ prefix: an electrolyzer analysis, filed with the electrolyzer
+        # EIS rather than the fuel-cell 'CLR' bucket.
+        _save(fig, save_path, plot_type='elx_clr_analysis', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3417,7 +3443,7 @@ def plot_coth_model_fit(coth_result, tafel_result, cycle_num=None,
 
     plt.tight_layout()
     if save_path:
-        _save(fig, save_path, plot_type='CLR_model_fit', bbox_inches='tight')
+        _save(fig, save_path, plot_type='elx_clr_model_fit', bbox_inches='tight')
         print(f"  Plot saved: {save_path}")
     else:
         plt.show()
@@ -3877,22 +3903,80 @@ def voltage_at_currents(cycle, targets=(1.0, 2.0)):
     return out
 
 
-def build_summary(cycles, fr, eis_fit_results=None):
+def _full_cycles(cycles):
+    """The complete sweeps: the cycles with the most points.
+
+    The model fit and the reported voltages both take the last of these, so a
+    final sweep that was cut short does not stand in for the run.
+    """
+    if not cycles:
+        return []
+    max_pts = max(len(c) for c in cycles)
+    full = [c for c in cycles if len(c) == max_pts]
+    return full or [c for c in cycles if len(c) >= max_pts * 0.8]
+
+
+def _hfr_fit(eis_fit_results):
+    """The circuit fit whose R0 is reported as the run's HFR.
+
+    One fixed spectrum, so the number means the same thing from run to run:
+    the latest of the tracking spectra — those not taken along a current sweep
+    — at their lowest DC voltage, which is normally the reference spectrum
+    taken each cycle. Simply taking the last fit, as before, gave R0 at the
+    highest current of the current-dependent sweep when one was measured and
+    the reference spectrum when not, and R0 varies with current.
+    """
+    tracking = [f for f in eis_fit_results if f.get('j') is None]
+    pool = tracking or list(eis_fit_results)
+    volts = [f['dc_v'] for f in pool if isinstance(f.get('dc_v'), (int, float))]
+    if volts:
+        lo = min(volts)
+        tol = max(0.02 * abs(lo), 0.005)
+        pool = [f for f in pool if isinstance(f.get('dc_v'), (int, float))
+                and abs(f['dc_v'] - lo) <= tol]
+    if all(isinstance(f.get('t_eis'), (int, float)) for f in pool):
+        return max(pool, key=lambda f: f['t_eis'])
+    return pool[-1]
+
+
+def build_summary(cycles, fr, eis_fit_results=None, step=None):
     """Tier 1 scalars for one electrolyzer polcurve run.
 
     Two rows at most: one for the polarization sweep and its model fit, one for
     the impedance fit. They are tagged with their buckets so the record layer
     can attach each to the right analysis unit instead of flattening both into
-    whichever it sees first.
+    whichever it sees first, and with the run's step (the cell id, blank when
+    there is none), so two cells under one sample each attach to their own
+    unit and a re-run of one cell replaces only that cell's rows.
 
-    Voltages come from the last cycle — the same one fit_polcurve was given —
-    so the measured and fitted numbers describe the same sweep.
+    Voltages come from the last complete cycle — the same one fit_polcurve is
+    given — so the measured and fitted numbers describe the same sweep. HFR is
+    R0 from one fixed spectrum (_hfr_fit), named in HFR_dc_V.
     """
     rows = []
 
     pol = {'Analysis': 'elx_polcurve'}
-    if cycles:
-        pol.update(voltage_at_currents(cycles[-1]))
+    full = _full_cycles(cycles)
+    last = full[-1] if full else None
+    if last:
+        pol.update(voltage_at_currents(last))
+    v_last = pol.get('V_at_2Acm2')
+    if v_last is not None:
+        # Cycling stability as one number: the change in cell voltage at
+        # 2 A/cm² from the first cycle to the last, in mV — from the earliest
+        # sweep of the same control mode that reaches 2 A/cm² (in a dual-mode
+        # file a CC sweep is not compared with a CP one). As with the voltages
+        # themselves, nothing is extrapolated.
+        mode = (last[0] or {}).get('cycle_label', '')
+        for cyc in cycles:
+            if cyc is last:
+                break
+            if not cyc or cyc[0].get('cycle_label', '') != mode:
+                continue
+            v_first = voltage_at_currents(cyc, targets=(2.0,)).get('V_at_2Acm2')
+            if v_first is not None:
+                pol['dV_at_2Acm2_mV'] = (v_last - v_first) * 1000.0
+                break
     if fr:
         xf = fr.get('x')
         pol['E_rev'] = float(fr['E_rev'])
@@ -3908,14 +3992,22 @@ def build_summary(cycles, fr, eis_fit_results=None):
         rows.append(pol)
 
     if eis_fit_results:
-        last = eis_fit_results[-1]
-        r0 = last.get('R0_asr')
+        pick = _hfr_fit(eis_fit_results)
+        r0 = pick.get('R0_asr')
         if isinstance(r0, (int, float)):
             # R0 is the series (ohmic) resistance — the impedance-side HFR.
             # Converted from mΩ·cm² to the shared 'HFR' key's Ω·cm².
-            rows.append({'Analysis': 'elx_eis', 'HFR': float(r0) / 1000.0,
-                         'R0_asr_mohm_cm2': float(r0)})
+            eis = {'Analysis': 'elx_eis', 'HFR': float(r0) / 1000.0,
+                   'R0_asr_mohm_cm2': float(r0)}
+            if isinstance(pick.get('dc_v'), (int, float)):
+                eis['HFR_dc_V'] = float(pick['dc_v'])
+            rows.append(eis)
 
+    # Always present, blank when the run names no cell: a row without the key
+    # was written under the old rules, and only those have a cell inferred
+    # for them when a stored record is brought up to date.
+    for row in rows:
+        row['step'] = str(step or '')
     return rows
 
 
@@ -3924,7 +4016,16 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
             eis_files=None, eis_ref_voltage=None, image_ext='png',
             step=None):
     """Full pipeline: load → extract → cycles → EIS → plot → fit."""
-    _STEP_CTX['step'] = (str(step).strip().lower() or None) if step else None
+    # The cell id is typed on the form. Reduced once to lower-case letters,
+    # digits, '_' and '-' — the shape the record layer gives every declared
+    # step — because it lands in filenames, in the index and in the views.
+    _STEP_CTX['step'] = normalise_step(step) or None
+    # What the form says this cell ran at. P_value/P_unit is the cathode (H₂)
+    # side, the usual quoted operating pressure; the anode is recorded beside
+    # it so balanced and differential runs stay distinguishable.
+    _STEP_CTX['conditions'] = {'T_C': float(T_C),
+                               'P_value': float(p_cathode_barg), 'P_unit': 'barg',
+                               'P_anode_barg': float(p_anode_barg)}
 
     # Load polcurve
     data, fieldnames = load_data(filepath)
@@ -4034,13 +4135,13 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
         _ext = image_ext or 'png'
-        polcurve_path = os.path.join(save_dir, f'polcurve.{_ext}') if image_ext else None
-        jvc_path = os.path.join(save_dir, f'j_vs_cycle.{_ext}') if image_ext else None
-        xlsx_path = os.path.join(save_dir, 'analysis_data.xlsx')
-        fit_path = os.path.join(save_dir, f'model_fit.{_ext}') if image_ext else None
-        nyquist_path = os.path.join(save_dir, f'nyquist.{_ext}') if image_ext else None
-        losses_path = os.path.join(save_dir, f'losses_vs_cycle.{_ext}') if image_ext else None
-        ir_path = os.path.join(save_dir, f'ir_correction.{_ext}') if image_ext else None
+        polcurve_path = os.path.join(save_dir, _named('polcurve', _ext)) if image_ext else None
+        jvc_path = os.path.join(save_dir, _named('j_vs_cycle', _ext)) if image_ext else None
+        xlsx_path = os.path.join(save_dir, _named('analysis_data', 'xlsx'))
+        fit_path = os.path.join(save_dir, _named('model_fit', _ext)) if image_ext else None
+        nyquist_path = os.path.join(save_dir, _named('nyquist', _ext)) if image_ext else None
+        losses_path = os.path.join(save_dir, _named('losses_vs_cycle', _ext)) if image_ext else None
+        ir_path = os.path.join(save_dir, _named('ir_correction', _ext)) if image_ext else None
     else:
         polcurve_path = jvc_path = xlsx_path = fit_path = nyquist_path = losses_path = ir_path = None
 
@@ -4127,11 +4228,11 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                             os.makedirs(eis_fits_dir, exist_ok=True)
                             if len(eis_results_for_tracking) == 1:
                                 eis_fit_path = os.path.join(
-                                    eis_fits_dir, f'eis_fit.{image_ext}')
+                                    eis_fits_dir, _named('eis_fit', image_ext))
                             else:
                                 safe = label.replace('=', '').replace(' ', '_')
                                 eis_fit_path = os.path.join(
-                                    eis_fits_dir, f'eis_fit_{safe}.{image_ext}')
+                                    eis_fits_dir, _named(f'eis_fit_{safe}', image_ext))
                             plot_eis_fit(eis_data, efr, geo_area=geo_area,
                                          title=f'EIS Fit — {label}',
                                          save_path=eis_fit_path)
@@ -4218,7 +4319,7 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                         os.makedirs(eis_fits_dir, exist_ok=True)
                         safe = label.replace('=', '').replace(' ', '_')
                         eis_fit_path = os.path.join(
-                            eis_fits_dir, f'eis_fit_{safe}.{image_ext}')
+                            eis_fits_dir, _named(f'eis_fit_{safe}', image_ext))
                         plot_eis_fit(eis_data, efr, geo_area=geo_area,
                                      title=f'EIS Fit — Cycle {cd_cyc_idx+1}, '
                                            f'j = {e["j"]:.3f} A/cm²',
@@ -4253,13 +4354,13 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                 import os
                 _ext = image_ext
                 if len(eis_groups) == 1:
-                    ir_save = os.path.join(save_dir, f'ir_correction.{_ext}')
-                    eis_save = os.path.join(save_dir, f'eis_for_ir.{_ext}')
+                    ir_save = os.path.join(save_dir, _named('ir_correction', _ext))
+                    eis_save = os.path.join(save_dir, _named('eis_for_ir', _ext))
                 else:
-                    ir_save = os.path.join(save_dir,
-                                           f'ir_correction_cycle{cd_cyc_idx + 1}.{_ext}')
-                    eis_save = os.path.join(save_dir,
-                                            f'eis_for_ir_cycle{cd_cyc_idx + 1}.{_ext}')
+                    ir_save = os.path.join(save_dir, _named(
+                        f'ir_correction_cycle{cd_cyc_idx + 1}', _ext))
+                    eis_save = os.path.join(save_dir, _named(
+                        f'eis_for_ir_cycle{cd_cyc_idx + 1}', _ext))
                 plot_ir_correction(
                     j_p, V_p, V_irf, j_h, asr_h, asr_i,
                     cycle_label=f'iR Correction — Cycle {cd_cyc_idx + 1}',
@@ -4346,10 +4447,10 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
 
             if image_ext and save_dir:
                 if len(eis_circuit_by_cycle) == 1:
-                    coth_path = os.path.join(save_dir, f'CLR_analysis.{image_ext}')
+                    coth_path = os.path.join(save_dir, _named('CLR_analysis', image_ext))
                 else:
-                    coth_path = os.path.join(save_dir,
-                                              f'CLR_analysis_cycle{ci+1}.{image_ext}')
+                    coth_path = os.path.join(save_dir, _named(
+                        f'CLR_analysis_cycle{ci+1}', image_ext))
                 plot_coth_analysis(cr, tfr, fits, cycle_num=ci+1,
                                     geo_area=geo_area, T_C=T_C,
                                     p_cathode_barg=p_cathode_barg,
@@ -4359,10 +4460,10 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
 
                 # 3-panel model fit plot
                 if len(eis_circuit_by_cycle) == 1:
-                    coth_fit_path = os.path.join(save_dir, f'CLR_model_fit.{image_ext}')
+                    coth_fit_path = os.path.join(save_dir, _named('CLR_model_fit', image_ext))
                 else:
-                    coth_fit_path = os.path.join(save_dir,
-                                             f'CLR_model_fit_cycle{ci+1}.{image_ext}')
+                    coth_fit_path = os.path.join(save_dir, _named(
+                        f'CLR_model_fit_cycle{ci+1}', image_ext))
                 plot_coth_model_fit(cr, tfr, cycle_num=ci+1,
                                     T_C=T_C, p_cathode_barg=p_cathode_barg,
                                     p_anode_barg=p_anode_barg,
@@ -4421,7 +4522,7 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                 eis_loss_data = (cn_eis, v_eis, eis_losses)
                 if image_ext and save_dir:
                     eis_loss_path = os.path.join(save_dir,
-                                                  f'eis_losses_vs_cycle.{image_ext}')
+                                                  _named('eis_losses_vs_cycle', image_ext))
                     plot_eis_losses_vs_cycle(cn_eis, v_eis, eis_losses,
                                              j_target=j_primary,
                                              save_path=eis_loss_path)
@@ -4433,10 +4534,9 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
     # ── Fit last complete cycle ──
     fr = None
     if cycles:
-        max_pts = max(len(c) for c in cycles)
-        full_cycles = [c for c in cycles if len(c) == max_pts]
-        if not full_cycles:
-            full_cycles = [c for c in cycles if len(c) >= max_pts * 0.8]
+        # Shared with build_summary, so the fit and the reported voltages
+        # describe the same sweep.
+        full_cycles = _full_cycles(cycles)
 
         if full_cycles:
             last_cyc = full_cycles[-1]
@@ -4488,7 +4588,8 @@ def analyze(filepath, geo_area=5.0, save_dir=None, title=None,
                      eis_loss_data=eis_loss_data,
                      coth_results=coth_results if coth_results else None)
 
-    summary = build_summary(cycles, fr, eis_fit_results)
+    summary = build_summary(cycles, fr, eis_fit_results,
+                            step=_STEP_CTX.get('step'))
     return cycles, fr, eis_mapped, summary
 
 

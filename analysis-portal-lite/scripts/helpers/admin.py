@@ -12,19 +12,33 @@ The primitives are shared with the CLI tools rather than reimplemented:
 ``dupdetect`` for matching, ``record.merge_*`` for merging, ``record``'s stand
 vocabulary for stands. Only the orchestration differs, because a modal cannot
 take ``--purge 3``.
+
+Writes take the locks pushes take, in the same order: the lock of every sample
+they touch (in name order, so two admin writes cannot deadlock either), held
+for the whole operation, then the index lock for one read-modify-write of the
+index as it stands at that moment (`_patch_index`). The portal runs these in
+worker threads, so without that a push finishing mid-operation, or a second
+operation, could lose the other's change or have its own undone.
 """
 
 from __future__ import annotations
 
+import contextlib
+import functools
+import hashlib
+import inspect
+import json
 import re
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set
 
-from scripts.helpers import dupdetect, jsonbin
+from scripts.helpers import dupdetect, jsonbin, registry
 from scripts.helpers.record import (
-    FORBIDDEN_NAME_CHARS, STAND_OPTIONS, build_index_entry,
-    merge_detail_record, merge_index_entry, parse_run_date, stand_family,
-    stand_number,
+    FORBIDDEN_NAME_CHARS, PRE_ELX_TYPES, STAND_OPTIONS, build_index_entry,
+    decode_sidecars, guesses_stand, merge_detail_record, merge_index_entry,
+    normalise_electrolyzer, old_electrolyzer_cells, parse_run_date,
+    plot_bucket, stand_family, stand_number, touched_units, unplaced_rows,
 )
 
 MAX_PREVIEW_ROWS = 400
@@ -63,6 +77,71 @@ def _snapshot(keys: List[str]) -> Dict[str, Any]:
         raise RuntimeError(
             f'could not take a backup before writing ({type(e).__name__}: {e}); '
             f'nothing was changed') from e
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Locking
+# ─────────────────────────────────────────────────────────────────────
+
+@contextlib.contextmanager
+def _samples_locked(names: Iterable[str]):
+    """Hold the push locks of the named samples, in name order."""
+    keys = sorted({str(n or '') or '__unnamed__' for n in names})
+    with contextlib.ExitStack() as stack:
+        for k in keys:
+            stack.enter_context(jsonbin._sample_lock(k))
+        yield
+
+
+def _patch_index(change: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+                 ) -> None:
+    """Rewrite the index as it stands now: change(runs) -> runs, under the lock.
+
+    Read here rather than reusing the copy an operation started from, so
+    entries written since — another sample's push, another admin change — are
+    kept. The entries the operation itself changes cannot have moved on: their
+    samples' locks are held.
+    """
+    with jsonbin._index_lock:
+        index = jsonbin.fetch_index()
+        index['runs'] = change(_entries(index))
+        jsonbin._write_index(index)
+
+
+def _names_for(index: Dict[str, Any], keys: Iterable[Any]) -> Set[str]:
+    """Sample names of the entries with these keys."""
+    want = {str(k) for k in keys or []}
+    return {e.get('sample_name') or '' for e in _entries(index) if _key(e) in want}
+
+
+def _locked_when_applied(names_of: Callable[[Dict[str, Any], Dict[str, Any]], Set[str]]):
+    """Run the decorated operation, when applied, holding its samples' locks.
+
+    `names_of(index, args)` names the samples the call touches, from an index
+    read. It is asked again once the locks are held: a name changed in the
+    meantime — another rename, a merge — means a lock is missing, and the
+    locks are taken again with it. A preview takes no locks.
+    """
+    def deco(fn):
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def run(*args, **kwargs):
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            if not bound.arguments.get('apply'):
+                return fn(*args, **kwargs)
+            names = set(names_of(jsonbin.fetch_index(), bound.arguments))
+            for _ in range(3):
+                with _samples_locked(names):
+                    now = set(names_of(jsonbin.fetch_index(), bound.arguments))
+                    if now <= names:
+                        return fn(*args, **kwargs)
+                names |= now
+            raise RuntimeError('the samples kept changing while this waited for '
+                               'them; nothing was changed — try again')
+        return run
+    return deco
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -206,6 +285,8 @@ def find_duplicates() -> Dict[str, Any]:
             'unreadable': unreadable[:MAX_PREVIEW_ROWS]}
 
 
+@_locked_when_applied(lambda index, a: _names_for(index, a['keys'])
+                      | {str(a['keep_name'] or '')})
 def merge_duplicate_group(keys: List[str], keep_name: str,
                           apply: bool = False) -> Dict[str, Any]:
     """Merge one group into a single entry under ``keep_name``.
@@ -254,8 +335,8 @@ def merge_duplicate_group(keys: List[str], keep_name: str,
     preview['backup'] = _snapshot([_key(m) for m in members])
     jsonbin.update_detail_bin(survivor, merged_detail)
     drop = {_key(m) for m in members}
-    index['runs'] = [e for e in _entries(index) if _key(e) not in drop] + [merged_entry]
-    jsonbin._write_index(index)
+    _patch_index(lambda runs: [e for e in runs if _key(e) not in drop]
+                 + [merged_entry])
     preview['applied'] = True
     # Superseded bins are left in place rather than deleted: an orphan bin is
     # an accepted state, and destroying data during a merge would make a
@@ -267,6 +348,8 @@ def merge_duplicate_group(keys: List[str], keep_name: str,
 #  Rename
 # ─────────────────────────────────────────────────────────────────────
 
+@_locked_when_applied(lambda index, a: _names_for(index, [a['key']])
+                      | {str(a['new_name'] or '').strip()})
 def rename_sample(key: str, new_name: str, apply: bool = False) -> Dict[str, Any]:
     """Rename one stored sample.
 
@@ -334,8 +417,7 @@ def rename_sample(key: str, new_name: str, apply: bool = False) -> Dict[str, Any
         merged['run_date'] = new_date
     else:
         merged.pop('run_date', None)
-    index['runs'] = [e for e in entries if _key(e) != key] + [merged]
-    jsonbin._write_index(index)
+    _patch_index(lambda runs: [e for e in runs if _key(e) != key] + [merged])
     preview['applied'] = True
     return preview
 
@@ -344,6 +426,7 @@ def rename_sample(key: str, new_name: str, apply: bool = False) -> Dict[str, Any
 #  Test stand
 # ─────────────────────────────────────────────────────────────────────
 
+@_locked_when_applied(lambda index, a: _names_for(index, a['keys']))
 def set_stand(keys: List[str], stand: str, apply: bool = False,
               allow_family_change: bool = False) -> Dict[str, Any]:
     """Set the recorded test stand on the given samples.
@@ -389,23 +472,29 @@ def set_stand(keys: List[str], stand: str, apply: bool = False,
         rec = jsonbin.fetch_detail_bin(bin_id)
         rec['stand'] = stand
         jsonbin.update_detail_bin(bin_id, rec)
-        e['stand'] = stand
-    jsonbin._write_index(index)
+    changed = {r['key'] for r in changes}
+    _patch_index(lambda runs: [dict(e, stand=stand) if _key(e) in changed else e
+                               for e in runs])
     preview['applied'] = True
     return preview
 
 
-def find_stand_drift() -> Dict[str, Any]:
+def find_stand_drift(keys: Optional[List[str]] = None) -> Dict[str, Any]:
     """Index entries whose stand is vaguer than the detail record's.
 
     The detail record keeps what was declared; before `better_stand` the index
     could be overwritten with the bare family derived from a file extension.
     Anything this reports was demoted rather than chosen, and the number is
     still there to put back.
+
+    `keys` limits the check to those entries.
     """
     index = jsonbin.fetch_index()
+    wanted = None if keys is None else set(keys)
     out = []
     for e in _entries(index):
+        if wanted is not None and _key(e) not in wanted:
+            continue
         idx_stand = str(e.get('stand') or '')
         try:
             rec = jsonbin.fetch_detail_bin(e.get('bin_id'))
@@ -432,14 +521,19 @@ def repair_stands(apply: bool = False) -> Dict[str, Any]:
     if not apply or not found['drifted']:
         return preview
 
-    preview['backup'] = _snapshot([r['key'] for r in found['drifted']])
-    index = jsonbin.fetch_index()
-    by_key = {_key(e): e for e in _entries(index)}
-    for r in found['drifted']:
-        e = by_key.get(r['key'])
-        if e is not None:
-            e['stand'] = r['record']
-    jsonbin._write_index(index)
+    # Checked again once the samples are locked: a push or a stand change
+    # since the scan above may have settled some of them already.
+    with _samples_locked(r['sample_name'] for r in found['drifted']):
+        again = find_stand_drift([r['key'] for r in found['drifted']])
+        names = {r['sample_name'] for r in found['drifted']}
+        repairs = [r for r in again['drifted'] if r['sample_name'] in names]
+        preview['repairs'] = repairs
+        if not repairs:
+            return preview
+        preview['backup'] = _snapshot([r['key'] for r in repairs])
+        fix = {r['key']: r['record'] for r in repairs}
+        _patch_index(lambda runs: [dict(e, stand=fix[_key(e)]) if _key(e) in fix
+                                   else e for e in runs])
     preview['applied'] = True
     return preview
 
@@ -454,10 +548,14 @@ def build_backup(keys: Optional[List[str]] = None,
 
     Carries the full detail records, not just index entries: an entry alone
     cannot bring a sample back, because its measurements live in the bin.
+
+    A record that cannot be read is listed under `unreadable` rather than
+    silently left out, so the file says what it does not hold.
     """
     index = jsonbin.fetch_index()
     entries = _entries(index)
-    chosen = [e for e in entries if keys is None or _key(e) in set(keys)]
+    wanted = None if keys is None else set(keys)
+    chosen = [e for e in entries if wanted is None or _key(e) in wanted]
     payload = {
         'kind': 'analysis-portal-backup',
         'version': 1,
@@ -472,11 +570,15 @@ def build_backup(keys: Optional[List[str]] = None,
                 payload['purged'].append(
                     {'bin_id': e.get('bin_id'),
                      'record': jsonbin.fetch_detail_bin(e.get('bin_id'))})
-            except Exception:
-                pass
+            except Exception as exc:
+                payload.setdefault('unreadable', []).append(
+                    {'bin_id': e.get('bin_id'),
+                     'sample_name': e.get('sample_name', ''),
+                     'error': f'{type(exc).__name__}: {exc}'[:200]})
     return payload
 
 
+@_locked_when_applied(lambda index, a: _names_for(index, a['keys']))
 def delete_samples(keys: List[str], purge: bool = False,
                    apply: bool = False) -> Dict[str, Any]:
     """Remove samples from the index, and optionally destroy their data.
@@ -511,8 +613,7 @@ def delete_samples(keys: List[str], purge: bool = False,
     preview['backup'] = _snapshot(keys)
 
     drop = set(keys)
-    index['runs'] = [e for e in _entries(index) if _key(e) not in drop]
-    jsonbin._write_index(index)
+    _patch_index(lambda runs: [e for e in runs if _key(e) not in drop])
 
     deleted, failed = 0, []
     if purge:
@@ -602,6 +703,7 @@ def inspect_backup(payload: Dict[str, Any]) -> Dict[str, Any]:
             'index_snapshot_entries': len(_entries(payload.get('index') or {}))}
 
 
+@_locked_when_applied(lambda index, a: {str(n or '') for n in a['names'] or []})
 def restore_backup(payload: Dict[str, Any], names: List[str],
                    apply: bool = False) -> Dict[str, Any]:
     """Put the named samples back, merging into the current index.
@@ -642,8 +744,7 @@ def restore_backup(payload: Dict[str, Any], names: List[str],
                for p in (payload.get('purged') or []) if isinstance(p, dict)}
     entries = {str(_key(e)): e for e in (payload.get('removed') or [])}
 
-    index = jsonbin.fetch_index()
-    written = []
+    written, restored = [], []
     for item in todo:
         entry = dict(entries.get(item['key']) or {})
         if item['state'] == 'purged':
@@ -657,10 +758,331 @@ def restore_backup(payload: Dict[str, Any], names: List[str],
                 rec, name=f"{item['sample_name']}-restored")
             entry = build_index_entry(rec, new_bin)
             item['new_bin_id'] = new_bin
-        index['runs'] = [e for e in _entries(index) if _key(e) != _key(entry)]
-        index['runs'].append(entry)
+        restored.append(entry)
         written.append(item)
-    jsonbin._write_index(index)
+
+    def change(runs):
+        for entry in restored:
+            runs = [e for e in runs if _key(e) != _key(entry)] + [entry]
+        return runs
+    _patch_index(change)
     preview['applied'] = True
     preview['restoring'] = written
     return preview
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Electrolyzer entries
+# ─────────────────────────────────────────────────────────────────────
+#
+# Electrolyzer runs pushed under earlier rules are stored in shapes the views
+# cannot read: between Aug 4 and the registry, one bucket per plot type with no
+# cell and no values; before that, the right buckets but fit-derived values in
+# the index, the EIS unit split five ways by a misread setpoint, and a stand
+# guessed from .csv files. Everything needed to file them properly is in what
+# each run stored — every plot keeps its type and the cell its script declared
+# — so they are rebuilt from the records, not re-analysed: the record by
+# record.normalise_electrolyzer, exactly as a push merging into it would, and
+# the entry's electrolyzer units from the record.
+
+ELECTROLYZER_SCRIPTS = tuple(registry.FAMILIES['elx']['scripts'])
+
+# Runs from before the pol-curve script named its plot types elx_* (Jul 27,
+# until 16:15; record.PRE_ELX_TYPES) are filed as fuel-cell pol curves and EIS,
+# and nothing in them says which cell they were on or holds a summary to take
+# values from. They are reported and left as stored; re-running is the fix.
+
+_CELL_IN_UPLOAD = re.compile(r'(?:^|[\\/])1_([A-Za-z0-9]+)_[^\\/]*$')
+
+_BACKUP_ABOUT = (
+    'Taken before an electrolyzer rebuild: the index, and every entry and '
+    'record the rebuild replaced, as they were. Restore puts back samples that '
+    'are missing; it does not undo a rebuild, which rewrites samples in place. '
+    'To undo one, write these records and entries back.')
+
+
+def _elx_unit(analysis: Any) -> bool:
+    """An index unit of an electrolyzer analysis, under any name it has been
+    stored with — 'elx_model_fit' is the pol curve's."""
+    return registry.family(plot_bucket(str(analysis or ''))) == 'elx'
+
+
+def _stepped(analysis: Any) -> bool:
+    """An electrolyzer analysis whose units are cells."""
+    a = registry.ANALYSES.get(str(analysis or '')) or {}
+    return a.get('family') == 'elx' and not a.get('stepless')
+
+
+def _may_be_electrolyzer(entry: Dict[str, Any]) -> bool:
+    """Whether an entry may hold electrolyzer runs, from the index alone, so a
+    scan reads only those records."""
+    return (entry.get('script') in ELECTROLYZER_SCRIPTS
+            or any(_elx_unit(u.get('Analysis')) for u in entry.get('Data') or []))
+
+
+def _canon(units: List[Dict[str, Any]]) -> List[str]:
+    """Units as an order-free, comparable list."""
+    return sorted(json.dumps(u, sort_keys=True) for u in units)
+
+
+def _unit_view(u: Dict[str, Any]) -> Dict[str, Any]:
+    return {'analysis': u.get('Analysis', ''), 'step': u.get('step', ''),
+            'values': dict(u.get('key_values') or {})}
+
+
+def _plan_one(entry: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
+    """What rebuilding one entry does, from its entry and record. Writes nothing.
+
+    The record is normalised as a push would. The entry's electrolyzer units
+    are rebuilt from the normalised record; of the rest it keeps every unit
+    whose plots are still in the record, exactly as stored — even where the
+    current rules would build it differently, which is not this operation's
+    business — and drops the others, as a push merging into it would: the
+    catalyst-layer plots the old rules put in the fuel-cell 'CLR' bucket are
+    re-filed under EIS, and an older merge could leave a unit behind. Its
+    stand goes if it was only ever guessed (record.guesses_stand).
+
+    A record re-filed past the transport limit is left as it is, entry and
+    all, and reported: fitting it would mean dropping plot data, which this
+    operation never does.
+    """
+    bin_id = entry.get('bin_id')
+    fixed = normalise_electrolyzer(record)
+    built = build_index_entry(fixed, bin_id)
+    now = touched_units(fixed)
+
+    def gone(u):
+        return (u.get('Analysis', ''), u.get('step', '')) not in now
+
+    old_data = list(entry.get('Data') or [])
+    kept = [u for u in old_data if not _elx_unit(u.get('Analysis')) and not gone(u)]
+    data = kept + [u for u in built['Data'] if _elx_unit(u['Analysis'])]
+    new_entry = dict(entry)
+    # Unchanged but for their order is unchanged: an entry already rebuilt, or
+    # written by a push under the current rules, is not rewritten to reorder it.
+    new_entry['Data'] = old_data if _canon(data) == _canon(old_data) else data
+    if not fixed.get('stand') and not guesses_stand(fixed):
+        new_entry.pop('stand', None)
+
+    record_changed = fixed is not record
+    body_bytes = (len(json.dumps(fixed, ensure_ascii=False).encode())
+                  if record_changed else None)
+
+    # What the operator should see before applying.
+    before = [u for u in old_data if _elx_unit(u.get('Analysis')) or gone(u)]
+    after = [u for u in new_entry['Data'] if _elx_unit(u.get('Analysis'))]
+
+    def names(units):
+        return {(plot_bucket(u.get('Analysis', '')), n)
+                for u in units for n in (u.get('key_values') or {})}
+    gained = sorted(names(after) - names(before))
+    lost = sorted(names(before) - names(after))
+
+    sidecars = decode_sidecars(fixed)
+    cells = old_electrolyzer_cells(record)
+    no_cell = [] if len(cells) == 1 else sorted(
+        n for b, plots in (fixed.get('metrics') or {}).items() if _stepped(b)
+        for n, e in plots.items()
+        if not (e.get('conditions') or {}).get('step') and n not in sidecars)
+
+    # Old rows the rules could give no cell, that no unit takes values from.
+    summary = fixed.get('summary')
+    rows = summary if isinstance(summary, list) else ([summary] if summary else [])
+    unused = sum(1 for i in unplaced_rows(fixed)
+                 if _stepped(rows[i].get('Analysis')) and 'step' not in rows[i])
+
+    pre_elx = sorted(n for n, sc in sidecars.items()
+                     if isinstance(sc, dict) and sc.get('plot_type') in PRE_ELX_TYPES)
+
+    # Under the old rules every cell's plots had the same names, so a second
+    # cell pushed under the sample replaced the first's. Nothing stored says
+    # which cells were run, but the uploads say which were in the folder: in
+    # a record pushed more than once under those rules, a cell they name that
+    # has no plots may be one that was overwritten. Only a hint — a folder can
+    # hold cells nobody analysed under this sample.
+    stored_cells = {u.get('step', '') for u in after if _stepped(u.get('Analysis'))}
+    upload_cells = sorted({m.group(1).lower() for f in record.get('input_files') or []
+                           for m in [_CELL_IN_UPLOAD.search(str(f))] if m})
+    runs = max(len(record.get('jobs') or []), int(entry.get('n_jobs') or 1))
+    maybe_lost = (sorted(set(upload_cells) - stored_cells)
+                  if runs > 1 and cells and stored_cells - {''} else [])
+
+    too_large = bool(body_bytes and body_bytes > jsonbin.MAX_BODY_BYTES)
+    status = ('too_large' if too_large
+              else 'rebuild' if record_changed or new_entry != entry
+              else 'old' if pre_elx else 'current')
+    report = {
+        'key': _key(entry), 'sample_name': entry.get('sample_name', ''),
+        'bin_id': bin_id,
+        'units_before': [_unit_view(u) for u in before],
+        'units_after': [_unit_view(u) for u in after],
+        'gained': [{'analysis': a, 'name': n} for a, n in gained],
+        'removed': [{'analysis': a, 'name': n,
+                     'detail_only': not ((registry.metric(a, n) or {}).get('index', True))}
+                    for a, n in lost],
+        'stand_cleared': (entry.get('stand')
+                          if entry.get('stand') and 'stand' not in new_entry else None),
+        'rows_collapsed': (len(record['summary']) if isinstance(record.get('summary'), list)
+                           else int(bool(record.get('summary')))) - len(rows),
+        'rows_unattributed': unused,
+        'plots_without_cell': no_cell[:MAX_PREVIEW_ROWS],
+        'old_cells': sorted(cells),
+        'upload_cells': upload_cells,
+        'cells_missing': maybe_lost,
+        'pre_elx_plots': len(pre_elx),
+        'record_changed': record_changed, 'entry_changed': new_entry != entry,
+        'body_bytes': body_bytes,
+    }
+    return {'status': status, 'entry': entry, 'record': record, 'fixed': fixed,
+            'new_entry': new_entry, 'report': report}
+
+
+def _plan_all(index: Dict[str, Any],
+              entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """_plan_one for each of `entries`, reading its record. One that cannot be
+    read or rebuilt — or whose bin another index entry also points at, which
+    the index patch could not tell apart — is reported rather than stopping
+    the rest."""
+    shared = {k for k, n in Counter(_key(e) for e in _entries(index)).items() if n > 1}
+    plans = []
+    for e in entries:
+        head = {'key': _key(e), 'sample_name': e.get('sample_name', ''),
+                'bin_id': e.get('bin_id')}
+        try:
+            if not e.get('bin_id'):
+                raise ValueError('the entry names no detail bin')
+            if _key(e) in shared:
+                raise ValueError('another index entry points at the same bin; '
+                                 'merge them under Duplicates first')
+            rec = jsonbin.fetch_detail_bin(e['bin_id'])
+        except Exception as exc:
+            plans.append({'status': 'unreadable', 'entry': e, 'report': dict(
+                head, error=f'{exc}' if isinstance(exc, ValueError) else
+                f'could not read the record ({type(exc).__name__}: {exc})'[:240])})
+            continue
+        try:
+            plans.append(_plan_one(e, rec))
+        except Exception as exc:
+            plans.append({'status': 'unreadable', 'entry': e, 'report': dict(
+                head, error=f'could not rebuild it ({type(exc).__name__}: {exc})'[:240])})
+    return plans
+
+
+def _plan_token(todo: List[Dict[str, Any]]) -> str:
+    """A fingerprint of exactly what a rebuild would replace: each entry and
+    record as read. Apply goes ahead only if it reads the same again."""
+    items = sorted([_key(p['entry']), p['entry'], p['record']] for p in todo)
+    return hashlib.sha256(json.dumps(items, sort_keys=True, ensure_ascii=False)
+                          .encode()).hexdigest()
+
+
+def _rebuild_report(plans: List[Dict[str, Any]]) -> Dict[str, Any]:
+    by = lambda s: [p['report'] for p in plans if p['status'] == s]   # noqa: E731
+    todo = by('rebuild')
+    return {
+        'entries': todo[:MAX_PREVIEW_ROWS],
+        'total': len(todo),
+        'current': len(by('current')),
+        'left_as_stored': [{'key': r['key'], 'sample_name': r['sample_name'],
+                            'plots': r['pre_elx_plots']} for r in by('old')][:MAX_PREVIEW_ROWS],
+        'too_large': [{'key': r['key'], 'sample_name': r['sample_name'],
+                       'body_bytes': r['body_bytes']} for r in by('too_large')][:MAX_PREVIEW_ROWS],
+        'unreadable': by('unreadable')[:MAX_PREVIEW_ROWS],
+        'scanned': len(plans),
+        'applied': False,
+    }
+
+
+def rebuild_electrolyzer(apply: bool = False, prepare: bool = False,
+                         keys: Optional[List[str]] = None,
+                         token: str = '') -> Dict[str, Any]:
+    """Rebuild every electrolyzer entry stored under earlier rules.
+
+    Three calls, which read everything they report and differ in what comes
+    back:
+
+      preview          each entry that would change: its electrolyzer units
+                       before and after, the values that reach the index and
+                       the ones that leave it, the stand that was only
+                       guessed, and what could not be given a cell. Writes
+                       nothing.
+      prepare=True     the same, plus a backup of every entry and record the
+                       rebuild would replace and the index, the `keys` of
+                       those entries, and a `token` for exactly that state.
+                       Still writes nothing.
+      apply=True       with that prepare's keys and token: holds those
+                       samples' locks, reads them again, and writes only if
+                       they are still exactly what the backup holds —
+                       otherwise nothing, and the caller scans again.
+
+    So the backup is in the operator's hands before anything is written,
+    and what is written is precisely what it holds the originals of. Apply
+    writes each changed record, then the index once; a record that fails to
+    write leaves its entry as it was. Running it again changes nothing that is
+    current, so a run cut short is finished by running it again.
+    """
+    if apply:
+        return _rebuild_apply(list(keys or []), str(token or ''))
+    index = jsonbin.fetch_index()
+    plans = _plan_all(index, [e for e in _entries(index) if _may_be_electrolyzer(e)])
+    out = _rebuild_report(plans)
+    if prepare:
+        todo = [p for p in plans if p['status'] == 'rebuild']
+        out['keys'] = [_key(p['entry']) for p in todo]
+        out['token'] = _plan_token(todo)
+        out['backup'] = {
+            'kind': 'analysis-portal-backup', 'version': 1, 'written': _now(),
+            'about': _BACKUP_ABOUT, 'index': index,
+            'removed': [p['entry'] for p in todo],
+            'purged': [{'bin_id': p['entry'].get('bin_id'), 'record': p['record']}
+                       for p in todo],
+        }
+    return out
+
+
+def _rebuild_apply(keys: List[str], token: str) -> Dict[str, Any]:
+    if not keys or not token:
+        raise ValueError('prepare the rebuild first: its backup has to be taken '
+                         'before anything is written')
+    with _samples_locked(_names_for(jsonbin.fetch_index(), keys)):
+        # Read again under the locks. A sample changed since the backup — a
+        # push, a rename, another admin change — changes the token, and then
+        # nothing is written: the backup no longer holds what would be
+        # replaced. Only the prepared entries are read and written.
+        index = jsonbin.fetch_index()
+        want = set(keys)
+        plans = _plan_all(index, [e for e in _entries(index) if _key(e) in want])
+        todo = [p for p in plans if p['status'] == 'rebuild']
+        if (sorted(_key(p['entry']) for p in todo) != sorted(want)
+                or _plan_token(todo) != token):
+            raise ValueError('The store changed after the backup was taken, so '
+                             'nothing was written. Scan again.')
+
+        out = _rebuild_report(plans)
+        done, failed = [], []
+        for p in todo:
+            if p['fixed'] is not p['record']:
+                try:
+                    jsonbin.update_detail_bin(p['entry']['bin_id'], p['fixed'])
+                except Exception as exc:
+                    failed.append({'key': _key(p['entry']),
+                                   'sample_name': p['entry'].get('sample_name', ''),
+                                   'error': f'{type(exc).__name__}: {exc}'[:240]})
+                    continue
+            done.append(p)
+        out['failed'] = failed
+        out['rebuilt'] = len(done)
+        replace = {_key(p['entry']): p['new_entry'] for p in done}
+        if replace:
+            try:
+                _patch_index(lambda runs: [replace.get(_key(e), e) for e in runs])
+            except Exception as exc:
+                # The records are rewritten and the entries are not. Nothing
+                # is lost — a rewritten record is the old one re-filed — and
+                # the next run rebuilds the entries from it.
+                out['error'] = (f'{len(done)} record(s) were rewritten but the '
+                                f'index could not be ({type(exc).__name__}: {exc}). '
+                                f'Scan and rebuild again to finish.')
+                return out
+        out['applied'] = bool(done)
+    return out

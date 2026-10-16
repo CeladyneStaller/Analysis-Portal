@@ -25,6 +25,23 @@ import matplotlib.pyplot as plt
 from scripts.helpers.plot_compare import save_with_sidecar
 from pathlib import Path
 
+# Conditions this test ran at, declared into every sidecar. The output
+# filenames ('voltage_vs_time.png') encode none, so without this the record
+# layer has nothing to colour or filter a durability test by. analyze() sets it
+# once the hold current is known. Module-level for the same reason as the
+# pol-curve script's step: the pool runs one job per worker process.
+_DECLARED = {'conditions': {}}
+
+
+def _save(fig, save_path, plot_type=None, **kw):
+    """save_with_sidecar with this test's conditions declared in the sidecar."""
+    declared = _DECLARED.get('conditions') or {}
+    if declared:
+        md = dict(kw.pop('metadata', None) or {})
+        md['conditions'] = {**(md.get('conditions') or {}), **declared}
+        kw['metadata'] = md
+    return save_with_sidecar(fig, save_path, plot_type=plot_type, **kw)
+
 
 def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
     """Analyze PEM electrolyzer durability (current hold) data from sequential folders."""
@@ -545,7 +562,7 @@ def plot_voltage_vs_time(t_h, V, deg, j_hold, pc_t=None, save_path=None,
     fig.legend(h, l, loc='lower center', bbox_to_anchor=(0.5, -0.02),
                ncol=len(h), fontsize=9, frameon=True, fancybox=True)
     plt.tight_layout(); plt.subplots_adjust(bottom=0.18)
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_voltage', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_voltage', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 def plot_deg_rolling(deg, save_path=None):
@@ -557,7 +574,7 @@ def plot_deg_rolling(deg, save_path=None):
     ax.set_xlabel('Time [hours]'); ax.set_ylabel('Rate [μV/hr]')
     ax.set_title('Rolling Degradation Rate', fontweight='bold')
     ax.set_xlim(left=0); ax.legend(); ax.grid(True, alpha=0.3); plt.tight_layout()
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_degradation', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_degradation', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 def plot_hfr_vs_time(eis_p, save_path=None):
@@ -574,7 +591,7 @@ def plot_hfr_vs_time(eis_p, save_path=None):
         f"HFR change = {_a1 - _a0:+.1f} mΩ·cm²",
     ], loc='upper left')
     ax.set_xlim(left=0); ax.grid(True, alpha=0.3); plt.tight_layout()
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_hfr', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_hfr', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 def plot_polcurve_evolution(pcs, save_path=None):
@@ -599,7 +616,7 @@ def plot_polcurve_evolution(pcs, save_path=None):
     _readout(ax, [f"Curves = {len(pcs)}",
                   f"Time span = {t1 - t0:.1f} hr"], loc='upper left')
     plt.tight_layout()
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_polcurve_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_polcurve_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 def plot_asr_vs_j_evolution(pcs, save_path=None):
@@ -621,7 +638,7 @@ def plot_asr_vs_j_evolution(pcs, save_path=None):
     _readout(ax, [f"ASR_initial = {_asr0:.1f} mΩ·cm²",
                   f"ASR_final = {_asr1:.1f} mΩ·cm²"], loc='upper left')
     plt.tight_layout()
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_asr_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_asr_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 def plot_loss_evolution(pcs, v_target=1.8, save_path=None):
@@ -653,7 +670,7 @@ def plot_loss_evolution(pcs, v_target=1.8, save_path=None):
         f"j_final = {j_a[-1]:.3f} A/cm²",
     ], loc='upper left')
     plt.tight_layout(); plt.subplots_adjust(bottom=0.18)
-    if save_path: save_with_sidecar(fig, save_path, plot_type='durability_loss_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
+    if save_path: _save(fig, save_path, plot_type='durability_loss_evolution', bbox_inches='tight'); print(f"  Plot saved: {save_path}")
     else: plt.show()
 
 
@@ -744,6 +761,10 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
         For multiple folders, elapsed times restart at zero in each;
         the script adds offsets so time is continuous across folders.
     """
+    # Nothing declared until this test's hold current is known — never a
+    # previous analysis's value left in the module.
+    _DECLARED['conditions'] = {}
+
     # Normalize to list
     if isinstance(folder_paths, str):
         folder_paths = [folder_paths]
@@ -806,6 +827,10 @@ def analyze(folder_paths, geo_area=5.0, eis_ref_voltage=1.25,
         aj = np.concatenate([s['j_Acm2'] for s in hold_segs])
         o = np.argsort(at); t_hours, voltage = at[o], av[o]
         j_hold = float(np.median(aj))
+        # The hold current is the condition a durability test runs at. Rounded
+        # to the setpoint's precision so instrument noise does not make every
+        # test a condition of its own.
+        _DECLARED['conditions'] = {'j_hold_Acm2': round(j_hold, 2)}
 
         # Thin data by time interval if requested
         if data_interval_min is not None and data_interval_min > 0:

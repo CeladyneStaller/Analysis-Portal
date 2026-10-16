@@ -147,9 +147,10 @@ try:
     check_true('pushed', r['pushed'], f"({r['reason']})")
     check('bin id returned', r['bin_id'], 'NEWBIN')
     check('index length', r['n_runs'], 1)
-    # The index is read first, to look the sample up, then reused for the
-    # write — so a new sample costs GET, POST, PUT.
-    check('three calls', [c['method'] for c in m.calls], ['GET', 'POST', 'PUT'])
+    # The index is read first, to look the sample up, and read again under the
+    # lock for the write, so an admin change written in between is not undone
+    # — a new sample costs GET, POST, GET, PUT.
+    check('four calls', [c['method'] for c in m.calls], ['GET', 'POST', 'GET', 'PUT'])
     check_true('a new sample is not reported as merged', not r['merged'])
 
     post = next(c for c in m.calls if c['method'] == 'POST')

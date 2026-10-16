@@ -1,0 +1,5030 @@
+{
+ "_about": "Electrolyzer and fuel-cell runs pushed by the portal code of each era (E0 0ff614b, E1 3394d7b, E2 2902d1d, P1 b9cbe97) through its own main._run_job and _on_job_done, into an in-memory JSONBin. Sidecars are reduced to plot_type and metadata and stored decoded under \"plots\". Timestamps are from when the fixture was made, not the era's dates.",
+ "index": {
+  "runs": [
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "eis",
+      "step": ""
+     },
+     {
+      "Analysis": "polcurve",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN001",
+    "job_id": "j001",
+    "run_date": "2026-07-14",
+    "sample_name": "260714_E0ONE",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:23:09Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "eis",
+      "step": ""
+     },
+     {
+      "Analysis": "polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN002",
+    "job_id": "j016",
+    "n_jobs": 2,
+    "run_date": "2026-07-14",
+    "sample_name": "260714_E0E2",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:25:17Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {},
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "V_setpoint": 250.0
+      },
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "V_setpoint": 500.0
+      },
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "V_setpoint": 600.0
+      },
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "V_setpoint": 700.0
+      },
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "V_setpoint": 800.0
+      },
+      "key_values": {
+       "HFR": 0.0341525
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "Conditions": {},
+      "key_values": {
+       "ASR_total": 37.4915,
+       "E_rev": 1.18369,
+       "Fit RMSE": 10.7766,
+       "Tafel slope (anode)": 76.0803,
+       "V @ 1 A/cm²": 1.60757,
+       "V @ 2 A/cm²": 1.78017
+      },
+      "step": "a1"
+     }
+    ],
+    "bin_id": "BIN003",
+    "job_id": "j002",
+    "run_date": "2026-07-28",
+    "sample_name": "260728_E1ONE",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:23:29Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "durability",
+      "Conditions": {},
+      "key_values": {
+       "Degradation rate": 37.0231,
+       "Duration": 799.773,
+       "HFR_final": 158.128,
+       "HFR_initial": 141.128,
+       "V_final": 1.77515,
+       "V_initial": 1.74554
+      },
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN004",
+    "job_id": "j003",
+    "run_date": "2026-07-28",
+    "sample_name": "260728_E1DUR",
+    "script": "Electrolyzer Durability",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:23:31Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": "a1"
+     },
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis",
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN005",
+    "job_id": "j014",
+    "n_jobs": 2,
+    "run_date": "2026-07-28",
+    "sample_name": "260728_E1E2",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:25:07Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "durability",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN006",
+    "job_id": "j005",
+    "n_jobs": 2,
+    "run_date": "2026-08-11",
+    "sample_name": "260811_E2ONE",
+    "script": "Electrolyzer Durability",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:23:51Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN007",
+    "job_id": "j007",
+    "n_jobs": 2,
+    "run_date": "2026-08-25",
+    "sample_name": "260825_E2RERUN",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:24:10Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN008",
+    "job_id": "j009",
+    "n_jobs": 2,
+    "run_date": "2026-09-08",
+    "sample_name": "260908_E2TWO",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:24:28Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN009",
+    "job_id": "j010",
+    "run_date": "2026-09-22",
+    "sample_name": "260922_E2NOCELL",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:24:38Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN010",
+    "job_id": "j012",
+    "n_jobs": 2,
+    "run_date": "2026-09-22",
+    "sample_name": "260922_E2MIXCELL",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:24:58Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "durability",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN011",
+    "job_id": "j017",
+    "run_date": "2026-09-05",
+    "sample_name": "260905_E2DUR",
+    "script": "Electrolyzer Durability",
+    "stand": "FCTS",
+    "timestamp": "2026-10-07T14:25:18Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "polcurve",
+      "Conditions": {
+       "Air_slpm": 0.2,
+       "H2_slpm": 0.2,
+       "P_unit": "kPa",
+       "P_value": 0.0,
+       "RH_pct": 100.0,
+       "T_C": 80.0
+      },
+      "key_values": {
+       "OCV": 0.900788,
+       "V @ 1 A/cm²": 0.632152,
+       "j @ 0.4 V": 1.75081,
+       "j @ 0.5 V": 1.42949,
+       "j @ 0.6 V": 1.10706,
+       "j @ 0.65 V": 0.940626,
+       "j @ 0.7 V": 0.776889
+      },
+      "step": "b14"
+     },
+     {
+      "Analysis": "polcurve",
+      "Conditions": {},
+      "key_values": {
+       "OCV": 0.900788,
+       "V @ 1 A/cm²": 0.632152,
+       "j @ 0.4 V": 1.75081,
+       "j @ 0.5 V": 1.42949,
+       "j @ 0.6 V": 1.10706,
+       "j @ 0.65 V": 0.940626,
+       "j @ 0.7 V": 0.776889
+      },
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN012",
+    "job_id": "j018",
+    "run_date": "2026-08-04",
+    "sample_name": "260804_FCS5",
+    "script": "FC Polarization Curve",
+    "stand": "Scribner",
+    "timestamp": "2026-10-07T14:25:19Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "polcurve",
+      "Conditions": {
+       "Air_slpm": 0.2,
+       "H2_slpm": 0.2,
+       "P_unit": "kPa",
+       "P_value": 0.0,
+       "RH_pct": 100.0,
+       "T_C": 80.0
+      },
+      "key_values": {
+       "OCV": 0.900399,
+       "V @ 1 A/cm²": 0.612034,
+       "j @ 0.4 V": 1.65687,
+       "j @ 0.5 V": 1.35308,
+       "j @ 0.6 V": 1.03657,
+       "j @ 0.65 V": 0.884623,
+       "j @ 0.7 V": 0.72633
+      },
+      "step": "b14"
+     },
+     {
+      "Analysis": "polcurve",
+      "Conditions": {},
+      "key_values": {
+       "OCV": 0.900399,
+       "V @ 1 A/cm²": 0.612034,
+       "j @ 0.4 V": 1.65687,
+       "j @ 0.5 V": 1.35308,
+       "j @ 0.6 V": 1.03657,
+       "j @ 0.65 V": 0.884623,
+       "j @ 0.7 V": 0.72633
+      },
+      "step": ""
+     },
+     {
+      "Analysis": "CLR",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_for_ir",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_ir_correction",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_j_and_losses_vs_cycle",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_model_fit",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_nyquist",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "step": ""
+     },
+     {
+      "Analysis": "elx_eis_fit",
+      "step": ""
+     }
+    ],
+    "bin_id": "BIN013",
+    "job_id": "j020",
+    "n_jobs": 2,
+    "run_date": "2026-07-16",
+    "sample_name": "260716_MIXED",
+    "script": "Electrolyzer Pol Curve",
+    "stand": "Scribner",
+    "timestamp": "2026-10-07T14:25:29Z"
+   },
+   {
+    "Data": [
+     {
+      "Analysis": "elx_eis",
+      "Conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0
+      },
+      "key_values": {
+       "HFR": 0.0334043
+      },
+      "step": "a1"
+     },
+     {
+      "Analysis": "elx_polcurve",
+      "Conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0
+      },
+      "key_values": {
+       "V @ 1 A/cm²": 1.59556,
+       "V @ 2 A/cm²": 1.75814,
+       "ΔV @ 2 A/cm²": 19.9953
+      },
+      "step": "a1"
+     }
+    ],
+    "bin_id": "BIN014",
+    "job_id": "j022",
+    "n_jobs": 2,
+    "run_date": "2026-08-11",
+    "sample_name": "260811_E2P1",
+    "script": "Electrolyzer Pol Curve",
+    "timestamp": "2026-10-07T14:25:49Z"
+   }
+  ],
+  "schema": 2
+ },
+ "records": {
+  "BIN001": {
+   "conditions": null,
+   "input_files": [
+    "260714_ELX01/10_a1_EIS_1.80V.csv",
+    "260714_ELX01/1_a1_polcurve.csv",
+    "260714_ELX01/2_a1_EIS_1.25V.csv",
+    "260714_ELX01/3_a1_EIS_1.25V.csv",
+    "260714_ELX01/4_a1_EIS_1.25V.csv",
+    "260714_ELX01/5_a1_EIS_1.25V.csv",
+    "260714_ELX01/6_a1_EIS_1.25V.csv",
+    "260714_ELX01/7_a1_EIS_1.50V.csv",
+    "260714_ELX01/8_a1_EIS_1.60V.csv",
+    "260714_ELX01/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j001",
+   "metrics": {
+    "CLR": {
+     "260714_E0ONE-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260714_E0ONE-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "eis": {
+     "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "polcurve": {
+     "260714_E0ONE-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0ONE-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {}
+     }
+    }
+   },
+   "plots": {
+    "260714_E0ONE-ElxPolCurve-CLR_analysis": {
+     "metadata": {},
+     "plot_type": "CLR_analysis"
+    },
+    "260714_E0ONE-ElxPolCurve-CLR_model_fit": {
+     "metadata": {},
+     "plot_type": "CLR_model_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {},
+     "plot_type": "eis_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-eis_for_ir": {
+     "metadata": {},
+     "plot_type": "eis_for_ir"
+    },
+    "260714_E0ONE-ElxPolCurve-ir_correction": {
+     "metadata": {},
+     "plot_type": "ir_correction"
+    },
+    "260714_E0ONE-ElxPolCurve-j_vs_cycle": {
+     "metadata": {},
+     "plot_type": "j_vs_cycle"
+    },
+    "260714_E0ONE-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {},
+     "plot_type": "losses_vs_cycle"
+    },
+    "260714_E0ONE-ElxPolCurve-model_fit": {
+     "metadata": {},
+     "plot_type": "model_fit"
+    },
+    "260714_E0ONE-ElxPolCurve-nyquist": {
+     "metadata": {},
+     "plot_type": "nyquist"
+    },
+    "260714_E0ONE-ElxPolCurve-polcurve": {
+     "metadata": {},
+     "plot_type": "polcurve"
+    }
+   },
+   "sample_name": "260714_E0ONE",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "timestamp": "2026-10-07T14:23:09Z"
+  },
+  "BIN002": {
+   "conditions": null,
+   "input_files": [
+    "260714_ELX01/10_a1_EIS_1.80V.csv",
+    "260714_ELX01/1_a1_polcurve.csv",
+    "260714_ELX01/2_a1_EIS_1.25V.csv",
+    "260714_ELX01/3_a1_EIS_1.25V.csv",
+    "260714_ELX01/4_a1_EIS_1.25V.csv",
+    "260714_ELX01/5_a1_EIS_1.25V.csv",
+    "260714_ELX01/6_a1_EIS_1.25V.csv",
+    "260714_ELX01/7_a1_EIS_1.50V.csv",
+    "260714_ELX01/8_a1_EIS_1.60V.csv",
+    "260714_ELX01/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j016",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "eis",
+      "polcurve"
+     ],
+     "job_id": "j015",
+     "timestamp": "2026-10-07T14:23:19Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j016",
+     "timestamp": "2026-10-07T14:25:17Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260714_E0E2-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260714_E0E2-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "eis": {
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260714_E0E2-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260714_E0E2-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260714_E0E2-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260714_E0E2-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260714_E0E2-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 45.1
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.69
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260714_E0E2-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260714_E0E2-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.6355
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.8301
+       }
+      }
+     }
+    },
+    "polcurve": {
+     "260714_E0E2-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {}
+     },
+     "260714_E0E2-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {}
+     }
+    }
+   },
+   "plots": {
+    "260714_E0E2-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260714_E0E2-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260714_E0E2-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260714_E0E2-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260714_E0E2-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260714_E0E2-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260714_E0E2-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260714_E0E2-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260714_E0E2-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260714_E0E2",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "ASR_total": 45.083640443488875,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.694957402537884,
+     "Tafel slope (anode)": 76.08025646870105,
+     "V_at_1Acm2": 1.6355481778527545,
+     "V_at_2Acm2": 1.8301282551504645
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.04497476839929202,
+     "R0_asr_mohm_cm2": 44.974768399292024
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:17Z"
+  },
+  "BIN003": {
+   "conditions": null,
+   "input_files": [
+    "260728_ELX02/10_a1_EIS_1.80V.csv",
+    "260728_ELX02/10_a2_EIS_1.80V.csv",
+    "260728_ELX02/1_a1_polcurve.csv",
+    "260728_ELX02/1_a2_polcurve.csv",
+    "260728_ELX02/2_a1_EIS_1.25V.csv",
+    "260728_ELX02/2_a2_EIS_1.25V.csv",
+    "260728_ELX02/3_a1_EIS_1.25V.csv",
+    "260728_ELX02/3_a2_EIS_1.25V.csv",
+    "260728_ELX02/4_a1_EIS_1.25V.csv",
+    "260728_ELX02/4_a2_EIS_1.25V.csv",
+    "260728_ELX02/5_a1_EIS_1.25V.csv",
+    "260728_ELX02/5_a2_EIS_1.25V.csv",
+    "260728_ELX02/6_a1_EIS_1.25V.csv",
+    "260728_ELX02/6_a2_EIS_1.25V.csv",
+    "260728_ELX02/7_a1_EIS_1.50V.csv",
+    "260728_ELX02/7_a2_EIS_1.50V.csv",
+    "260728_ELX02/8_a1_EIS_1.60V.csv",
+    "260728_ELX02/8_a2_EIS_1.60V.csv",
+    "260728_ELX02/9_a1_EIS_1.70V.csv",
+    "260728_ELX02/9_a2_EIS_1.70V.csv"
+   ],
+   "job_id": "j002",
+   "metrics": {
+    "CLR": {
+     "260728_E1ONE-ElxPolCurve-CLR_analysis": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260728_E1ONE-ElxPolCurve-CLR_model_fit": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     }
+    },
+    "elx_eis": {
+     "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j0.419": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j0.957": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j1.533": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j2.115": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-eis_for_ir": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-nyquist": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260728_E1ONE-ElxPolCurve-ir_correction": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-j_vs_cycle": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1ONE-ElxPolCurve-model_fit": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 37.5
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.78
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     },
+     "260728_E1ONE-ElxPolCurve-polcurve": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.6076
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7802
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260728_E1ONE-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260728_E1ONE-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j0.419": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j0.957": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j1.533": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_Cycle5_j2.115": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260728_E1ONE-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260728_E1ONE-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260728_E1ONE-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260728_E1ONE-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260728_E1ONE-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260728_E1ONE-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260728_E1ONE",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "ASR_total": 37.491462600114076,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.776574874469798,
+     "Tafel slope (anode)": 76.08025646866422,
+     "V_at_1Acm2": 1.6075705801080693,
+     "V_at_2Acm2": 1.7801679894343603
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.03415252060944128,
+     "R0_asr_mohm_cm2": 34.15252060944128
+    }
+   ],
+   "timestamp": "2026-10-07T14:23:29Z"
+  },
+  "BIN004": {
+   "conditions": null,
+   "input_files": [
+    "260728_ELX02/01_block/data.csv",
+    "260728_ELX02/02_block/data.csv"
+   ],
+   "job_id": "j003",
+   "metrics": {
+    "durability": {
+     "260728_E1DUR-ElxDurability-asr_vs_j_evolution": {
+      "conditions": {},
+      "values": {
+       "ASR_final": {
+        "unit": "mΩ·cm²",
+        "value": 158.1
+       },
+       "ASR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 141.1
+       }
+      }
+     },
+     "260728_E1DUR-ElxDurability-degradation_rate": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 37.0
+       }
+      }
+     },
+     "260728_E1DUR-ElxDurability-hfr_vs_time": {
+      "conditions": {},
+      "values": {
+       "HFR change": {
+        "unit": "mΩ·cm²",
+        "value": 17.0
+       },
+       "HFR_final": {
+        "unit": "mΩ·cm²",
+        "value": 158.1
+       },
+       "HFR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 141.1
+       }
+      }
+     },
+     "260728_E1DUR-ElxDurability-polcurve_evolution": {
+      "conditions": {},
+      "values": {
+       "Curves": 2.0,
+       "Time span": {
+        "unit": "hr",
+        "value": 400.0
+       }
+      }
+     },
+     "260728_E1DUR-ElxDurability-voltage_vs_time": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 37.0
+       },
+       "Duration": {
+        "unit": "hr",
+        "value": 799.8
+       },
+       "V_final": {
+        "unit": "V",
+        "value": 1.7752
+       },
+       "V_initial": {
+        "unit": "V",
+        "value": 1.7455
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260728_E1DUR-ElxDurability-asr_vs_j_evolution": {
+     "metadata": {},
+     "plot_type": "durability_asr_evolution"
+    },
+    "260728_E1DUR-ElxDurability-degradation_rate": {
+     "metadata": {},
+     "plot_type": "durability_degradation"
+    },
+    "260728_E1DUR-ElxDurability-hfr_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_hfr"
+    },
+    "260728_E1DUR-ElxDurability-polcurve_evolution": {
+     "metadata": {},
+     "plot_type": "durability_polcurve_evolution"
+    },
+    "260728_E1DUR-ElxDurability-voltage_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_voltage"
+    }
+   },
+   "sample_name": "260728_E1DUR",
+   "schema": 2,
+   "script": "Electrolyzer Durability",
+   "summary": [
+    {
+     "Analysis": "durability",
+     "Degradation rate": 37.023099096036766,
+     "Duration": 799.7729166666667,
+     "HFR_final": 158.12828036360892,
+     "HFR_initial": 141.12828036360895,
+     "V_final": 1.775152504411538,
+     "V_initial": 1.7455424324634616,
+     "fit_R2": 0.9883162277151685,
+     "geo_area": 25.0,
+     "j_hold": 1.0,
+     "n_eis": 2,
+     "n_polcurves": 2,
+     "rate_Vpct_khr": 2.121008255513247
+    }
+   ],
+   "timestamp": "2026-10-07T14:23:31Z"
+  },
+  "BIN005": {
+   "conditions": null,
+   "input_files": [
+    "260728_ELX02/10_a1_EIS_1.80V.csv",
+    "260728_ELX02/10_a2_EIS_1.80V.csv",
+    "260728_ELX02/1_a1_polcurve.csv",
+    "260728_ELX02/1_a2_polcurve.csv",
+    "260728_ELX02/2_a1_EIS_1.25V.csv",
+    "260728_ELX02/2_a2_EIS_1.25V.csv",
+    "260728_ELX02/3_a1_EIS_1.25V.csv",
+    "260728_ELX02/3_a2_EIS_1.25V.csv",
+    "260728_ELX02/4_a1_EIS_1.25V.csv",
+    "260728_ELX02/4_a2_EIS_1.25V.csv",
+    "260728_ELX02/5_a1_EIS_1.25V.csv",
+    "260728_ELX02/5_a2_EIS_1.25V.csv",
+    "260728_ELX02/6_a1_EIS_1.25V.csv",
+    "260728_ELX02/6_a2_EIS_1.25V.csv",
+    "260728_ELX02/7_a1_EIS_1.50V.csv",
+    "260728_ELX02/7_a2_EIS_1.50V.csv",
+    "260728_ELX02/8_a1_EIS_1.60V.csv",
+    "260728_ELX02/8_a2_EIS_1.60V.csv",
+    "260728_ELX02/9_a1_EIS_1.70V.csv",
+    "260728_ELX02/9_a2_EIS_1.70V.csv"
+   ],
+   "job_id": "j014",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis",
+      "elx_polcurve"
+     ],
+     "job_id": "j013",
+     "timestamp": "2026-10-07T14:23:40Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j014",
+     "timestamp": "2026-10-07T14:25:07Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260728_E1E2-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260728_E1E2-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis": {
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.419": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.957": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j1.533": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j2.115": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_for_ir": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-nyquist": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.419": {
+      "conditions": {},
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.957": {
+      "conditions": {},
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j1.533": {
+      "conditions": {},
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j2.115": {
+      "conditions": {},
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260728_E1E2-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260728_E1E2-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260728_E1E2-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260728_E1E2-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260728_E1E2-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 37.5
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.78
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260728_E1E2-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260728_E1E2-ElxPolCurve-ir_correction": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-j_vs_cycle": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260728_E1E2-ElxPolCurve-model_fit": {
+      "conditions": {
+       "step": "a1"
+      },
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 37.5
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.78
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     },
+     "260728_E1E2-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.6076
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7802
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260728_E1E2-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260728_E1E2-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.419": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j0.957": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j1.533": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_Cycle5_j2.115": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260728_E1E2-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260728_E1E2-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260728_E1E2-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260728_E1E2-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260728_E1E2-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260728_E1E2-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260728_E1E2-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260728_E1E2",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.03415252060944128,
+     "R0_asr_mohm_cm2": 34.15252060944128
+    },
+    {
+     "ASR_total": 37.491462600114076,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.776574874469798,
+     "Tafel slope (anode)": 76.08025646866422,
+     "V_at_1Acm2": 1.6075705801080693,
+     "V_at_2Acm2": 1.7801679894343603
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.03415252060944128,
+     "R0_asr_mohm_cm2": 34.15252060944128
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:07Z"
+  },
+  "BIN006": {
+   "conditions": null,
+   "input_files": [
+    "260811_ELX03/10_a1_EIS_1.80V.csv",
+    "260811_ELX03/1_a1_polcurve.csv",
+    "260811_ELX03/2_a1_EIS_1.25V.csv",
+    "260811_ELX03/3_a1_EIS_1.25V.csv",
+    "260811_ELX03/4_a1_EIS_1.25V.csv",
+    "260811_ELX03/5_a1_EIS_1.25V.csv",
+    "260811_ELX03/6_a1_EIS_1.25V.csv",
+    "260811_ELX03/7_a1_EIS_1.50V.csv",
+    "260811_ELX03/8_a1_EIS_1.60V.csv",
+    "260811_ELX03/9_a1_EIS_1.70V.csv",
+    "260811_ELX03/01_block/data.csv",
+    "260811_ELX03/02_block/data.csv"
+   ],
+   "job_id": "j005",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j004",
+     "timestamp": "2026-10-07T14:23:50Z"
+    },
+    {
+     "buckets": [
+      "durability"
+     ],
+     "job_id": "j005",
+     "timestamp": "2026-10-07T14:23:51Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260811_E2ONE-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.236
+       }
+      }
+     },
+     "260811_E2ONE-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "durability": {
+     "260811_E2ONE-ElxDurability-asr_vs_j_evolution": {
+      "conditions": {},
+      "values": {
+       "ASR_final": {
+        "unit": "mΩ·cm²",
+        "value": 137.1
+       },
+       "ASR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 128.1
+       }
+      }
+     },
+     "260811_E2ONE-ElxDurability-degradation_rate": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 23.0
+       }
+      }
+     },
+     "260811_E2ONE-ElxDurability-hfr_vs_time": {
+      "conditions": {},
+      "values": {
+       "HFR change": {
+        "unit": "mΩ·cm²",
+        "value": 9.0
+       },
+       "HFR_final": {
+        "unit": "mΩ·cm²",
+        "value": 137.1
+       },
+       "HFR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 128.1
+       }
+      }
+     },
+     "260811_E2ONE-ElxDurability-polcurve_evolution": {
+      "conditions": {},
+      "values": {
+       "Curves": 2.0,
+       "Time span": {
+        "unit": "hr",
+        "value": 400.0
+       }
+      }
+     },
+     "260811_E2ONE-ElxDurability-voltage_vs_time": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 23.0
+       },
+       "Duration": {
+        "unit": "hr",
+        "value": 799.8
+       },
+       "V_final": {
+        "unit": "V",
+        "value": 1.8089
+       },
+       "V_initial": {
+        "unit": "V",
+        "value": 1.7905
+       }
+      }
+     }
+    },
+    "elx_eis_fit": {
+     "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j0.452": {
+      "conditions": {},
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j1.026": {
+      "conditions": {},
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j1.640": {
+      "conditions": {},
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j2.258": {
+      "conditions": {},
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260811_E2ONE-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260811_E2ONE-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260811_E2ONE-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260811_E2ONE-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260811_E2ONE-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 33.9
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.2357
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.8
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260811_E2ONE-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260811_E2ONE-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5956
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7581
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260811_E2ONE-ElxDurability-asr_vs_j_evolution": {
+     "metadata": {},
+     "plot_type": "durability_asr_evolution"
+    },
+    "260811_E2ONE-ElxDurability-degradation_rate": {
+     "metadata": {},
+     "plot_type": "durability_degradation"
+    },
+    "260811_E2ONE-ElxDurability-hfr_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_hfr"
+    },
+    "260811_E2ONE-ElxDurability-polcurve_evolution": {
+     "metadata": {},
+     "plot_type": "durability_polcurve_evolution"
+    },
+    "260811_E2ONE-ElxDurability-voltage_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_voltage"
+    },
+    "260811_E2ONE-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260811_E2ONE-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j0.452": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j1.026": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j1.640": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_Cycle5_j2.258": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260811_E2ONE-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260811_E2ONE-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260811_E2ONE-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260811_E2ONE-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260811_E2ONE-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260811_E2ONE-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260811_E2ONE",
+   "schema": 2,
+   "script": "Electrolyzer Durability",
+   "summary": [
+    {
+     "ASR_total": 33.90305673407325,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.2357440973321887,
+     "Fit RMSE": 10.801585352052406,
+     "Tafel slope (anode)": 76.08025646493948,
+     "V_at_1Acm2": 1.5955568534700504,
+     "V_at_2Acm2": 1.7581448212999722
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.03086824495441222,
+     "R0_asr_mohm_cm2": 30.86824495441222
+    },
+    {
+     "Analysis": "durability",
+     "Degradation rate": 22.995445596297024,
+     "Duration": 799.7729166666667,
+     "HFR_final": 137.12828036360892,
+     "HFR_initial": 128.12828036360892,
+     "V_final": 1.8089376226098,
+     "V_initial": 1.7905464880151998,
+     "fit_R2": 0.9704075284373785,
+     "geo_area": 25.0,
+     "j_hold": 2.0,
+     "n_eis": 2,
+     "n_polcurves": 2,
+     "rate_Vpct_khr": 1.2842696768955277
+    }
+   ],
+   "timestamp": "2026-10-07T14:23:51Z"
+  },
+  "BIN007": {
+   "conditions": null,
+   "input_files": [
+    "260825_ELX04/10_a1_EIS_1.80V.csv",
+    "260825_ELX04/1_a1_polcurve.csv",
+    "260825_ELX04/2_a1_EIS_1.25V.csv",
+    "260825_ELX04/3_a1_EIS_1.25V.csv",
+    "260825_ELX04/4_a1_EIS_1.25V.csv",
+    "260825_ELX04/5_a1_EIS_1.25V.csv",
+    "260825_ELX04/6_a1_EIS_1.25V.csv",
+    "260825_ELX04/7_a1_EIS_1.50V.csv",
+    "260825_ELX04/8_a1_EIS_1.60V.csv",
+    "260825_ELX04/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j007",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j006",
+     "timestamp": "2026-10-07T14:24:00Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j007",
+     "timestamp": "2026-10-07T14:24:10Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260825_E2RERUN-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260825_E2RERUN-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j0.494": {
+      "conditions": {},
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j1.104": {
+      "conditions": {},
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j1.752": {
+      "conditions": {},
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j2.400": {
+      "conditions": {},
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260825_E2RERUN-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260825_E2RERUN-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260825_E2RERUN-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260825_E2RERUN-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260825_E2RERUN-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 30.7
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.99
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260825_E2RERUN-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260825_E2RERUN-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5834
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7381
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260825_E2RERUN-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260825_E2RERUN-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j0.494": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j1.104": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j1.752": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_Cycle5_j2.400": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260825_E2RERUN-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260825_E2RERUN-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260825_E2RERUN-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260825_E2RERUN-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260825_E2RERUN-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260825_E2RERUN-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260825_E2RERUN",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.02771069333891215,
+     "R0_asr_mohm_cm2": 27.71069333891215
+    },
+    {
+     "ASR_total": 30.71228148916673,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.989100073416171,
+     "Tafel slope (anode)": 76.08025640515245,
+     "V_at_1Acm2": 1.583443840993986,
+     "V_at_2Acm2": 1.7381395838428253
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.02771069333891215,
+     "R0_asr_mohm_cm2": 27.71069333891215
+    }
+   ],
+   "timestamp": "2026-10-07T14:24:10Z"
+  },
+  "BIN008": {
+   "conditions": null,
+   "input_files": [
+    "260908_ELX05/10_a1_EIS_1.80V.csv",
+    "260908_ELX05/10_a2_EIS_1.80V.csv",
+    "260908_ELX05/1_a1_polcurve.csv",
+    "260908_ELX05/1_a2_polcurve.csv",
+    "260908_ELX05/2_a1_EIS_1.25V.csv",
+    "260908_ELX05/2_a2_EIS_1.25V.csv",
+    "260908_ELX05/3_a1_EIS_1.25V.csv",
+    "260908_ELX05/3_a2_EIS_1.25V.csv",
+    "260908_ELX05/4_a1_EIS_1.25V.csv",
+    "260908_ELX05/4_a2_EIS_1.25V.csv",
+    "260908_ELX05/5_a1_EIS_1.25V.csv",
+    "260908_ELX05/5_a2_EIS_1.25V.csv",
+    "260908_ELX05/6_a1_EIS_1.25V.csv",
+    "260908_ELX05/6_a2_EIS_1.25V.csv",
+    "260908_ELX05/7_a1_EIS_1.50V.csv",
+    "260908_ELX05/7_a2_EIS_1.50V.csv",
+    "260908_ELX05/8_a1_EIS_1.60V.csv",
+    "260908_ELX05/8_a2_EIS_1.60V.csv",
+    "260908_ELX05/9_a1_EIS_1.70V.csv",
+    "260908_ELX05/9_a2_EIS_1.70V.csv"
+   ],
+   "job_id": "j009",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j008",
+     "timestamp": "2026-10-07T14:24:19Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j009",
+     "timestamp": "2026-10-07T14:24:28Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260908_E2TWO-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.236
+       }
+      }
+     },
+     "260908_E2TWO-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j0.525": {
+      "conditions": {},
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j1.168": {
+      "conditions": {},
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j1.847": {
+      "conditions": {},
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j2.524": {
+      "conditions": {},
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260908_E2TWO-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260908_E2TWO-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260908_E2TWO-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260908_E2TWO-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260908_E2TWO-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 28.7
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.2357
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.91
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260908_E2TWO-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260908_E2TWO-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5746
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7226
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260908_E2TWO-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260908_E2TWO-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j0.525": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j1.168": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j1.847": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_Cycle5_j2.524": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260908_E2TWO-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260908_E2TWO-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260908_E2TWO-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260908_E2TWO-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260908_E2TWO-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260908_E2TWO-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a2"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260908_E2TWO",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.02681334508004998,
+     "R0_asr_mohm_cm2": 26.81334508004998
+    },
+    {
+     "ASR_total": 28.727312289778887,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.2357440973321887,
+     "Fit RMSE": 10.911898987261456,
+     "Tafel slope (anode)": 76.0802564551155,
+     "V_at_1Acm2": 1.5746190312670372,
+     "V_at_2Acm2": 1.7225790958645868
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.02888533988630053,
+     "R0_asr_mohm_cm2": 28.885339886300528
+    }
+   ],
+   "timestamp": "2026-10-07T14:24:28Z"
+  },
+  "BIN009": {
+   "conditions": null,
+   "input_files": [
+    "260922_ELX06/10_a1_EIS_1.80V.csv",
+    "260922_ELX06/1_a1_polcurve.csv",
+    "260922_ELX06/2_a1_EIS_1.25V.csv",
+    "260922_ELX06/3_a1_EIS_1.25V.csv",
+    "260922_ELX06/4_a1_EIS_1.25V.csv",
+    "260922_ELX06/5_a1_EIS_1.25V.csv",
+    "260922_ELX06/6_a1_EIS_1.25V.csv",
+    "260922_ELX06/7_a1_EIS_1.50V.csv",
+    "260922_ELX06/8_a1_EIS_1.60V.csv",
+    "260922_ELX06/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j010",
+   "metrics": {
+    "CLR": {
+     "260922_E2NOCELL-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260922_E2NOCELL-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j0.611": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j1.328": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j2.077": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j2.816": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260922_E2NOCELL-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260922_E2NOCELL-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260922_E2NOCELL-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260922_E2NOCELL-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260922_E2NOCELL-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 24.3
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.95
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260922_E2NOCELL-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260922_E2NOCELL-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5553
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.6898
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260922_E2NOCELL-ElxPolCurve-CLR_analysis": {
+     "metadata": {},
+     "plot_type": "CLR_analysis"
+    },
+    "260922_E2NOCELL-ElxPolCurve-CLR_model_fit": {
+     "metadata": {},
+     "plot_type": "CLR_model_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j0.611": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j1.328": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j2.077": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_Cycle5_j2.816": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-eis_for_ir": {
+     "metadata": {},
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260922_E2NOCELL-ElxPolCurve-ir_correction": {
+     "metadata": {},
+     "plot_type": "elx_ir_correction"
+    },
+    "260922_E2NOCELL-ElxPolCurve-j_vs_cycle": {
+     "metadata": {},
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260922_E2NOCELL-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {},
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260922_E2NOCELL-ElxPolCurve-model_fit": {
+     "metadata": {},
+     "plot_type": "elx_model_fit"
+    },
+    "260922_E2NOCELL-ElxPolCurve-nyquist": {
+     "metadata": {},
+     "plot_type": "elx_nyquist"
+    },
+    "260922_E2NOCELL-ElxPolCurve-polcurve": {
+     "metadata": {},
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260922_E2NOCELL",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "ASR_total": 24.26147466411883,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.948900857652074,
+     "Tafel slope (anode)": 76.08025646870105,
+     "V_at_1Acm2": 1.555347852964237,
+     "V_at_2Acm2": 1.6897928256717045
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.022543713548970466,
+     "R0_asr_mohm_cm2": 22.543713548970466
+    }
+   ],
+   "timestamp": "2026-10-07T14:24:38Z"
+  },
+  "BIN010": {
+   "conditions": null,
+   "input_files": [
+    "260922_ELX06/10_a1_EIS_1.80V.csv",
+    "260922_ELX06/1_a1_polcurve.csv",
+    "260922_ELX06/2_a1_EIS_1.25V.csv",
+    "260922_ELX06/3_a1_EIS_1.25V.csv",
+    "260922_ELX06/4_a1_EIS_1.25V.csv",
+    "260922_ELX06/5_a1_EIS_1.25V.csv",
+    "260922_ELX06/6_a1_EIS_1.25V.csv",
+    "260922_ELX06/7_a1_EIS_1.50V.csv",
+    "260922_ELX06/8_a1_EIS_1.60V.csv",
+    "260922_ELX06/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j012",
+   "jobs": [
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j011",
+     "timestamp": "2026-10-07T14:24:47Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j012",
+     "timestamp": "2026-10-07T14:24:58Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260922_E2MIXCELL-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.236
+       }
+      }
+     },
+     "260922_E2MIXCELL-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j0.611": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j1.328": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j2.077": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j2.816": {
+      "conditions": {},
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260922_E2MIXCELL-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260922_E2MIXCELL-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260922_E2MIXCELL-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260922_E2MIXCELL-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260922_E2MIXCELL-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 24.3
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.2357
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.95
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260922_E2MIXCELL-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260922_E2MIXCELL-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5553
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.6898
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260922_E2MIXCELL-ElxPolCurve-CLR_analysis": {
+     "metadata": {},
+     "plot_type": "CLR_analysis"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-CLR_model_fit": {
+     "metadata": {},
+     "plot_type": "CLR_model_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j0.611": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j1.328": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j2.077": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_Cycle5_j2.816": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {},
+     "plot_type": "elx_eis_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-eis_for_ir": {
+     "metadata": {},
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-ir_correction": {
+     "metadata": {},
+     "plot_type": "elx_ir_correction"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-j_vs_cycle": {
+     "metadata": {},
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {},
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-model_fit": {
+     "metadata": {},
+     "plot_type": "elx_model_fit"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-nyquist": {
+     "metadata": {},
+     "plot_type": "elx_nyquist"
+    },
+    "260922_E2MIXCELL-ElxPolCurve-polcurve": {
+     "metadata": {},
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260922_E2MIXCELL",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.022543713548970466,
+     "R0_asr_mohm_cm2": 22.543713548970466
+    },
+    {
+     "ASR_total": 24.26147400846946,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.2357440973321887,
+     "Fit RMSE": 10.94890334396244,
+     "Tafel slope (anode)": 76.08024318895765,
+     "V_at_1Acm2": 1.555347852964237,
+     "V_at_2Acm2": 1.6897928256717045
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.022543713548970466,
+     "R0_asr_mohm_cm2": 22.543713548970466
+    }
+   ],
+   "timestamp": "2026-10-07T14:24:58Z"
+  },
+  "BIN011": {
+   "conditions": null,
+   "input_files": [
+    "260905_ELX07/01_block/data.csv",
+    "260905_ELX07/02_block/data.csv"
+   ],
+   "job_id": "j017",
+   "metrics": {
+    "durability": {
+     "260905_E2DUR-ElxDurability-asr_vs_j_evolution": {
+      "conditions": {},
+      "values": {
+       "ASR_final": {
+        "unit": "mΩ·cm²",
+        "value": 116.1
+       },
+       "ASR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 112.1
+       }
+      }
+     },
+     "260905_E2DUR-ElxDurability-degradation_rate": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 10.0
+       }
+      }
+     },
+     "260905_E2DUR-ElxDurability-hfr_vs_time": {
+      "conditions": {},
+      "values": {
+       "HFR change": {
+        "unit": "mΩ·cm²",
+        "value": 4.0
+       },
+       "HFR_final": {
+        "unit": "mΩ·cm²",
+        "value": 116.1
+       },
+       "HFR_initial": {
+        "unit": "mΩ·cm²",
+        "value": 112.1
+       }
+      }
+     },
+     "260905_E2DUR-ElxDurability-polcurve_evolution": {
+      "conditions": {},
+      "values": {
+       "Curves": 2.0,
+       "Time span": {
+        "unit": "hr",
+        "value": 400.0
+       }
+      }
+     },
+     "260905_E2DUR-ElxDurability-voltage_vs_time": {
+      "conditions": {},
+      "values": {
+       "Degradation rate": {
+        "unit": "μV/hr",
+        "value": 10.0
+       },
+       "Duration": {
+        "unit": "hr",
+        "value": 799.8
+       },
+       "V_final": {
+        "unit": "V",
+        "value": 1.7785
+       },
+       "V_initial": {
+        "unit": "V",
+        "value": 1.7705
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260905_E2DUR-ElxDurability-asr_vs_j_evolution": {
+     "metadata": {},
+     "plot_type": "durability_asr_evolution"
+    },
+    "260905_E2DUR-ElxDurability-degradation_rate": {
+     "metadata": {},
+     "plot_type": "durability_degradation"
+    },
+    "260905_E2DUR-ElxDurability-hfr_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_hfr"
+    },
+    "260905_E2DUR-ElxDurability-polcurve_evolution": {
+     "metadata": {},
+     "plot_type": "durability_polcurve_evolution"
+    },
+    "260905_E2DUR-ElxDurability-voltage_vs_time": {
+     "metadata": {},
+     "plot_type": "durability_voltage"
+    }
+   },
+   "sample_name": "260905_E2DUR",
+   "schema": 2,
+   "script": "Electrolyzer Durability",
+   "summary": [
+    {
+     "Analysis": "durability",
+     "Degradation rate": 10.042534729449919,
+     "Duration": 799.7729166666667,
+     "HFR_final": 116.12828036360894,
+     "HFR_initial": 112.12828036360892,
+     "V_final": 1.7785479123956494,
+     "V_initial": 1.7705161651043508,
+     "fit_R2": 0.8600450744922744,
+     "geo_area": 25.0,
+     "j_hold": 2.0,
+     "n_eis": 2,
+     "n_polcurves": 2,
+     "rate_Vpct_khr": 0.5672094345920887
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:18Z"
+  },
+  "BIN012": {
+   "conditions": {
+    "Air_slpm": 0.2,
+    "H2_slpm": 0.2,
+    "P_unit": "kPa",
+    "P_value": 0.0,
+    "RH_pct": 100.0,
+    "T_C": 80.0,
+    "step": "b14"
+   },
+   "input_files": [
+    "260804_FCS5/260804_FCS5_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa.fcd"
+   ],
+   "job_id": "j018",
+   "metrics": {
+    "polcurve": {
+     "260804_FCS5-PolCurve-polcurve_260804_FCS5_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa": {
+      "conditions": {
+       "Air_slpm": 0.2,
+       "H2_slpm": 0.2,
+       "P_unit": "kPa",
+       "P_value": 0.0,
+       "RH_pct": 100.0,
+       "T_C": 80.0,
+       "step": "b14"
+      },
+      "values": {
+       "Mean HFR": {
+        "unit": "mΩ·cm²",
+        "value": 45.6
+       },
+       "OCV": {
+        "unit": "V",
+        "value": 0.901
+       },
+       "Peak P": {
+        "unit": "mW/cm²",
+        "value": 715.0
+       },
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 0.632
+       }
+      }
+     },
+     "260804_FCS5-PolCurve-polcurve_batch_overlay": {
+      "conditions": {},
+      "values": {}
+     }
+    }
+   },
+   "plots": {
+    "260804_FCS5-PolCurve-polcurve_260804_FCS5_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa": {
+     "metadata": {},
+     "plot_type": "polcurve"
+    },
+    "260804_FCS5-PolCurve-polcurve_batch_overlay": {
+     "metadata": {},
+     "plot_type": "polcurve_overlay"
+    }
+   },
+   "sample_name": "260804_FCS5",
+   "schema": 2,
+   "script": "FC Polarization Curve",
+   "summary": [
+    {
+     "HFR_mean": 0.0456231050207962,
+     "Label": "260804_FCS5_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa",
+     "OCV": 0.9007883333333334,
+     "V_at_1Acm2": 0.6321521010581508,
+     "j_at_0.4V": 1.750805503424608,
+     "j_at_0.5V": 1.4294879114187302,
+     "j_at_0.65V": 0.940625970806203,
+     "j_at_0.6V": 1.1070591663911846,
+     "j_at_0.7V": 0.7768885175363028,
+     "j_at_peak_power": 1.4310723333333335,
+     "peak_power_W_cm2": 0.7148206305000001
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:19Z"
+  },
+  "BIN013": {
+   "conditions": null,
+   "input_files": [
+    "260716_FCS4/260716_FCS4_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa.fcd",
+    "260714_ELX01/10_a1_EIS_1.80V.csv",
+    "260714_ELX01/1_a1_polcurve.csv",
+    "260714_ELX01/2_a1_EIS_1.25V.csv",
+    "260714_ELX01/3_a1_EIS_1.25V.csv",
+    "260714_ELX01/4_a1_EIS_1.25V.csv",
+    "260714_ELX01/5_a1_EIS_1.25V.csv",
+    "260714_ELX01/6_a1_EIS_1.25V.csv",
+    "260714_ELX01/7_a1_EIS_1.50V.csv",
+    "260714_ELX01/8_a1_EIS_1.60V.csv",
+    "260714_ELX01/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j020",
+   "jobs": [
+    {
+     "buckets": [
+      "polcurve"
+     ],
+     "job_id": "j019",
+     "timestamp": "2026-10-07T14:25:20Z"
+    },
+    {
+     "buckets": [
+      "CLR",
+      "elx_eis_fit",
+      "elx_eis_for_ir",
+      "elx_ir_correction",
+      "elx_j_and_losses_vs_cycle",
+      "elx_j_vs_cycle",
+      "elx_model_fit",
+      "elx_nyquist",
+      "elx_polcurve"
+     ],
+     "job_id": "j020",
+     "timestamp": "2026-10-07T14:25:29Z"
+    }
+   ],
+   "metrics": {
+    "CLR": {
+     "260716_MIXED-ElxPolCurve-CLR_analysis": {
+      "conditions": {},
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.184
+       }
+      }
+     },
+     "260716_MIXED-ElxPolCurve-CLR_model_fit": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_eis_fit": {
+     "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+      "conditions": {},
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+      "conditions": {},
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+      "conditions": {},
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+      "conditions": {},
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.250V": {
+      "conditions": {
+       "V_setpoint": 250.0
+      },
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.500V": {
+      "conditions": {
+       "V_setpoint": 500.0
+      },
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.600V": {
+      "conditions": {
+       "V_setpoint": 600.0
+      },
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.700V": {
+      "conditions": {
+       "V_setpoint": 700.0
+      },
+      "values": {}
+     },
+     "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.800V": {
+      "conditions": {
+       "V_setpoint": 800.0
+      },
+      "values": {}
+     }
+    },
+    "elx_eis_for_ir": {
+     "260716_MIXED-ElxPolCurve-eis_for_ir": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_ir_correction": {
+     "260716_MIXED-ElxPolCurve-ir_correction": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_and_losses_vs_cycle": {
+     "260716_MIXED-ElxPolCurve-losses_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_j_vs_cycle": {
+     "260716_MIXED-ElxPolCurve-j_vs_cycle": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_model_fit": {
+     "260716_MIXED-ElxPolCurve-model_fit": {
+      "conditions": {},
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 45.1
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.1837
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.69
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     }
+    },
+    "elx_nyquist": {
+     "260716_MIXED-ElxPolCurve-nyquist": {
+      "conditions": {},
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260716_MIXED-ElxPolCurve-polcurve": {
+      "conditions": {},
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.6355
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.8301
+       }
+      }
+     }
+    },
+    "polcurve": {
+     "260716_MIXED-PolCurve-polcurve_260716_FCS4_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa": {
+      "conditions": {
+       "Air_slpm": 0.2,
+       "H2_slpm": 0.2,
+       "P_unit": "kPa",
+       "P_value": 0.0,
+       "RH_pct": 100.0,
+       "T_C": 80.0,
+       "step": "b14"
+      },
+      "values": {
+       "Mean HFR": {
+        "unit": "mΩ·cm²",
+        "value": 49.9
+       },
+       "OCV": {
+        "unit": "V",
+        "value": 0.9
+       },
+       "Peak P": {
+        "unit": "mW/cm²",
+        "value": 677.0
+       },
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 0.612
+       }
+      }
+     },
+     "260716_MIXED-PolCurve-polcurve_batch_overlay": {
+      "conditions": {},
+      "values": {}
+     }
+    }
+   },
+   "plots": {
+    "260716_MIXED-ElxPolCurve-CLR_analysis": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_analysis"
+    },
+    "260716_MIXED-ElxPolCurve-CLR_model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "CLR_model_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j0.353": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j0.821": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j1.329": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_Cycle5_j1.844": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.250V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.500V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.600V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.700V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_fit_V_dc1.800V": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260716_MIXED-ElxPolCurve-eis_for_ir": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260716_MIXED-ElxPolCurve-ir_correction": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260716_MIXED-ElxPolCurve-j_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260716_MIXED-ElxPolCurve-losses_vs_cycle": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260716_MIXED-ElxPolCurve-model_fit": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260716_MIXED-ElxPolCurve-nyquist": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260716_MIXED-ElxPolCurve-polcurve": {
+     "metadata": {
+      "conditions": {
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    },
+    "260716_MIXED-PolCurve-polcurve_260716_FCS4_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa": {
+     "metadata": {},
+     "plot_type": "polcurve"
+    },
+    "260716_MIXED-PolCurve-polcurve_batch_overlay": {
+     "metadata": {},
+     "plot_type": "polcurve_overlay"
+    }
+   },
+   "sample_name": "260716_MIXED",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "HFR_mean": 0.04990341622103387,
+     "Label": "260716_FCS4_b14_IV_80C_100RH_0o2H2_0o2Air_0kPa",
+     "OCV": 0.9003988235294118,
+     "V_at_1Acm2": 0.6120341834061509,
+     "j_at_0.4V": 1.6568659058831352,
+     "j_at_0.5V": 1.353076712820015,
+     "j_at_0.65V": 0.8846228530577758,
+     "j_at_0.6V": 1.036571576005719,
+     "j_at_0.7V": 0.7263304628555839,
+     "j_at_peak_power": 1.5041653333333331,
+     "peak_power_W_cm2": 0.6767841500799999
+    },
+    {
+     "ASR_total": 45.083640443488875,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.1836861583195244,
+     "Fit RMSE": 10.694957402537884,
+     "Tafel slope (anode)": 76.08025646870105,
+     "V_at_1Acm2": 1.6355481778527545,
+     "V_at_2Acm2": 1.8301282551504645
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.04497476839929202,
+     "R0_asr_mohm_cm2": 44.974768399292024
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:29Z"
+  },
+  "BIN014": {
+   "conditions": {
+    "P_anode_barg": 0.0,
+    "P_unit": "barg",
+    "P_value": 30.0,
+    "T_C": 80.0,
+    "step": "a1"
+   },
+   "input_files": [
+    "260811_ELX03/10_a1_EIS_1.80V.csv",
+    "260811_ELX03/1_a1_polcurve.csv",
+    "260811_ELX03/2_a1_EIS_1.25V.csv",
+    "260811_ELX03/3_a1_EIS_1.25V.csv",
+    "260811_ELX03/4_a1_EIS_1.25V.csv",
+    "260811_ELX03/5_a1_EIS_1.25V.csv",
+    "260811_ELX03/6_a1_EIS_1.25V.csv",
+    "260811_ELX03/7_a1_EIS_1.50V.csv",
+    "260811_ELX03/8_a1_EIS_1.60V.csv",
+    "260811_ELX03/9_a1_EIS_1.70V.csv"
+   ],
+   "job_id": "j022",
+   "jobs": [
+    {
+     "buckets": [
+      "elx_eis",
+      "elx_polcurve"
+     ],
+     "job_id": "j021",
+     "timestamp": "2026-10-07T14:25:39Z"
+    },
+    {
+     "buckets": [
+      "elx_eis",
+      "elx_polcurve"
+     ],
+     "job_id": "j022",
+     "timestamp": "2026-10-07T14:25:49Z"
+    }
+   ],
+   "metrics": {
+    "elx_eis": {
+     "260811_E2P1-ElxPolCurve-CLR_analysis_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {
+       "E_rev": {
+        "unit": "V",
+        "value": 1.236
+       }
+      }
+     },
+     "260811_E2P1-ElxPolCurve-CLR_model_fit_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j0.452_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j1.026_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j1.640_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j2.258_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.250V_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.500V_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.600V_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.700V_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.800V_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-eis_for_ir_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-nyquist_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     }
+    },
+    "elx_polcurve": {
+     "260811_E2P1-ElxPolCurve-ir_correction_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-j_vs_cycle_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-losses_vs_cycle_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {}
+     },
+     "260811_E2P1-ElxPolCurve-model_fit_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {
+       "ASR_total": {
+        "unit": "mΩ·cm²",
+        "value": 33.9
+       },
+       "E_rev": {
+        "unit": "V",
+        "value": 1.2357
+       },
+       "Fit RMSE": {
+        "unit": "mV",
+        "value": 10.8
+       },
+       "Tafel slope (anode)": {
+        "unit": "mV/dec",
+        "value": 76.1
+       }
+      }
+     },
+     "260811_E2P1-ElxPolCurve-polcurve_a1": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      },
+      "values": {
+       "V @ 1 A/cm²": {
+        "unit": "V",
+        "value": 1.5956
+       },
+       "V @ 2 A/cm²": {
+        "unit": "V",
+        "value": 1.7581
+       }
+      }
+     }
+    }
+   },
+   "plots": {
+    "260811_E2P1-ElxPolCurve-CLR_analysis_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_clr_analysis"
+    },
+    "260811_E2P1-ElxPolCurve-CLR_model_fit_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_clr_model_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j0.452_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j1.026_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j1.640_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_Cycle5_j2.258_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.250V_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.500V_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.600V_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.700V_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_fit_V_dc1.800V_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_fit"
+    },
+    "260811_E2P1-ElxPolCurve-eis_for_ir_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_eis_for_ir"
+    },
+    "260811_E2P1-ElxPolCurve-ir_correction_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_ir_correction"
+    },
+    "260811_E2P1-ElxPolCurve-j_vs_cycle_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_vs_cycle"
+    },
+    "260811_E2P1-ElxPolCurve-losses_vs_cycle_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_j_and_losses_vs_cycle"
+    },
+    "260811_E2P1-ElxPolCurve-model_fit_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_model_fit"
+    },
+    "260811_E2P1-ElxPolCurve-nyquist_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_nyquist"
+    },
+    "260811_E2P1-ElxPolCurve-polcurve_a1": {
+     "metadata": {
+      "conditions": {
+       "P_anode_barg": 0.0,
+       "P_unit": "barg",
+       "P_value": 30.0,
+       "T_C": 80.0,
+       "step": "a1"
+      }
+     },
+     "plot_type": "elx_polcurve"
+    }
+   },
+   "sample_name": "260811_E2P1",
+   "schema": 2,
+   "script": "Electrolyzer Pol Curve",
+   "summary": [
+    {
+     "ASR_total": 33.90305673407325,
+     "Analysis": "elx_polcurve",
+     "E_rev": 1.2357440973321887,
+     "Fit RMSE": 10.801585352052406,
+     "Tafel slope (anode)": 76.08025646493948,
+     "V_at_1Acm2": 1.5955568534700504,
+     "V_at_2Acm2": 1.7581448212999722,
+     "dV_at_2Acm2_mV": 19.995340616962398,
+     "step": "a1"
+    },
+    {
+     "Analysis": "elx_eis",
+     "HFR": 0.03340434691356525,
+     "HFR_dc_V": 1.2500036065573767,
+     "R0_asr_mohm_cm2": 33.404346913565256,
+     "step": "a1"
+    }
+   ],
+   "timestamp": "2026-10-07T14:25:49Z"
+  }
+ },
+ "scenarios": {
+  "E0 single cell": "260714_E0ONE",
+  "E0 then E2, same cell": "260714_E0E2",
+  "E1 durability": "260728_E1DUR",
+  "E1 single cell": "260728_E1ONE",
+  "E1 then E2, same cell": "260728_E1E2",
+  "E2 cell then no cell": "260922_E2MIXCELL",
+  "E2 durability only": "260905_E2DUR",
+  "E2 fuel cell + electrolyzer": "260716_MIXED",
+  "E2 fuel cell only": "260804_FCS5",
+  "E2 no cell": "260922_E2NOCELL",
+  "E2 same cell twice": "260825_E2RERUN",
+  "E2 single cell + durability": "260811_E2ONE",
+  "E2 then phase 1, same cell": "260811_E2P1",
+  "E2 two cells": "260908_E2TWO"
+ }
+}

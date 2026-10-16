@@ -78,6 +78,24 @@ SCRIPT_SHORT = {
     "Plot Comparison": "Comparison",
 }
 
+# ─── What the upload form offers ─────────────────────────────────
+# The Analysis tab's script dropdown lists these, in this order, under the
+# names in SCRIPT_LABELS. The registry keys stay the scripts' ids: they are
+# what the store records as a run's script, and what the stand, folder-order
+# and family rules are keyed by. A script left off the menu is still
+# registered, so its stored runs keep their name and /api/upload still runs
+# it; it is only not offered.
+SCRIPT_MENU = [
+    "FC Durability",
+    "Fuel Cell Full Analysis",
+    "Electrolyzer Pol Curve",
+    "Electrolyzer Durability",
+]
+SCRIPT_LABELS = {
+    "FC Durability": "Fuel Cell Durability",
+    "Fuel Cell Full Analysis": "Fuel Cell Performance Analysis",
+}
+
 # ─── Common sample_name field (inserted first for every script) ──
 _SAMPLE_FIELD = {"key": "sample_name", "label": "Sample Name", "type": "text", "default": ""}
 
@@ -298,11 +316,12 @@ SCRIPT_PARAMS = {
 
 
 # Entries whose module was absent are removed rather than left pointing at
-# None, so callers never have to test for it. SCRIPT_SHORT and SCRIPT_PARAMS
-# are trimmed to match, keeping the three dicts consistent.
+# None, so callers never have to test for it. SCRIPT_SHORT, SCRIPT_PARAMS and
+# SCRIPT_MENU are trimmed to match, keeping them consistent.
 SCRIPT_REGISTRY = {k: v for k, v in SCRIPT_REGISTRY.items() if v is not None}
 SCRIPT_SHORT = {k: v for k, v in SCRIPT_SHORT.items() if k in SCRIPT_REGISTRY}
 SCRIPT_PARAMS = {k: v for k, v in SCRIPT_PARAMS.items() if k in SCRIPT_REGISTRY}
+SCRIPT_MENU = [k for k in SCRIPT_MENU if k in SCRIPT_REGISTRY]
 
 if MISSING_SCRIPTS:
     for _m, _why in sorted(MISSING_SCRIPTS.items()):

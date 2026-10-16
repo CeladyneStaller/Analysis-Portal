@@ -26,6 +26,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from scripts.helpers import registry
+
 SCHEMA_VERSION = 2
 
 # ─────────────────────────────────────────────────────────────────────
@@ -126,8 +128,18 @@ def sidecar_bucket_sizes(sidecars: Dict[str, Any]) -> Dict[str, int]:
     return dict(sorted(per_bucket.items(), key=lambda kv: kv[1], reverse=True))
 
 
+def retention_rank(name: str, sidecar: Dict[str, Any],
+                   protected: Any = frozenset()) -> Tuple[bool, bool]:
+    """Sort key for keeping sidecars under the transport limit: lower is kept
+    first. Protected (the incoming run's) before the rest, and an analysis's
+    main plots before its other plots."""
+    return (name not in protected,
+            not registry.is_main_plot(sidecar.get('plot_type')))
+
+
 def select_sidecars(sidecars: Dict[str, Any], budget_bytes: int,
-                    exclude_buckets: Optional[Set[str]] = None
+                    exclude_buckets: Optional[Set[str]] = None,
+                    protected: Any = frozenset()
                     ) -> Tuple[Dict[str, Any], List[str]]:
     """Choose which sidecars to keep within a raw-byte budget.
 
@@ -139,6 +151,14 @@ def select_sidecars(sidecars: Dict[str, Any], budget_bytes: int,
        until the budget is exhausted. Keeping several light analyses is more
        useful than one heavy one, and it degrades smoothly instead of the
        all-or-nothing choice of dropping every sidecar.
+
+    Retention order: `protected` sidecars first — during a merge, the incoming
+    run's, so a fresh measurement is never squeezed out by older data (fork
+    D) — then each analysis's main plots (registry.ANALYSES[...]['main_plots'])
+    ahead of the rest, smallest first within each group. Size alone would drop
+    an electrolyzer pol-curve run's model fit — its largest plot — before any
+    of its per-spectrum EIS fits. With nothing protected and no main plots
+    involved, this is the plain smallest-first order it has always been.
 
     Returns (kept, dropped_names).
     """
@@ -152,8 +172,9 @@ def select_sidecars(sidecars: Dict[str, Any], budget_bytes: int,
         else:
             candidates[name] = sc
 
-    # Smallest first, so a budget buys the most plots.
-    ordered = sorted(sidecar_sizes(candidates).items(), key=lambda kv: kv[1])
+    ordered = sorted(sidecar_sizes(candidates).items(),
+                     key=lambda kv: retention_rank(kv[0], candidates[kv[0]],
+                                                   protected) + (kv[1],))
     kept: Dict[str, Any] = {}
     used = 0
     for name, size in ordered:
@@ -561,12 +582,59 @@ def parse_conditions(filename: str) -> Dict[str, Any]:
         if m and (v := _num(m.group(1))) is not None:
             cond[key] = v
 
-    # Voltage setpoint: digits + V, not adjacent to letters (excludes 'mV', 'kV')
-    m = re.search(r'(?<![A-Za-z])' + _NUM + r'V(?![A-Za-z])', name)
+    # Voltage setpoint: a whole number + V, not adjacent to letters (excludes
+    # 'mV', 'kV'). The number must start the token: without the digit and '.'
+    # exclusions the search resumes mid-number, so 'V_dc1.250V' — whose real
+    # start is blocked by the 'c' — read as 250 V and split one electrolyzer
+    # EIS unit into one per spectrum.
+    m = re.search(r'(?<![A-Za-z0-9.])' + _NUM + r'V(?![A-Za-z])', name)
     if m and (v := _num(m.group(1))) is not None:
         cond['V_setpoint'] = v
 
     return cond
+
+
+def plot_conditions(plot_name: str,
+                    sidecar: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Conditions for one stored plot: its filename, then what its script declared.
+
+    A script that knows its own conditions declares them in the sidecar's
+    metadata. That is the only source when the output filename encodes none,
+    and it wins over the filename guess wherever both exist, because the
+    script is the authority on what it just measured. The electrolyzer scripts
+    declare the cell id as the step, plus temperature and pressure or hold
+    current. A declared step is normalised (see `normalise_step`).
+
+    The detail record files a new plot by this; stored plots are keyed by
+    `stored_plot_keys`, which reads the same declarations.
+    """
+    cond = parse_conditions(plot_name)
+    declared = ((sidecar or {}).get('metadata') or {}).get('conditions')
+    if isinstance(declared, dict) and declared:
+        cond = {**cond, **declared}
+        step = normalise_step(cond.get('step'))
+        if step:
+            cond['step'] = step
+        else:
+            cond.pop('step', None)
+    return cond
+
+
+_STEP_UNSAFE = re.compile(r'[^a-z0-9_-]+')
+
+
+def normalise_step(value: Any) -> str:
+    """A declared step as the record keeps it: lower case, and only letters,
+    digits, '_' and '-', any other run of characters becoming one '-'.
+
+    Steps parsed from filenames already have that shape. A declared one can
+    come from free text — the electrolyzer cell id is typed on the form — and
+    it ends up in the index, in filenames and in the views' markup (Trends
+    puts steps inside inline handlers), so it is reduced to a form that is
+    inert in all three. The electrolyzer script applies the same function to
+    the cell id it stamps and puts in filenames, so the two always agree.
+    """
+    return _STEP_UNSAFE.sub('-', str(value or '').strip().lower()).strip('-')
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -589,6 +657,19 @@ def plot_bucket(plot_type: str) -> str:
         return 'cleaning'
     if pt.startswith('crossover') or 'h2x' in pt:
         return 'crossover'
+    # Electrolyzer plots carry their own buckets. Both benches produce a
+    # polarization sweep and an impedance spectrum, and without this an
+    # electrolyzer run would share the (polcurve, step) merge unit with a fuel
+    # cell run on the same sample — each silently replacing the other — while
+    # every elx_* plot type would otherwise become a bucket of its own.
+    # Checked ahead of the generic prefixes because 'elx_eis_fit' would
+    # otherwise never reach here. The catalyst-layer (CLR) analysis is fitted
+    # from the impedance spectra, so elx_clr_* joins the EIS bucket rather than
+    # the fuel-cell 'CLR' one.
+    if pt.startswith('elx'):
+        if 'eis' in pt or 'nyquist' in pt or 'clr' in pt:
+            return 'elx_eis'
+        return 'elx_polcurve'
     if pt.startswith('eis') or pt.startswith('nyquist'):
         return 'eis'
     if pt.startswith('ecsa'):
@@ -609,75 +690,20 @@ def plot_bucket(plot_type: str) -> str:
 #  key_values whitelist
 # ─────────────────────────────────────────────────────────────────────
 
-# canonical name -> candidate source keys, checked in order.
+# analysis -> [(canonical name, candidate source keys, checked in order)].
 # Summary scalars (tier 1) are consulted before parsed plot annotations, so a
 # value taken from the results dict always wins over one scraped from display
 # text. This is what makes 'Average ECSA' correct without depending on the
 # malformed H_UPD readout box.
-KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = {
-    'polcurve': [
-        ('OCV', ['OCV', 'OCV (V)']),
-        ('V @ 1 A/cm²', ['V @ 1 A/cm²', 'V@1A (V)', 'V_at_1Acm2', 'V at 1 A/cm2']),
-        # Current density at fixed operating voltages. Sparse by design — a key
-        # is absent when the curve did not reach that voltage, never estimated.
-        ('j @ 0.7 V', ['j_at_0.7V', 'j @ 0.7 V']),
-        ('j @ 0.65 V', ['j_at_0.65V', 'j @ 0.65 V']),
-        ('j @ 0.6 V', ['j_at_0.6V', 'j @ 0.6 V']),
-        ('j @ 0.5 V', ['j_at_0.5V', 'j @ 0.5 V']),
-        ('j @ 0.4 V', ['j_at_0.4V', 'j @ 0.4 V']),
-    ],
-    'eis': [
-        ('HFR', ['HFR', 'Mean HFR', 'HFR_mean', 'Mean HFR (mOhm·cm2)']),
-    ],
-    'crossover': [
-        ('|j_xover|', ['|j_xover|', 'j_xover', 'j_xover_mA_cm2',
-                       'j_xover (mA/cm2)']),
-    ],
-    'ecsa': [
-        ('Average ECSA', ['Average ECSA', 'average_ECSA_m2_per_g',
-                          'Avg ECSA (m2/g)']),
-    ],
-    # One step-less unit per durability test. Hours to death exists only for
-    # a sample that died: absent means alive, censored at Hours tested. A
-    # test that cycles RH also counts its lifetime in RH cycles, the same way.
-    'fc_durability': [
-        ('Hours tested', ['Hours tested']),
-        ('Hours to death', ['Hours to death']),
-        ('OCV initial', ['OCV initial']),
-        ('OCV decay rate', ['OCV decay rate']),
-        ('OCV loss', ['OCV loss']),
-        ('j_xover initial', ['j_xover initial']),
-        ('j_xover final', ['j_xover final']),
-        ('R_short final', ['R_short final']),
-        ('RH cycles tested', ['RH cycles tested']),
-        ('RH cycles to death', ['RH cycles to death']),
-    ],
-}
+#
+# Derived from the registry, which is also what the views read, so what the
+# index promotes and how it is labelled cannot drift apart. Edit entries there.
+KEY_VALUES: Dict[str, List[Tuple[str, List[str]]]] = registry.key_value_sources()
 
 # Units are implied per canonical key; the {value, unit} form lives in the
-# detail bin. Documented here so consumers are not guessing.
-KEY_VALUE_UNITS = {
-    'OCV': 'V',
-    'V @ 1 A/cm²': 'V',
-    'j @ 0.7 V': 'A/cm²',
-    'j @ 0.65 V': 'A/cm²',
-    'j @ 0.6 V': 'A/cm²',
-    'j @ 0.5 V': 'A/cm²',
-    'j @ 0.4 V': 'A/cm²',
-    'HFR': 'Ω·cm²',
-    '|j_xover|': 'mA/cm²',
-    'Average ECSA': 'm²/g',
-    'Hours tested': 'h',
-    'Hours to death': 'h',
-    'OCV initial': 'V',
-    'OCV decay rate': 'μV/h',
-    'OCV loss': '%',
-    'j_xover initial': 'mA/cm²',
-    'j_xover final': 'mA/cm²',
-    'R_short final': 'Ω·cm²',
-    'RH cycles tested': 'cycles',
-    'RH cycles to death': 'cycles',
-}
+# detail bin. Documented so consumers are not guessing — and derived from the
+# same registry entries.
+KEY_VALUE_UNITS: Dict[str, str] = registry.key_value_units()
 
 
 def _scalar(v: Any) -> Optional[float]:
@@ -699,8 +725,15 @@ def _scalar(v: Any) -> Optional[float]:
     return n if math.isfinite(n) else None
 
 
+def _row_step(row: Dict[str, Any]) -> str:
+    """The step a summary row declares for itself, normalised, or ''."""
+    return normalise_step(row.get('step'))
+
+
 def _rows_for_unit(summary: Optional[Any], bucket: str,
-                   plot_names: List[str]) -> List[Dict[str, Any]]:
+                   plot_names: List[str],
+                   step: Optional[str] = None,
+                   sole: Optional[str] = None) -> List[Dict[str, Any]]:
     """Summary rows belonging to one analysis unit.
 
     A batch run produces one summary row per input file, and an index entry has
@@ -709,8 +742,27 @@ def _rows_for_unit(summary: Optional[Any], bucket: str,
     so a five-polcurve Full Analysis would report the same OCV and j@V under
     every step. Rows are matched by label appearing in one of the unit's plot
     names, which is how the analysis scripts construct those names.
+
+    The electrolyzer analyses whose units are cells (elx_polcurve, elx_eis)
+    match on the step their rows declare instead ('step': 'a1', blank for a
+    run that named no cell), which is exact where a label is a guess: a row
+    belongs to its cell's unit and to no other, so two cells under one sample
+    each get their own values. A row with no step at all was written under
+    the old rules; it is matched as before only when the unit is its record's
+    one cell (`sole`), since otherwise its cell cannot be told and the
+    single-candidate rule would hand it to whichever cell asked first.
     """
     rows = summary if isinstance(summary, list) else ([summary] if summary else [])
+    rows = [r for r in rows if isinstance(r, dict)
+            and (not r.get('Analysis') or r.get('Analysis') == bucket)]
+    if step is not None and _stepped_elx(bucket):
+        own = [r for r in rows if 'step' in r and _row_step(r) == str(step)]
+        if own or sole is None or str(step) != sole:
+            return own
+        rows = [r for r in rows if 'step' not in r]
+    else:
+        rows = [r for r in rows if not _row_step(r)]
+
     matched: List[Dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -882,7 +934,7 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
 
     for plot_name, sidecar in sidecars.items():
         bucket = plot_bucket(sidecar.get('plot_type', 'unknown'))
-        conditions = parse_conditions(plot_name)
+        conditions = plot_conditions(plot_name, sidecar)
         values = extract_values(sidecar)
         metrics.setdefault(bucket, {})[plot_name] = {
             'conditions': conditions,
@@ -929,11 +981,15 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
 # ─────────────────────────────────────────────────────────────────────
 
 def _analysis_units(metrics: Dict[str, Dict[str, Any]],
-                    summary: Optional[Any] = None) -> List[Dict[str, Any]]:
+                    summary: Optional[Any] = None,
+                    used: Optional[Set[int]] = None) -> List[Dict[str, Any]]:
     """Collapse plots into distinct (Analysis, step, Conditions) units.
 
     Several plots from one characterization at one setpoint — say a polcurve and
     its Tafel panel — become a single unit with their values merged.
+
+    `used`, when given, collects the id() of every summary row a unit takes
+    its values from (see unplaced_rows).
     """
     grouped: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
     order: List[Tuple[str, str, str]] = []
@@ -951,6 +1007,11 @@ def _analysis_units(metrics: Dict[str, Dict[str, Any]],
             grouped[key]['_values'].update(entry.get('values') or {})
             grouped[key]['_plots'].append(plot_name)
 
+    # The record's one electrolyzer cell, if it has exactly one: the only unit
+    # an old row that names no cell can safely be given to.
+    cells = {g['step'] for g in grouped.values() if _stepped_elx(g['Analysis'])}
+    sole = next(iter(cells)) if len(cells) == 1 else None
+
     built: List[Dict[str, Any]] = []
     for key in order:
         g = grouped[key]
@@ -961,7 +1022,10 @@ def _analysis_units(metrics: Dict[str, Dict[str, Any]],
         }
         # Narrow the summary to this unit before flattening, so each step
         # reports its own file's values rather than the first file's.
-        rows = _rows_for_unit(summary, g['Analysis'], g['_plots'])
+        rows = _rows_for_unit(summary, g['Analysis'], g['_plots'], g['step'],
+                              sole)
+        if used is not None:
+            used.update(id(r) for r in rows)
         kv = build_key_values(g['Analysis'], g['_values'],
                               _summary_lookup(rows))
         if kv:
@@ -980,6 +1044,19 @@ def _analysis_units(metrics: Dict[str, Dict[str, Any]],
              or u['Analysis'] not in informative]
 
     return _trim_conditions(built)
+
+
+def unplaced_rows(record: Dict[str, Any]) -> List[int]:
+    """Positions of the summary rows no index unit takes values from.
+
+    For reporting what the index cannot show — an electrolyzer row written
+    under the old rules, in a record whose old runs were on several cells.
+    """
+    summary = record.get('summary')
+    rows = summary if isinstance(summary, list) else ([summary] if summary else [])
+    used: Set[int] = set()
+    _analysis_units(record.get('metrics', {}), rows, used)
+    return [i for i, r in enumerate(rows) if isinstance(r, dict) and id(r) not in used]
 
 
 def _trim_conditions(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1038,7 +1115,8 @@ def build_index_entry(detail_record: Dict[str, Any], bin_id: str) -> Dict[str, A
     if run_date:
         entry['run_date'] = run_date
     stand = detail_record.get('stand')
-    if not stand and detail_record.get('script') not in STAND_DECLARED_ONLY:
+    if (not stand and detail_record.get('script') not in STAND_DECLARED_ONLY
+            and guesses_stand(detail_record)):
         stand = parse_stand(detail_record.get('input_files'))
     if stand:
         entry['stand'] = stand
@@ -1050,6 +1128,19 @@ def build_index_entry(detail_record: Dict[str, Any], bin_id: str) -> Dict[str, A
 # Scribner and the FCTS alike, and every one would be called FCTS (V32). Their
 # stand is recorded only as declared, or not at all.
 STAND_DECLARED_ONLY = {'FC Durability'}
+
+
+def guesses_stand(detail_record: Dict[str, Any]) -> bool:
+    """Whether a record without a declared stand may have one derived.
+
+    The stand is derived from file extensions on the fuel-cell convention —
+    delimited text means FCTS — which says nothing about an electrolyzer
+    bench: every electrolyzer run read as FCTS. A record whose analyses are
+    all electrolyzer ones gets no derived stand; a declared one (in the
+    record, where the form and the admin stand tool put it) is still kept.
+    """
+    buckets = set((detail_record.get('metrics') or {}).keys())
+    return not (buckets and all(registry.family(b) == 'elx' for b in buckets))
 
 
 def detail_bin_name(detail_record: Dict[str, Any], script_short: str = '') -> str:
@@ -1082,6 +1173,248 @@ def _plot_step(entry: Dict[str, Any]) -> str:
     return str((entry.get('conditions') or {}).get('step') or '')
 
 
+def sidecar_step(plot_name: str, sidecar: Optional[Dict[str, Any]]) -> str:
+    """The step a sidecar's plot belongs to — see `plot_conditions`."""
+    return str(plot_conditions(plot_name, sidecar).get('step') or '')
+
+
+# ── Stored electrolyzer records ──
+#
+# Records written between commit 69fda5c (Aug 4) and this module's registry
+# filed electrolyzer plots one bucket per plot type ('elx_nyquist',
+# 'elx_model_fit', the fuel-cell 'CLR' for the catalyst-layer plots), without
+# the cell id their scripts declared, and with summary rows that name no step.
+# A re-run filed under the current rules covers (elx_polcurve, a1) and
+# (elx_eis, a1); keyed as stored, none of the old plots or rows fall under
+# those, so they would outlive the run that replaced them. Stored plots are
+# therefore keyed by what their sidecars say, and the merge brings a record's
+# electrolyzer part up to the current rules before merging into it.
+
+
+def _stepped_elx(analysis: str) -> bool:
+    """An electrolyzer analysis whose units are told apart by a step (the cell)."""
+    a = registry.ANALYSES.get(analysis or '') or {}
+    return a.get('family') == 'elx' and not a.get('stepless')
+
+
+# What the electrolyzer pol-curve script typed its plots before it named them
+# elx_* (Jul 27, until 16:15), apart from the names it shares with fuel-cell
+# plots ('polcurve', 'nyquist'). Its runs from then are filed as fuel-cell pol
+# curves and EIS, with no cell declared and no summary; no fuel-cell script
+# writes these types, which is how such a record is recognised.
+PRE_ELX_TYPES = frozenset({'j_vs_cycle', 'losses_vs_cycle', 'model_fit',
+                           'ir_correction', 'eis_for_ir'})
+
+# Its catalyst-layer plot types until they became elx_clr_*. Nothing else has
+# ever written a CLR type.
+_OLD_ELX_CLR_TYPES = frozenset({'CLR_analysis', 'CLR_model_fit'})
+
+
+def _clr_is_elx(sidecars: Dict[str, Any]) -> bool:
+    """Whether a record's undeclared CLR_* plots go with the electrolyzer ones.
+
+    They are always the electrolyzer script's, but in a record from before
+    its plot types were renamed (PRE_ELX_TYPES) its other plots are filed as
+    fuel-cell ones too, with nothing to re-file them by, and the catalyst-layer
+    plots stay with them.
+    """
+    return not any(isinstance(sc, dict) and sc.get('plot_type') in PRE_ELX_TYPES
+                   for sc in sidecars.values())
+
+
+def _plot_analysis(sidecar: Dict[str, Any], clr_is_elx: bool = False) -> str:
+    """The bucket a stored plot belongs to under the current rules.
+
+    plot_bucket on its type, with one correction: the electrolyzer script typed
+    its catalyst-layer plots 'CLR_*' until they became 'elx_clr_*', which puts
+    the stored ones in the fuel-cell 'CLR' bucket. Only the electrolyzer
+    scripts declare conditions in their sidecars, so a declaring CLR plot is
+    one of theirs; so is an undeclared one of those types — a run that named
+    no cell declared nothing — wherever the record's other electrolyzer plots
+    are filed as such (`clr_is_elx`, from _clr_is_elx).
+    """
+    b = plot_bucket(sidecar.get('plot_type', 'unknown'))
+    if b == 'CLR' and ((sidecar.get('metadata') or {}).get('conditions')
+                       or (clr_is_elx
+                           and sidecar.get('plot_type') in _OLD_ELX_CLR_TYPES)):
+        return 'elx_eis'
+    return b
+
+
+def _legacy_steps(record: Dict[str, Any], sidecars: Dict[str, Any]) -> Set[str]:
+    """The cells that a record's runs written before the current rules were on.
+
+    The script's own declarations tell the vintages apart. Until this change
+    the electrolyzer pol-curve script declared the cell and nothing else
+    ({'step': 'a1'}), and nothing at all for a run that named no cell (or,
+    before Jul 27, for any run). Current runs declare their conditions as
+    well, so they are never evidence: a run that names no cell can share a
+    record with older ones. An old run that named no cell counts as ''.
+
+    Taken across the whole record, not per analysis: every old run wrote rows
+    for both analyses, and its plots of one may since have been overwritten
+    by another cell's, so an old cell seen in either analysis makes every old
+    row ambiguous.
+    """
+    out: Set[str] = set()
+    clr = _clr_is_elx(sidecars)
+    for plots in (record.get('metrics') or {}).values():
+        for name in plots:
+            sc = sidecars.get(name)
+            if not isinstance(sc, dict) or not _stepped_elx(_plot_analysis(sc, clr)):
+                continue
+            declared = (sc.get('metadata') or {}).get('conditions') or {}
+            if not declared:
+                out.add('')
+            elif set(declared) == {'step'}:
+                out.add(normalise_step(declared['step']))
+    return out
+
+
+def _legacy_step(legacy: Set[str]) -> Optional[str]:
+    """The one cell a record's old runs were on — '' for an old run with no
+    cell — or None when there is not exactly one, and nothing may be inferred."""
+    return next(iter(legacy)) if len(legacy) == 1 else None
+
+
+def old_electrolyzer_cells(record: Dict[str, Any]) -> Set[str]:
+    """The cells a record's runs from before the current rules were on.
+
+    '' stands for an old run that named no cell. Anything stored under the old
+    rules without a cell is given the one cell when there is exactly one, and
+    nothing otherwise (see _legacy_steps); this is for reporting which.
+    """
+    return _legacy_steps(record, decode_sidecars(record))
+
+
+def stored_plot_keys(record: Dict[str, Any],
+                     sidecars: Optional[Dict[str, Any]] = None
+                     ) -> Dict[str, Tuple[str, str]]:
+    """plot name -> (analysis, step) for every plot a stored record holds.
+
+    A plot's own sidecar is the authority: its type gives the bucket and its
+    declared conditions the step, as for a new plot. A plot stored without
+    one keeps the conditions it was filed with, its bucket name mapped through
+    plot_bucket — 'elx_model_fit' becomes 'elx_polcurve'. When that bucket
+    name was a per-plot-type one, the plot was filed under the old rules, and
+    if it has no step it takes the old runs' one cell (see _legacy_steps).
+    Nothing else is ever given a step it was not stored or declared with.
+
+    The merge and the sidecar carry-over at push both key stored plots here,
+    so a plot's metrics and its sidecar always share a fate.
+    """
+    if sidecars is None:
+        sidecars = decode_sidecars(record)
+    legacy = _legacy_steps(record, sidecars)
+    clr = _clr_is_elx(sidecars)
+    keys: Dict[str, Tuple[str, str]] = {}
+    for bucket, plots in (record.get('metrics') or {}).items():
+        for name, entry in plots.items():
+            sc = sidecars.get(name)
+            if isinstance(sc, dict):
+                keys[name] = (_plot_analysis(sc, clr), sidecar_step(name, sc))
+                continue
+            b, s = plot_bucket(bucket), _plot_step(entry)
+            if not s and b != bucket and _stepped_elx(b):
+                s = _legacy_step(legacy) or ''
+            keys[name] = (b, s)
+    for name, sc in sidecars.items():
+        if name not in keys and isinstance(sc, dict):
+            keys[name] = (_plot_analysis(sc, clr), sidecar_step(name, sc))
+    return keys
+
+
+def normalise_electrolyzer(record: Dict[str, Any]) -> Dict[str, Any]:
+    """A stored record with its electrolyzer part brought to the current rules.
+
+    Every electrolyzer plot is re-filed under the bucket and conditions
+    `stored_plot_keys` gives it, its conditions re-read from its sidecar (or,
+    without one, re-parsed from its name).
+
+    Summary rows written under the old rules carry no 'step' key at all —
+    current ones always do, blank when the run names no cell. An old row takes
+    the old runs' one cell, '' when that was no cell (see _legacy_steps); in an
+    ambiguous record it stays as it is. Of old rows that then name the same
+    (analysis, step) — earlier runs of a cell, which were never displaced —
+    only the last is kept, and none where a current row has that key.
+
+    Fuel-cell plots and rows, and every row or plot filed under the current
+    rules, are left exactly as stored. Returns the record itself when nothing
+    needed changing, otherwise a new one.
+    """
+    metrics = record.get('metrics') or {}
+    summary = record.get('summary')
+    # One row may be stored as a bare dict (see _rows_for_unit).
+    rows = summary if isinstance(summary, list) else ([summary] if summary else [])
+    if not any(registry.family(plot_bucket(b)) == 'elx' or b == 'CLR'
+               for b in metrics) and not any(
+            isinstance(r, dict) and _stepped_elx(r.get('Analysis')) for r in rows):
+        return record
+
+    sidecars = decode_sidecars(record)
+    keys = stored_plot_keys(record, sidecars)
+    changed = False
+
+    new_metrics: Dict[str, Dict[str, Any]] = {}
+    for bucket, plots in metrics.items():
+        for name, entry in plots.items():
+            b, s = keys.get(name, (bucket, _plot_step(entry)))
+            if registry.family(b) != 'elx':
+                new_metrics.setdefault(bucket, {})[name] = entry
+                continue
+            sc = sidecars.get(name)
+            if isinstance(sc, dict):
+                cond = plot_conditions(name, sc)
+            else:
+                # Filed from the name alone, by rules since corrected: the
+                # voltage setpoint is the one that changed.
+                cond = dict(entry.get('conditions') or {})
+                cond.pop('V_setpoint', None)
+                v = parse_conditions(name).get('V_setpoint')
+                if v is not None:
+                    cond['V_setpoint'] = v
+            if s:
+                cond['step'] = s
+            else:
+                cond.pop('step', None)
+            fixed = {**entry, 'conditions': cond}
+            changed = changed or b != bucket or fixed != entry
+            new_metrics.setdefault(b, {})[name] = fixed
+
+    legacy = _legacy_steps(record, sidecars)
+    stamped: List[Tuple[Any, bool]] = []          # (row, written under the old rules)
+    for row in rows:
+        old = (isinstance(row, dict) and _stepped_elx(row.get('Analysis'))
+               and 'step' not in row)
+        if old:
+            s = _legacy_step(legacy)
+            if s is not None:
+                row = {**row, 'step': s}
+                changed = True
+        stamped.append((row, old))
+    seen: Set[Tuple[str, str]] = set()
+    latest_first: List[Any] = []
+    for row, old in reversed(stamped):
+        if (isinstance(row, dict) and _stepped_elx(row.get('Analysis'))
+                and 'step' in row):
+            k = (row['Analysis'], _row_step(row))
+            if old and k in seen:
+                changed = True
+                continue
+            seen.add(k)
+        latest_first.append(row)
+
+    if not changed:
+        return record
+    out = json.loads(json.dumps(record))
+    out['metrics'] = json.loads(json.dumps(new_metrics))
+    if latest_first:
+        out['summary'] = json.loads(json.dumps(list(reversed(latest_first))))
+    else:
+        out.pop('summary', None)
+    return out
+
+
 def touched_units(record: Dict[str, Any]) -> Set[Tuple[str, str]]:
     """The (analysis, step) pairs a record covers.
 
@@ -1101,6 +1434,11 @@ def _annotate_summary_rows(record: Dict[str, Any]) -> List[Dict[str, Any]]:
     orchestrator stamps one, the standalone scripts do not. The bucket is
     recovered the same way `_rows_for_unit` does it: by finding the plot whose
     name contains the row's label.
+
+    A row that declares its step is taken at its word. The electrolyzer rows
+    have no label to search with, so without this every one of them landed in
+    the step-less unit, which no re-run ever touches: a cell's old rows were
+    never displaced and piled up beside the new ones.
     """
     metrics = record.get('metrics') or {}
     rows = record.get('summary') or []
@@ -1110,6 +1448,10 @@ def _annotate_summary_rows(record: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
         label = str(row.get('Label') or row.get('label') or '')
         bucket = row.get('Analysis') or ''
+        declared = _row_step(row)
+        if declared and bucket:
+            out.append({'_bucket': bucket, '_step': declared, 'row': row})
+            continue
         step = ''
         # A row that names its analysis takes its step from that analysis's
         # own plots when the label is found there. Searching every bucket
@@ -1131,6 +1473,8 @@ def _annotate_summary_rows(record: Dict[str, Any]) -> List[Dict[str, Any]]:
                     break
         if not bucket and len(metrics) == 1:
             bucket = next(iter(metrics))       # unambiguous single-bucket run
+        if not step:
+            step = declared
         if not step and label:
             step = str(parse_conditions(label).get('step') or '')
         out.append({'_bucket': bucket, '_step': step, 'row': row})
@@ -1148,7 +1492,14 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
     `input_files` accumulates as a deduplicated union — worth watching, since a
     sample analysed repeatedly will grow it, and it competes with sidecars for
     the transport budget.
+
+    Both records' electrolyzer parts are first brought to the current rules
+    (`normalise_electrolyzer`), so a cell re-run under them displaces what its
+    earlier runs stored under the old ones. A freshly built record is already
+    current; the incoming side matters to the callers that merge one stored
+    record into another (duplicate merging, migrate_samples).
     """
+    incoming = normalise_electrolyzer(incoming)
     if not existing:
         merged = json.loads(json.dumps(incoming))
         merged['jobs'] = [{
@@ -1158,15 +1509,25 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
         }]
         return merged
 
+    existing = normalise_electrolyzer(existing)
     touched = touched_units(incoming)
     merged = json.loads(json.dumps(existing))
+    old_sc = decode_sidecars(existing)
+    keys = stored_plot_keys(existing, old_sc)
+
+    def displaced(name: str, stored: Tuple[str, str]) -> bool:
+        # Electrolyzer plots by their key; fuel-cell ones exactly as before.
+        key = keys.get(name)
+        if key is None or registry.family(key[0]) != 'elx':
+            key = stored
+        return key in touched
 
     # ── metrics ──
     old_metrics = merged.get('metrics') or {}
     kept: Dict[str, Dict[str, Any]] = {}
     for bucket, plots in old_metrics.items():
         survivors = {name: e for name, e in plots.items()
-                     if (bucket, _plot_step(e)) not in touched}
+                     if not displaced(name, (bucket, _plot_step(e)))}
         if survivors:
             kept[bucket] = survivors
     for bucket, plots in (incoming.get('metrics') or {}).items():
@@ -1181,13 +1542,12 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
         merged.pop('summary', None)
 
     # ── sidecars ──
-    old_sc = decode_sidecars(existing)
     new_sc = decode_sidecars(incoming)
     sc_kept: Dict[str, Any] = {}
     for name, sc in old_sc.items():
-        bucket = plot_bucket(sc.get('plot_type', 'unknown'))
-        step = str(parse_conditions(name).get('step') or '')
-        if (bucket, step) not in touched:
+        stored = (plot_bucket(sc.get('plot_type', 'unknown')),
+                  str(parse_conditions(name).get('step') or ''))
+        if not displaced(name, stored):
             sc_kept[name] = sc
     sc_kept.update(new_sc)
     attach_sidecars(merged, sc_kept)

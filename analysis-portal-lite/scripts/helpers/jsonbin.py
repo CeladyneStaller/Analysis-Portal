@@ -20,10 +20,12 @@ so environments without JSONBin configured behave normally.
 Architecture notes
 ------------------
 Detail bins are created with POST, which is atomic — no coordination needed.
-Only the index append is read-modify-write, and it is serialized through
-_index_lock. That covers a single Railway instance, which is the current
-deployment; horizontal scaling would need optimistic locking on JSONBin's
-version counter.
+Merging into a sample's bin is read-modify-write, serialized per sample by
+_sample_lock; every index write is a read-modify-write done inside
+_index_lock. Admin writes (admin.py) take the same locks in the same order —
+the samples they touch, then the index. That covers a single Railway
+instance, which is the current deployment; horizontal scaling would need
+optimistic locking on JSONBin's version counter.
 
 Two JSONBin quirks are load-bearing here:
   * X-Bin-Private on a PUT creates a new bin instead of updating the target,
@@ -53,15 +55,19 @@ from scripts.helpers.record import (
     build_index_entry,
     decode_sidecars,
     detail_bin_name,
+    guesses_stand,
     is_comparison_script,
     json_safe,
     load_sidecars,
     merge_detail_record,
     merge_index_entry,
+    retention_rank,
     select_sidecars,
     sidecar_bucket_sizes,
     sidecar_sizes,
+    stored_plot_keys,
     strip_sidecars,
+    touched_units,
 )
 
 _JSONBIN_BASE = "https://api.jsonbin.io/v3/b"
@@ -313,6 +319,26 @@ def find_sample_entry(index: Dict[str, Any],
     return matches[-1]
 
 
+def _position(index: Dict[str, Any], entry: Dict[str, Any]) -> Optional[int]:
+    """Where an entry read earlier stands in `index` now; None if it is gone.
+
+    Matched whole first — under its sample's lock nothing in this process can
+    have changed it — then by the sample and bin, should something outside the
+    process (a CLI tool) have.
+    """
+    runs = index.get('runs', [])
+    for i, e in enumerate(runs):
+        if e == entry:
+            return i
+    bin_id = entry.get('bin_id')
+    if bin_id:
+        for i, e in enumerate(runs):
+            if (e.get('bin_id') == bin_id
+                    and e.get('sample_name') == entry.get('sample_name')):
+                return i
+    return None
+
+
 def write_index_entry(index: Dict[str, Any], entry: Dict[str, Any],
                       position: Optional[int]) -> int:
     """Replace the entry at `position`, or append when it is None.
@@ -332,6 +358,9 @@ def write_index_entry(index: Dict[str, Any], entry: Dict[str, Any],
 #  Public entry point
 # ─────────────────────────────────────────────────────────────────────
 
+_REFILL_TRIES = 8
+
+
 def fit_record_to_budget(record: Dict[str, Any], sidecars: Dict[str, Any],
                         protected: Any = frozenset()
                         ) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], int]:
@@ -345,32 +374,71 @@ def fit_record_to_budget(record: Dict[str, Any], sidecars: Dict[str, Any],
 
     `protected` names sidecars that must be sacrificed last. During a merge
     that is the incoming run's set, so a fresh measurement never silently
-    fails to store its plots while older data survives (fork D).
+    fails to store its plots while older data survives (fork D). Within each
+    of the two groups an analysis's main plots (registry.is_main_plot) go
+    after its other plots, so an electrolyzer run sheds per-spectrum EIS fits
+    before its model fit, the largest plot it has. Selection and eviction
+    follow the same order (record.retention_rank).
+
+    Evicting in that order can overshoot: when a large plot finally has to go,
+    smaller ones ahead of it in the queue are already gone. So the dropped
+    plots are offered back afterwards, in the same order, each kept if it
+    still fits.
 
     Returns (record, kept, dropped, body_bytes).
     """
     attach_sidecars(record, {})
     base_bytes = len(json.dumps(record, ensure_ascii=False).encode())
 
+    excluded = {n for n, sc in sidecars.items()
+                if _plot_bucket_of(sc) in SIDECAR_EXCLUDE_BUCKETS}
     kept, dropped = select_sidecars(
         sidecars,
         # The 4x compression estimate is optimistic — the real mixed-content
         # ratio is nearer 2x — so the loop below corrects any overshoot.
         budget_bytes=max(0, MAX_BODY_BYTES - base_bytes) * 4,
-        exclude_buckets=SIDECAR_EXCLUDE_BUCKETS)
+        exclude_buckets=SIDECAR_EXCLUDE_BUCKETS,
+        protected=protected)
 
-    attach_sidecars(record, kept)
-    body_bytes = len(json.dumps(record, ensure_ascii=False).encode())
+    def measure() -> int:
+        attach_sidecars(record, kept)
+        return len(json.dumps(record, ensure_ascii=False).encode())
 
+    body_bytes = measure()
+    evicted = False
     while body_bytes > MAX_BODY_BYTES and kept:
-        ranked = list(sidecar_sizes(kept))
-        victim = next((n for n in ranked if n not in protected), None)
-        if victim is None:
-            victim = ranked[0]
+        ranked = list(sidecar_sizes(kept))          # largest first
+        rank = {n: i for i, n in enumerate(ranked)}
+        victim = max(ranked, key=lambda n: retention_rank(
+            n, kept[n], protected) + (-rank[n],))
         kept.pop(victim)
         dropped.append(victim)
-        attach_sidecars(record, kept)
-        body_bytes = len(json.dumps(record, ensure_ascii=False).encode())
+        evicted = True
+        body_bytes = measure()
+
+    if evicted and body_bytes <= MAX_BODY_BYTES:
+        raw = sidecar_sizes({n: sidecars[n] for n in dropped if n not in excluded})
+        offered = sorted(raw, key=lambda n: retention_rank(n, sidecars[n], protected)
+                         + (raw[n],))
+        tries = 0
+        for name in offered:
+            # Each try re-encodes the whole set, and every other push waits
+            # behind this one, so it is bounded: a plot whose raw size is over
+            # eight times the room left will not fit compressed, and only a
+            # handful of tries are made.
+            if raw[name] > (MAX_BODY_BYTES - body_bytes) * 8:
+                continue
+            if tries >= _REFILL_TRIES:
+                break
+            tries += 1
+            kept[name] = sidecars[name]
+            size = measure()
+            if size <= MAX_BODY_BYTES:
+                dropped.remove(name)
+                body_bytes = size
+            else:
+                kept.pop(name)
+        body_bytes = measure()
 
     if body_bytes > MAX_BODY_BYTES:
         record = strip_sidecars(
@@ -389,6 +457,22 @@ def _plot_bucket_of(sidecar: Dict[str, Any]) -> str:
 def _plot_step_of(plot_name: str) -> str:
     from scripts.helpers.record import parse_conditions
     return str(parse_conditions(plot_name).get('step') or '')
+
+
+def _prior_key(name: str, sidecar: Dict[str, Any],
+               keys: Dict[str, Tuple[str, str]]) -> Tuple[str, str]:
+    """The (analysis, step) a stored sidecar is displaced by.
+
+    Electrolyzer plots go by record.stored_plot_keys — declared step, current
+    bucket — exactly as merge_detail_record keys them, or a re-run would keep
+    sidecars whose metrics the merge had already displaced. Fuel-cell plots
+    keep the rule they have always had here.
+    """
+    from scripts.helpers.registry import family
+    key = keys.get(name)
+    if key is not None and family(key[0]) == 'elx':
+        return key
+    return _plot_bucket_of(sidecar), _plot_step_of(name)
 
 
 def push_job_metrics(*,
@@ -462,10 +546,11 @@ def push_job_metrics(*,
 
     # ── locate the sample's existing bin, if merging is on ──
     #
-    # The index is read once here and reused for the write, both inside the
-    # index lock, so a concurrent push cannot slip between the lookup and the
-    # update. The sample lock spans the whole fetch-merge-write sequence for
-    # this sample's detail bin.
+    # The sample lock spans the whole fetch-merge-write sequence for this
+    # sample's detail bin and its index entry; admin writes take it too. The
+    # index itself is read under the index lock here and read again under it
+    # for the write, so whatever was written to other entries in between is
+    # kept.
     existing_entry: Optional[Dict[str, Any]] = None
     existing_record: Optional[Dict[str, Any]] = None
     entry_pos: Optional[int] = None
@@ -501,13 +586,12 @@ def push_job_metrics(*,
         merged_sidecars = dict(all_sidecars)
         if existing_record:
             prior = decode_sidecars(existing_record)
+            keys = stored_plot_keys(existing_record, prior)
             touched = {(b, str((e.get('conditions') or {}).get('step') or ''))
                        for b, plots in (record.get('metrics') or {}).items()
                        for e in plots.values()}
             for name, sc in prior.items():
-                b = _plot_bucket_of(sc)
-                st = _plot_step_of(name)
-                if (b, st) not in touched:
+                if _prior_key(name, sc, keys) not in touched:
                     merged_sidecars.setdefault(name, sc)
 
         base = merge_detail_record(existing_record, record) if existing_record \
@@ -554,6 +638,23 @@ def push_job_metrics(*,
             entry = build_index_entry(record, bin_id)
             if existing_entry:
                 entry = merge_index_entry(existing_entry, entry)
+                if existing_record:
+                    # The entry describes the bin it points at, which was just
+                    # written whole from the merged record. A unit the stored
+                    # entry carried over whose plots the record no longer
+                    # files anywhere describes nothing: an electrolyzer unit
+                    # under rules since replaced (per plot type, without its
+                    # cell), whose plots the merge re-filed. Units whose plots
+                    # are still there stay, as they always have.
+                    filed = touched_units(record)
+                    entry['Data'] = [u for u in entry.get('Data') or []
+                                     if (u.get('Analysis', ''), u.get('step', ''))
+                                     in filed]
+                    # Likewise an electrolyzer entry's stand: a declared one
+                    # is in the record, so one that is not was guessed from
+                    # file extensions, and better_stand would keep it.
+                    if not record.get('stand') and not guesses_stand(record):
+                        entry.pop('stand', None)
             out['n_jobs'] = entry.get('n_jobs', 1)
         except Exception as e:
             out['reason'] = _stranded('index entry assembly failed', e)
@@ -561,15 +662,20 @@ def push_job_metrics(*,
 
         try:
             with _index_lock:
-                if index is None:
-                    # Reached only when merging is off, or the lookup failed.
-                    # Either way append rather than replace: with merging off
-                    # that is the intended behaviour, and after a failed lookup
-                    # a duplicate entry is a far better outcome than
-                    # overwriting one whose contents were never read.
-                    index = fetch_index()
-                    entry_pos = None
-                out['n_runs'] = write_index_entry(index, entry, entry_pos)
+                # Read again rather than write back the copy read above: the
+                # lock was released in between, and an admin change to another
+                # sample written meanwhile would be undone. This sample's own
+                # entry cannot have changed — its lock is held, and admin
+                # writes take it too — but its position can have.
+                current = fetch_index()
+                # The entry merged into is replaced where it stands now. With
+                # none — a new sample, merging off, a failed lookup — the
+                # entry is appended: with merging off that is the intended
+                # behaviour, and otherwise a duplicate entry is a far better
+                # outcome than overwriting one whose contents were never read.
+                entry_pos = (_position(current, existing_entry)
+                             if existing_entry is not None else None)
+                out['n_runs'] = write_index_entry(current, entry, entry_pos)
         except Exception as e:
             out['reason'] = _stranded('index write failed', e)
             return out
