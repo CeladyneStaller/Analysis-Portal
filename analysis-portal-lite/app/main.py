@@ -664,7 +664,8 @@ def view_series(payload: dict):
 
     Each selection is {key, analysis, step} — the analysis's main plot for
     that unit — or names one plot outright with `plot`, or one type of plot
-    in the unit with `plot_type` (viewstore.plot_series).
+    in the unit with `plot_type` (viewstore.plot_series), or every plot of
+    that type with `every` as well (viewstore.plot_series_batch).
     """
     from scripts.helpers import viewstore
     sels = payload.get('selections') or []

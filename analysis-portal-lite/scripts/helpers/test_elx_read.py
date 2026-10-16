@@ -191,6 +191,56 @@ check('two found, in order', [s['plot_type'] for s in out['series']],
 check('the rest reported with their selection',
       [(m.get('plot_type', ''), m['key'], m['reason'][:8]) for m in out['missing']],
       [('elx_v_vs_cycle', 'ELX', 'no store'), ('', 'NOPE', 'KeyError')])
+check('no answer carries a title unless asked',
+      [s for s in out['series'] if 'suptitle' in s], [])
+
+
+def two_corrections():
+    """A cell with current-dependent EIS at two cycles: an iR correction for
+    each, named by cycle, plus the other cell's single one."""
+    rec = elx_record()
+    sc = record_sidecars(rec)
+    for n in (3, 5):
+        name = f'{PRE}ir_correction_cycle{n}_a1'
+        rec['metrics']['elx_polcurve'][name] = {'conditions': {'step': 'a1'}, 'values': {}}
+        sc[name] = dict(sidecar('elx_ir_correction', 'a1'))
+        sc[name]['data'] = dict(sc[name]['data'], suptitle=f'iR Correction — Cycle {n}')
+    sc[f'{PRE}ir_correction_a2']['data']['suptitle'] = 'iR Correction — Cycle 4'
+    attach_sidecars(rec, sc)
+    return rec
+
+
+def record_sidecars(rec):
+    from scripts.helpers.record import decode_sidecars
+    return decode_sidecars(rec)
+
+
+print('every plot of a type, when asked for every one')
+use({'ELX': two_corrections(), 'FC': fc_record()})
+ir = {'key': 'ELX', 'analysis': 'elx_polcurve', 'plot_type': 'elx_ir_correction',
+      'every': True, 'title': True}
+out = viewstore.plot_series_batch([dict(ir, step='a1'), dict(ir, step='a2'),
+                                   dict(ir, step='a3'),
+                                   {'key': 'ELX', 'analysis': 'elx_polcurve', 'step': 'a1',
+                                    'plot_type': 'elx_ir_correction', 'title': True}])
+check('three for a1 in stored order, one for a2, then the single ask',
+      [(s['step'], s['plot'][len(PRE):]) for s in out['series']],
+      [('a1', 'ir_correction_a1'), ('a1', 'ir_correction_cycle3_a1'),
+       ('a1', 'ir_correction_cycle5_a1'), ('a2', 'ir_correction_a2'),
+       ('a1', 'ir_correction_a1')])
+check('each with its title, \'\' where the figure has none',
+      [s['suptitle'] for s in out['series']],
+      ['', 'iR Correction — Cycle 3', 'iR Correction — Cycle 5', 'iR Correction — Cycle 4', ''])
+check('a cell with none is missing, once', [(m['step'], m['reason']) for m in out['missing']],
+      [('a3', 'no stored plot data')])
+out = viewstore.plot_series_batch([dict(ir, key='NOPE', step='a1'),
+                                   dict(ir, step='a1', plot_type='')])
+check('a sample that cannot be read is missing with why; no type, the main plot',
+      ([m['reason'][:8] for m in out['missing']], [s['plot_type'] for s in out['series']]),
+      (['KeyError'], ['elx_polcurve']))
+check('every and title leave the series as they were',
+      viewstore.plot_series_batch([dict(ir, step='a2')])['series'][0]['axes'],
+      viewstore.plot_series('ELX', 'elx_polcurve', 'a2', plot_type='elx_ir_correction')['axes'])
 
 # ════════════════════════════════════════════════════════════════════
 print('the run list carries the registry')

@@ -449,10 +449,7 @@ def _unit_plot(detail: Dict[str, Any], sidecars: Dict[str, Any],
     Analyses that list no main plots — the fuel-cell ones — keep the rule they
     have always had: the first plot filed under the unit.
     """
-    names = [name for bucket, plots in (detail.get('metrics') or {}).items()
-             if not analysis or bucket == analysis
-             for name, entry in plots.items()
-             if str((entry.get('conditions') or {}).get('step') or '') == step]
+    names = _unit_names(detail, analysis, step)
 
     def typed(pt: str) -> str:
         return next((n for n in names
@@ -466,10 +463,27 @@ def _unit_plot(detail: Dict[str, Any], sidecars: Dict[str, Any],
     return next((n for n in map(typed, main) if n), '')
 
 
+def _unit_names(detail: Dict[str, Any], analysis: str, step: str) -> List[str]:
+    """The plots filed under a unit (analysis, step), in stored order."""
+    return [name for bucket, plots in (detail.get('metrics') or {}).items()
+            if not analysis or bucket == analysis
+            for name, entry in plots.items()
+            if str((entry.get('conditions') or {}).get('step') or '') == step]
+
+
+def _unit_plots(detail: Dict[str, Any], sidecars: Dict[str, Any],
+                analysis: str, step: str, plot_type: str) -> List[str]:
+    """Every plot of `plot_type` in a unit, in stored order: an electrolyzer
+    cell with current-dependent EIS at several cycles stores an iR correction
+    for each (ir_correction_cycle3, ir_correction_cycle5)."""
+    return [n for n in _unit_names(detail, analysis, step)
+            if (sidecars.get(n) or {}).get('plot_type') == plot_type]
+
+
 def plot_series(key: str, analysis: str = '', step: str = '',
                 plot: str = '', plot_type: str = '',
                 full: bool = False, points: bool = False, labels: bool = False,
-                stored: bool = False,
+                stored: bool = False, title: bool = False,
                 memo: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """The plotted series for one stored plot, for charting in the browser.
 
@@ -496,7 +510,11 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     only points is kept; and with `labels` every line and point is its label
     and its stored count `n`, without the numbers, which is what a list of
     what a sample stores needs. Without them the answer is as it always was.
-    `memo` (a dict the caller keeps for one batch) reads each record once.
+    With `title`, the answer also carries the figure's `suptitle` ('' for
+    none): an electrolyzer iR correction names the cycle it corrects there
+    ('iR Correction — Cycle 5'), which its plot name does not when the run
+    corrected only one. `memo` (a dict the caller keeps for one batch) reads
+    each record once.
 
     Returns None when the plot is not stored — cleaning sidecars are excluded
     at write time, so this is an ordinary outcome rather than an error.
@@ -546,10 +564,13 @@ def plot_series(key: str, analysis: str = '', step: str = '',
                          **({'points': marks} if points else {})})
     if not axes:
         return None
-    return {'key': key, 'plot': name, 'plot_type': sc.get('plot_type', ''),
-            'analysis': analysis or plot_bucket(sc.get('plot_type', 'unknown')),
-            'step': step, 'sample_name': detail.get('sample_name', ''),
-            'axes': axes}
+    out = {'key': key, 'plot': name, 'plot_type': sc.get('plot_type', ''),
+           'analysis': analysis or plot_bucket(sc.get('plot_type', 'unknown')),
+           'step': step, 'sample_name': detail.get('sample_name', ''),
+           'axes': axes}
+    if title:
+        out['suptitle'] = str((sc.get('data') or {}).get('suptitle') or '')
+    return out
 
 
 def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -561,26 +582,38 @@ def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
     `missing` rather than failing the batch — one unavailable curve should not
     cost the other nineteen. Each record is read and decoded once per call,
     however many of its plots the batch asks for.
+
+    A selection with a `plot_type` and `every` (true) is answered with every
+    plot of that type in its unit, each a series of its own, in stored order;
+    one with none stored is missing like any other. `title` (true) adds each
+    answer's `suptitle` (plot_series).
     """
     out, missing = [], []
     memo: Dict[str, Any] = {}
     for sel in selections or []:
         key = str(sel.get('key') or '')
+        analysis, step = str(sel.get('analysis') or ''), str(sel.get('step') or '')
+        plot_type = str(sel.get('plot_type') or '')
+        opts = dict(full=sel.get('full') is True, points=sel.get('points') is True,
+                    labels=sel.get('labels') is True, title=sel.get('title') is True,
+                    memo=memo)
         try:
-            got = plot_series(key, str(sel.get('analysis') or ''),
-                              str(sel.get('step') or ''),
-                              str(sel.get('plot') or ''),
-                              str(sel.get('plot_type') or ''),
-                              full=sel.get('full') is True,
-                              points=sel.get('points') is True,
-                              labels=sel.get('labels') is True,
-                              memo=memo)
+            if sel.get('every') is True and plot_type:
+                detail, sidecars = _read_record(key, memo)
+                got = [s for s in (plot_series(key, analysis, step, name, '', **opts)
+                                   for name in _unit_plots(detail, sidecars, analysis,
+                                                           step, plot_type)) if s]
+            else:
+                got = plot_series(key, analysis, step, str(sel.get('plot') or ''),
+                                  plot_type, **opts)
         except Exception as e:
             missing.append({**sel, 'reason': f'{type(e).__name__}: {e}'})
             continue
-        if got:
+        if isinstance(got, list):
+            out.extend(got)
+        elif got:
             out.append(got)
-        else:
+        if not got:
             missing.append({**sel, 'reason': 'no stored plot data'})
     return {'series': out, 'missing': missing}
 

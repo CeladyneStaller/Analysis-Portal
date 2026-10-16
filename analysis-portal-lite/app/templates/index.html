@@ -804,6 +804,11 @@
     min-width: 38px; }
   .cmp-strow .cond { color: var(--text-dim); font-size: 10px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* An electrolyzer row's conditions and cycle, on a line under its values;
+     its cell ("(no cell)" too) on one line. */
+  .cmp-strow.elx { row-gap: 0; }
+  .cmp-strow.elx .st { white-space: nowrap; }
+  .cmp-strow .cmp-sline { grid-column: 1 / -1; padding-left: 31px; }
   /* A whole test's series, each with the dash it is drawn in. */
   .cmp-series { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
   .cmp-series .ser { display: inline-flex; align-items: center; gap: 4px;
@@ -814,6 +819,7 @@
     white-space: nowrap; }
   .cmp-kv .k { color: var(--text-dim); font-size: 9.5px; }
   .cmp-kv .v { font-family: var(--mono); font-size: 11px; }
+  .cmp-kv .u { color: var(--text-dim); font-size: 9.5px; margin-left: -1px; }
   .cmp-kv.empty .k, .cmp-kv.empty { color: var(--text-dim); opacity: .5; }
   .cmp-sacts { display: flex; gap: 2px; }
 
@@ -1049,6 +1055,11 @@
   #view-compare.cp-on .std-only { display: none !important; }
   #view-compare.cp-on #cmpChart { cursor: crosshair; }
   .cmp-tsep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+  /* A family's chart types under its name (cmpRenderTypes), and the family
+     switch at the head of the strip, sized to its buttons. */
+  .cmp-tlab { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-dim); margin: 0 2px 0 2px; white-space: nowrap; }
+  .cmp-types .vf-family { height: 31px; }
   .cp-axes { padding: 14px 18px 16px; border-bottom: 1px solid var(--border);
     display: flex; flex-direction: column; gap: 14px; }
   .cp-step { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
@@ -3339,7 +3350,8 @@ let REG = { families: {}, analyses: {}, metrics: {} };
 // Analysis ids in the index that the registry does not list, mapped by the
 // server to the analysis they belong to: electrolyzer runs stored between
 // Aug 4 and the record fix have one bucket per plot type (elx_model_fit,
-// elx_nyquist …). Used for letters, families and grouping, never to address
+// elx_nyquist …). Used for letters, families and grouping (Comparisons lists
+// an electrolyzer type's units by it too, cmpUnitAna), never to address
 // stored data.
 let REG_ALIASES = {};
 let _regByName = {};     // analysis → {metric name → entry}
@@ -3429,6 +3441,7 @@ let VF_FAMILY = (() => {
   try { return localStorage.getItem('recallFamily') || ''; } catch (_) { return ''; }
 })();
 let _vfBothFamilies = false;
+let _viewFams = new Set();           // the families the index holds
 // What is in force: a remembered family means nothing while the switch is
 // hidden, or an index of one family could open on an empty table with no
 // control in sight to undo it.
@@ -3586,6 +3599,7 @@ async function loadViewRuns(force, quiet) {
     // The family switch shows only while the index holds both families.
     const fams = new Set(_viewRuns.flatMap(r => [...runFamilies(r)]));
     _vfBothFamilies = fams.has('fc') && fams.has('elx');
+    _viewFams = fams;                // Comparisons shows the family it holds
     if (same) return;
     // The run detail open now, with its sections as they are, to open again
     // on its entry as now read; one a sort or filter already closed is not.
@@ -6183,30 +6197,88 @@ const CMP_TYPES = {
   // `bands` lets each sample shade between them (CMP_BAND). Plots stored
   // before the band carry a bin-minimum line instead, not a series either.
   // Every durability chart can be drawn against RH cycles instead of hold
-  // hours, for a test that cycles RH (CMP_OPT.x_cyc, cmpCycAxis).
-  fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability',
+  // hours, for a test that cycles RH (CMP_OPT.x_cyc, cmpCycAxis). `whole`
+  // marks these: one unit a test, drawn as its series.
+  fcdur_ocv:   { label: 'Durability — OCV', analysis: 'fc_durability', whole: true,
                  plotType: 'fcdur_ocv_vs_time', x: 'Hold time (h)', y: 'Hold OCV (V)',
                  panel: /^Hold OCV/i, opts: [], bins: [0.25, 0.5, 1, 2, 5, 10], bands: true,
                  series: l => !!l && l !== 'bin minimum' && l !== CMP_BAND_LOW && l !== CMP_BAND_HIGH },
-  fcdur_xover: { label: 'Durability — H₂ crossover', analysis: 'fc_durability',
+  fcdur_xover: { label: 'Durability — H₂ crossover', analysis: 'fc_durability', whole: true,
                  plotType: 'fcdur_xover_vs_time', x: 'Hold time (h)', dots: true,
                  y: 'H₂ crossover (mA/cm²)', panel: /crossover/i,
                  series: l => /window mean/i.test(l), opts: [] },
-  fcdur_hfr:   { label: 'Durability — HFR', analysis: 'fc_durability',
+  fcdur_hfr:   { label: 'Durability — HFR', analysis: 'fc_durability', whole: true,
                  plotType: 'fcdur_hfr_vs_time', x: 'Hold time (h)', y: 'HFR (mΩ·cm²)',
                  panel: /^HFR/i, dots: true, series: l => !!l, opts: [] },
-  fcdur_ecsa:  { label: 'Durability — ECSA', analysis: 'fc_durability',
+  fcdur_ecsa:  { label: 'Durability — ECSA', analysis: 'fc_durability', whole: true,
                  plotType: 'fcdur_ecsa_vs_time', x: 'Hold time (h)', dots: true,
                  y: 'Roughness factor (cm² Pt/cm²)', panel: /^Roughness/i,
                  series: l => !!l, opts: [] },
-  fcdur_perf:  { label: 'Durability — performance', analysis: 'fc_durability',
+  fcdur_perf:  { label: 'Durability — performance', analysis: 'fc_durability', whole: true,
                  plotType: 'fcdur_perf_vs_time', x: 'Hold time (h)', y: 'V @ 1 A/cm² (V)',
                  panel: /^V @ 1/i, dots: true, series: l => !!l,
                  opts: [['j065', 'j @ 0.65 V instead']] },
+  // Electrolyzer (`fam`), under a label of their own in the type strip. Each
+  // reads its plot by type (plotType): an electrolyzer unit stores a dozen
+  // plots, and the first stored is not the one a chart wants. A pol-curve or
+  // EIS unit is a cell, so colour is the sample and dash the cell; a
+  // durability test is its run's one unit, with no step (stepless). `title`
+  // names the chart where the family is not in view (an exported image, a
+  // saved view). The pol curve draws one cycle of each, picked by
+  // CMP_OPT.ecyc, or its iR-corrected curve (eir); cycling draws one value
+  // per cycle, of one kind and at one voltage or current per chart (ehold);
+  // a durability test its cell voltage, with its fitted line (efit).
+  elx_pc:  { label: 'Pol curve', title: 'Electrolyzer pol curve', fam: 'elx',
+             analysis: 'elx_polcurve', plotType: 'elx_polcurve',
+             x: 'Current density (A/cm²)', y: 'Cell voltage (V)', opts: [['eir', 'iR-free voltage']] },
+  elx_cyc: { label: 'Cycling', title: 'Electrolyzer cycling', fam: 'elx',
+             analysis: 'elx_polcurve', plotType: ['elx_j_vs_cycle', 'elx_v_vs_cycle'],
+             x: 'Cycle', y: '', intX: true, opts: [] },
+  elx_nyq: { label: 'EIS — Nyquist', title: 'Electrolyzer EIS — Nyquist', fam: 'elx',
+             analysis: 'elx_eis', plotType: 'elx_nyquist',
+             x: 'Z′ (mΩ·cm²)', y: '−Z″ (mΩ·cm²)', equal: true, opts: [], stats: false },
+  elx_dur: { label: 'Durability', title: 'Electrolyzer durability', fam: 'elx',
+             analysis: 'durability', plotType: 'durability_voltage', stepless: true,
+             x: 'Time (h)', y: 'Cell voltage (V)', opts: [['efit', 'Fitted line']] },
 };
-// The step code a whole-test unit is listed under.
+// The step code a whole-test unit is listed under, and a step-less
+// electrolyzer test; and an electrolyzer unit whose run named no cell.
 const CMP_WHOLE = 'test';
-const cmpWholeType = (type) => !!(CMP_TYPES[type] || {}).analysis;
+const CMP_NOCELL = '(no cell)';
+const cmpWholeType = (type) => !!(CMP_TYPES[type] || {}).whole;
+const cmpElxType = (type) => (CMP_TYPES[type] || {}).fam === 'elx';
+// The analysis a type's units are of: its own id for the fuel-cell steps.
+const cmpAnalysisOf = (type) => (CMP_TYPES[type] || {}).analysis || type;
+// The analysis an index unit counts as for a type. An electrolyzer run stored
+// before the record fix (Aug 4 on) keeps a unit per plot type (elx_nyquist,
+// elx_j_vs_cycle …), which the server maps to the analysis it belongs to
+// (REG_ALIASES): listed with it, as Recall groups it, and read by plot type
+// (cmpAsks), until the rebuild files it properly. Fuel-cell types match the
+// id as stored.
+const cmpUnitAna = (d, type = CMP_TYPE) =>
+  (cmpElxType(type) ? anaOf(String(d.Analysis || '')) : d.Analysis);
+// Types with no statistical curve: a whole test, and an electrolyzer
+// Nyquist plot, whose points carry no frequency to pair them by (its plot
+// has no Bode panel, from which the fuel-cell EIS mean reads it).
+const cmpNoStats = (type) => cmpWholeType(type) || (CMP_TYPES[type] || {}).stats === false;
+// What one unit of a type is called: a step, a cell or a test.
+const cmpUnitWord = (type) => cmpWholeType(type) || (CMP_TYPES[type] || {}).stepless ? 'test'
+  : cmpElxType(type) ? 'cell' : 'step';
+// The code a unit is listed (and selected) under, from its stored step, and
+// back. A fuel-cell step is its own code; an electrolyzer unit with none is
+// listed as a test (durability) or as having no cell.
+function cmpCodeOf(type, st) {
+  const t = CMP_TYPES[type] || {};
+  if (t.whole) return CMP_WHOLE;
+  if (t.fam !== 'elx') return st;
+  return st || (t.stepless ? CMP_WHOLE : CMP_NOCELL);
+}
+function cmpStoredStep(type, code) {
+  const t = CMP_TYPES[type] || {};
+  if (t.whole) return '';
+  if (t.fam !== 'elx') return code;
+  return code === (t.stepless ? CMP_WHOLE : CMP_NOCELL) ? '' : code;
+}
 // A series named without the quantity the chart already shows:
 // "Crossover, 100% RH, window mean" is "100% RH" on the crossover chart.
 const cmpSeriesName = l => String(l || '')
@@ -6216,7 +6288,8 @@ let CMP_TYPE = 'polcurve';
 let CMP_SEL = new Map();            // sample key -> Set of step codes
 let CMP_HIDDEN = new Set();         // "key::step"
 let CMP_BAND = new Set();           // curve ids whose high–low band is shaded
-let CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0 };
+let CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0,
+                ecyc: 'last', eir: false, ehold: '', efit: false };
 let CF = { stand: '', step: '', cond: '', has: '' };
 let CMP_SERIES = new Map();         // "key::analysis::step" -> series payload
 let CMP_LOADING = false;
@@ -6231,10 +6304,10 @@ const cmpOrder = () => [...CMP_SEL.keys()];
 // type. The picker is built from the index, so it needs no detail fetch.
 function cmpUnitsFor(run, type) {
   const seen = new Map();
-  const whole = cmpWholeType(type);
-  const analysis = whole ? CMP_TYPES[type].analysis : type;
+  const whole = cmpWholeType(type), elx = cmpElxType(type);
+  const analysis = cmpAnalysisOf(type);
   (run.Data || []).forEach(d => {
-    if (d.Analysis !== analysis) return;
+    if (cmpUnitAna(d, type) !== analysis) return;
     const step = String(d.step || '');
     if (whole) {
       // One per sample: the test, said by its lifetime rather than a step.
@@ -6243,6 +6316,14 @@ function cmpUnitsFor(run, type) {
       seen.set(CMP_WHOLE, { step: CMP_WHOLE, kv: d.key_values || {},
         cond: !life ? '' : life[2] ? `alive at ${fmtNum(life[1])} h`
                                    : `died at ${fmtNum(life[1])} h` });
+      return;
+    }
+    // An electrolyzer cell, a durability test (no step), or a run that named
+    // no cell, each listed by its code (cmpCodeOf).
+    if (elx) {
+      const code = cmpCodeOf(type, step);
+      if (!seen.has(code)) seen.set(code, { step: code, cond: conditionSummary(d.Conditions || {}),
+                                            kv: d.key_values || {} });
       return;
     }
     if (!step || seen.has(step)) return;
@@ -6265,8 +6346,40 @@ const CMP_METRICS = {
   fcdur_hfr:   ['Hours to death', 'Hours tested'],
   fcdur_ecsa:  ['Hours to death', 'Hours tested'],
   fcdur_perf:  ['Hours to death', 'Hours tested'],
+  elx_pc:      ['V @ 1 A/cm²', 'V @ 2 A/cm²'],
+  elx_cyc:     ['ΔV @ 2 A/cm²', 'V @ 2 A/cm²'],
+  elx_nyq:     ['HFR'],
+  elx_dur:     ['Degradation rate', 'Duration'],
 };
 const CMP_METRIC_MAX = 3;
+// Two for an electrolyzer row, whose values carry their units.
+const CMP_ELX_METRIC_MAX = 2;
+
+// An electrolyzer unit's index values as Recall shows them: scaled to the
+// registry's display unit (HFR in mΩ·cm², stored in Ω·cm²).
+function cmpElxKV(analysis, kv) {
+  const out = {};
+  unitValues({ Analysis: analysis, key_values: kv || {} }).forEach(([m, v]) => {
+    out[m] = shownValue(analysis, m, v).value;
+  });
+  return out;
+}
+// ' unit' after an electrolyzer value written out (an exported image); ''
+// for a fuel-cell one, as it has always been written.
+const cmpElxUnitText = name => {
+  if (!cmpElxType(CMP_TYPE)) return '';
+  const u = shownValue(cmpAnalysisOf(CMP_TYPE), name, 0).unit;
+  return u ? ' ' + u : '';
+};
+// The ones its row shows, [{name, value, unit}]: the type's own first, then
+// the rest in the registry's order, two of them.
+function cmpElxShown(analysis, kvRaw) {
+  const kv = cmpElxKV(analysis, kvRaw), want = CMP_METRICS[CMP_TYPE] || [];
+  return [...want.filter(n => n in kv),
+          ...Object.keys(kv).filter(n => !want.includes(n)).sort(byMetricOrder(analysis))]
+    .slice(0, CMP_ELX_METRIC_MAX)
+    .map(n => ({ name: n, value: kv[n], unit: shownValue(analysis, n, 0).unit }));
+}
 
 // {name, value} for one unit, canonicalised so a summary field name and its
 // annotation spelling do not appear as two different metrics. A whole-test
@@ -6282,6 +6395,8 @@ function cmpUnitMetrics(unit) {
     return want.map(n => (cmpCycAxis() && pick(CMP_CYC_METRIC[n])) || pick(n)).filter(Boolean)
       .map(([name, value, censored]) => ({ name, value, censored }));
   }
+  // An electrolyzer unit's in its display units, which its row says.
+  if (cmpElxType(CMP_TYPE)) return cmpElxShown(cmpAnalysisOf(CMP_TYPE), unit.kv);
   const have = {};
   Object.entries(unit.kv || {}).forEach(([k, v]) => {
     if (typeof v === 'number' && isFinite(v)) have[canonMetric(k)] = v;
@@ -6310,6 +6425,12 @@ function cmpStepVocab() {
   cmpSamples().forEach(r => cmpUnitsFor(r, CMP_TYPE).forEach(u => {
     if (!seen.includes(u.step)) seen.push(u.step);
   }));
+  // Cells in their own order, a1 before a2 before a10, so a sample's first
+  // cell is solid; a run that named none after them.
+  if (cmpElxType(CMP_TYPE)) {
+    seen.sort((a, b) => (a === CMP_NOCELL) - (b === CMP_NOCELL)
+      || a.localeCompare(b, undefined, { numeric: true }));
+  }
   return seen;
 }
 function cmpDashOf(step) {
@@ -6395,8 +6516,15 @@ function cmpInterp(pts, q, qi, vi) {
 //   eis                  at each frequency — Z′ and −Z″ averaged separately
 //   ecsa                 the last CV cycle, split into its two sweep branches
 //                        so each is single-valued in potential
+//   elx_cyc, elx_dur     y at each x: a cycle number and the hours of a test
+//                        are counted, not measured, so the mean is of the
+//                        value at each ('along')
 const CMP_AVG_MODE = { polcurve: 'axis', crossover: 'axis',
-                       eis: 'param', ecsa: 'branch' };
+                       eis: 'param', ecsa: 'branch',
+                       elx_pc: 'axis', elx_cyc: 'along', elx_dur: 'along' };
+// The direction a new statistical curve averages in: the one chosen, where
+// there is a choice.
+const cmpStatAxis = () => CMP_AVG_MODE[CMP_TYPE] === 'along' ? 'y' : CMP_AXIS;
 
 // Frequency is not on the Nyquist plot, but the Bode panel carries it and its
 // measured points are the same array in the same order. Pairing the two
@@ -6582,7 +6710,8 @@ function cmpAverageKV(units) {
 // rather than stored, so changing the spread or the averaging direction on a
 // live curve needs neither the modal nor the original selection.
 function cmpStatData(stat) {
-  const rows = stat.ids.map(id => {
+  const elx = cmpElxType(CMP_TYPE);
+  let rows = stat.ids.map(id => {
     const [key, step] = id.split('::');
     const run = cmpRunFor(key);
     const sr = CMP_SERIES.get(cmpKey(key, CMP_TYPE + '::' + step));
@@ -6590,16 +6719,30 @@ function cmpStatData(stat) {
     // ECSA averages the last CV cycle rather than whatever the chart draws.
     const line = CMP_TYPE === 'ecsa' ? cmpEcsaLastCycle(sr) : cmpPickLine(sr);
     const unit = (run.Data || []).find(d =>
-      d.Analysis === CMP_TYPE && String(d.step || '') === step);
-    const kv = {};
-    Object.entries((unit && unit.key_values) || {}).forEach(([k, v]) => {
+      cmpUnitAna(d) === cmpAnalysisOf(CMP_TYPE)
+      && String(d.step || '') === cmpStoredStep(CMP_TYPE, step));
+    // An electrolyzer cell's values are those its row shows, as it shows them.
+    const kv = elx ? Object.fromEntries(cmpElxShown(cmpAnalysisOf(CMP_TYPE),
+      unit && unit.key_values).map(m => [m.name, m.value])) : {};
+    if (!elx) Object.entries((unit && unit.key_values) || {}).forEach(([k, v]) => {
       if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = v;
     });
     return { id, key, step, name: run.sample_name || key,
              pts: (line && line.pts) || [], kv,
-             xlabel: line && line.xlabel, ylabel: line && line.ylabel };
+             xlabel: line && line.xlabel, ylabel: line && line.ylabel,
+             ...(elx ? { why: cmpUndrawn(key, sr) } : {}) };
   }).filter(Boolean);
-  if (rows.length < 2) return null;
+  // An electrolyzer curve the chart's options leave undrawn (no iR
+  // correction, no such cycle, the other kind of cycling) is no part of the
+  // mean: not its curve, its values or its members. `left` names them.
+  const left = rows.filter(r => r.why);
+  if (left.length) rows = rows.filter(r => !r.why);
+  if (rows.length < 2) {
+    if (rows.length + left.length < 2) return null;
+    return { rows, left, error: 'Fewer than two of these curves are drawn with the chart\'s '
+      + 'options, and a mean needs two. Not drawn: ' + left.map(r =>
+        `${cmpNameOf(r.key, r.name)} · ${r.step} — ${r.why}`).join('; ') + '.' };
+  }
   const mode = CMP_AVG_MODE[CMP_TYPE] || 'axis';
   let avg;
   if (mode === 'param') {
@@ -6639,14 +6782,15 @@ function cmpStatData(stat) {
             n: halves[0].n, sd: halves[0].sd, se: halves[0].se,
             mid: halves[0].mid };
   } else {
-    avg = cmpAverage(rows.map(r => r.pts), stat.axis, stat.spread, stat.sePct);
+    avg = cmpAverage(rows.map(r => r.pts), mode === 'along' ? 'y' : stat.axis,
+                     stat.spread, stat.sePct);
   }
   if (!avg) return null;
   // Carried rather than swallowed, so the modal and the legend can say why
   // instead of showing an empty curve.
   if (avg.error) return { rows, error: avg.error };
   return { rows, avg, kv: cmpAverageKV(rows.map(r => r.kv)),
-           xlabel: rows[0].xlabel, ylabel: rows[0].ylabel };
+           xlabel: rows[0].xlabel, ylabel: rows[0].ylabel, left };
 }
 
 // ── series, fetched in one batch ────────────────────────────────
@@ -6656,57 +6800,107 @@ async function cmpLoadSeries() {
   // they usually have not been — so gathering only from cmpSelected() left
   // those series unfetched and the restored mean reading "mean of 0".
   const need = new Map();
-  cmpSelected().forEach(s => need.set(cmpCurveId(s.key, s.step),
-    { key: s.key, analysis: CMP_TYPE, step: s.step }));
+  cmpSelected().forEach(s => need.set(cmpCurveId(s.key, s.step), { key: s.key, step: s.step }));
   CMP_STATS.forEach(st => {
     if (st.type && st.type !== CMP_TYPE) return;
     (st.ids || []).forEach(id => {
       const [key, step] = id.split('::');
-      if (key && step) need.set(id, { key, analysis: CMP_TYPE, step });
+      if (key && step) need.set(id, { key, step });
     });
   });
   const want = [...need.values()].filter(s =>
     !CMP_SERIES.has(cmpKey(s.key, CMP_TYPE + '::' + s.step)));
   if (!want.length) { if (CMP_LOADING) { CMP_LOADING = false; cmpRender(); } return; }
-  // A whole-test unit is the step-less unit of its analysis, narrowed to the
-  // type's plot; its answers come back under step '' and are filed under the
-  // code the panel lists it by.
   // Filed under the type they were asked for: the type can change while the
   // request is out, and the durability types share one analysis and step.
   const type = CMP_TYPE;
-  const t = CMP_TYPES[type] || {};
-  const ask = t.analysis
-    ? want.map(s => ({ key: s.key, analysis: t.analysis, step: '', plot_type: t.plotType }))
-    : want;
-  // A type that smooths its trace (bins) computes from the stored points, so
-  // it asks for them whole: the store otherwise thins a line past 400 points
-  // to the extremes of its buckets, whose medians are not the stored ones.
-  if (t.bins) ask.forEach(s => { s.full = true; });
-  const stepOf = st => t.analysis ? CMP_WHOLE : st;
   const epoch = CMP_EPOCH;
   CMP_LOADING = true;
   try {
-    const r = await fetch('/api/view/series', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selections: ask }),
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
+    const d = await cmpReadUnits(type, want);
     // A sample stored again while this was out (viewForgetRuns) may have
     // been answered from its old record: kept for none, asked for again.
     if (epoch !== CMP_EPOCH) return;
-    (d.series || []).forEach(sr =>
-      CMP_SERIES.set(cmpKey(sr.key, type + '::' + stepOf(sr.step)), sr));
-    // A selection with no stored sidecar is cached as null so it is not
-    // requested again on every redraw.
-    (d.missing || []).forEach(m =>
-      CMP_SERIES.set(cmpKey(m.key, type + '::' + stepOf(m.step)), null));
+    cmpFileUnits(type, d);
   } catch (e) {
     console.error('series:', e);
   } finally {
     CMP_LOADING = false;
     cmpRender();
   }
+}
+
+// What one unit of a type is read with. A fuel-cell step is its analysis's
+// plot for that step. A whole-test unit is the step-less unit of its
+// analysis, narrowed to the type's plot; its answers come back under step ''
+// and are filed under the code the panel lists it by. An electrolyzer unit
+// is its stored step (cmpStoredStep) and its type's plot, in whichever
+// bucket it is filed (an unrebuilt run files each plot type apart,
+// cmpUnitAna): a pol curve with every iR correction stored beside it, each
+// with the title that names its cycle; cycling with the plot of either
+// kind, of which a run stores one.
+const CMP_IR_PLOT = 'elx_ir_correction';
+function cmpAsks(type, key, code) {
+  const t = CMP_TYPES[type] || {};
+  if (t.fam === 'elx') {
+    const base = { key, analysis: '', step: cmpStoredStep(type, code) };
+    return [].concat(t.plotType).map(pt => ({ ...base, plot_type: pt }))
+      .concat(type === 'elx_pc' ? [{ ...base, plot_type: CMP_IR_PLOT, every: true, title: true }] : []);
+  }
+  if (!t.whole) return [{ key, analysis: type, step: code }];
+  const s = { key, analysis: t.analysis, step: '', plot_type: t.plotType };
+  // A type that smooths its trace (bins) computes from the stored points, so
+  // it asks for them whole: the store otherwise thins a line past 400 points
+  // to the extremes of its buckets, whose medians are not the stored ones.
+  if (t.bins) s.full = true;
+  return [s];
+}
+// Units' series, read in as few requests as hold them: the store answers at
+// most 64 selections at a time, and a unit's are kept in one request, which
+// is how its answers are put together (cmpFileUnits).
+const CMP_ASK_MAX = 64;
+async function cmpReadUnits(type, units) {
+  const batches = [[]];
+  units.forEach(u => {
+    const asks = cmpAsks(type, u.key, u.step);
+    const cur = batches[batches.length - 1];
+    if (cur.length && cur.length + asks.length > CMP_ASK_MAX) batches.push(asks);
+    else cur.push(...asks);
+  });
+  const got = await Promise.all(batches.map(async ask => {
+    const r = await fetch('/api/view/series', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selections: ask }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }));
+  return { series: got.flatMap(d => d.series || []), missing: got.flatMap(d => d.missing || []) };
+}
+// Answers filed under the unit each is for. A selection with no stored
+// sidecar is cached as null so it is not requested again on every redraw.
+// An electrolyzer unit is its plot, carrying its iR corrections (`ir`), or
+// null when the plot itself is not stored.
+function cmpFileUnits(type, d) {
+  const at = st => cmpCodeOf(type, String(st || ''));
+  if (!cmpElxType(type)) {
+    (d.series || []).forEach(sr => CMP_SERIES.set(cmpKey(sr.key, type + '::' + at(sr.step)), sr));
+    (d.missing || []).forEach(m => CMP_SERIES.set(cmpKey(m.key, type + '::' + at(m.step)), null));
+    return;
+  }
+  const units = new Map();
+  const unit = (key, st) => {
+    const k = cmpKey(key, type + '::' + at(st));
+    if (!units.has(k)) units.set(k, { main: null, ir: [] });
+    return units.get(k);
+  };
+  (d.series || []).forEach(sr => {
+    const u = unit(sr.key, sr.step);
+    if (sr.plot_type === CMP_IR_PLOT) u.ir.push(sr);
+    else if (!u.main) u.main = sr;
+  });
+  (d.missing || []).forEach(m => unit(m.key, m.step));
+  units.forEach((u, k) => CMP_SERIES.set(k, u.main ? { ...u.main, ir: u.ir } : null));
 }
 
 // Which line of the sidecar to draw. Only the primary series by default: a
@@ -6716,6 +6910,12 @@ async function cmpLoadSeries() {
 function cmpPickLine(sr) {
   if (!sr || !sr.axes || !sr.axes.length) return null;
   const t = CMP_TYPES[CMP_TYPE] || {};
+  // An electrolyzer curve: the cycle, hold or trace the chart is set to, or
+  // none (cmpElxPick says why).
+  if (t.fam === 'elx') {
+    const p = cmpElxPick(sr);
+    return p.why != null ? null : { ...p, xlabel: cmpElxLabels().x, ylabel: cmpElxLabels().y };
+  }
   // The crossover figure is three panels and the first is the raw CV; the
   // comparison wants the averaged current. Fall back to the first axis for
   // anything that does not name a panel.
@@ -6739,6 +6939,232 @@ function cmpPickLine(sr) {
 }
 const zip = ln => (ln.x || []).map((v, i) => [v, (ln.y || [])[i]])
                               .filter(p => typeof p[1] === 'number');
+
+// ── electrolyzer curves ─────────────────────────────────────────
+// What each electrolyzer type draws of a unit's plot, worked out once per
+// series fetched (cmpElxMemo) where it is the same whatever the options.
+//
+// Pol curve: the plot holds every cycle, a line each ('Cycle 5', or
+// 'Cycle 5 (CP)' where the run says its mode). The chart draws the one
+// CMP_OPT.ecyc names: the last by default, which is the cycle the index
+// values are read from (decision 9); the first; one by number; or all, the
+// earlier ones faint. iR-free voltage swaps in the iR-corrected curve of an
+// iR-correction plot instead, stored only for a cycle with current-
+// dependent EIS: the one for the cycle chosen where there is one, else the
+// latest (the first, with the first chosen), and the row says which cycle.
+//
+// Cycling: one value per cycle, from the plot of whichever kind the run
+// stores: current density at a fixed voltage (elx_j_vs_cycle, a run cycled
+// at fixed voltage) or voltage at a fixed current (elx_v_vs_cycle). The two
+// cannot share an axis, so a chart is of the kind of the first run added,
+// and the others are listed as not comparable. A run read at two voltages
+// offers both, one at a time (CMP_OPT.ehold), each a line of measured and
+// interpolated points ('j @ 1.80 V', 'j @ 1.80 V (interp)').
+//
+// EIS: the Nyquist plot's spectrum, its one line of more than a point.
+// Durability: the cell voltage trace, and its fitted line when asked for.
+const CMP_ELX_MEMO = new WeakMap();      // series payload -> Map(what -> value)
+function cmpElxMemo(sr, what, fn) {
+  const m = CMP_ELX_MEMO.get(sr) || new Map();
+  CMP_ELX_MEMO.set(sr, m);
+  if (!m.has(what)) m.set(what, fn());
+  return m.get(what);
+}
+const cmpNumIn = (s, re) => { const m = re.exec(String(s || '')); return m ? +m[1] : null; };
+// A pol curve's cycles, [{n, pts}] in order; a plot whose lines are not
+// named by cycle has them in the order drawn.
+function cmpElxCycles(sr) {
+  return cmpElxMemo(sr, 'cycles', () => {
+    const lines = (((sr.axes || [])[0] || {}).lines || []).filter(l => (l.x || []).length);
+    const named = lines.filter(l => cmpNumIn(l.label, /^cycle\s*(\d+)/i) != null);
+    return (named.length ? named : lines)
+      .map((l, i) => ({ n: named.length ? cmpNumIn(l.label, /^cycle\s*(\d+)/i) : i + 1, pts: zip(l) }))
+      .filter(c => c.pts.length).sort((a, b) => a.n - b.n);
+  });
+}
+// A pol curve's iR-corrected curves, [{n, pts, plot}], n the cycle each
+// corrects: said by its figure's title ('iR Correction — Cycle 5'), else its
+// name (…ir_correction_cycle5…), else found by its raw curve, which is that
+// cycle's points (with current); null where nothing says.
+function cmpElxIrs(sr) {
+  return cmpElxMemo(sr, 'ir', () => (sr.ir || []).map(ir => {
+    const lines = (ir.axes || []).flatMap(a => a.lines || []);
+    const fixed = lines.find(l => /ir[- ]?(corrected|free)/i.test(l.label || ''));
+    if (!fixed || !zip(fixed).length) return null;
+    let n = cmpNumIn(ir.suptitle, /cycle\s*(\d+)/i);
+    if (n == null) n = cmpNumIn(ir.plot, /ir_correction_cycle(\d+)/i);
+    const raw = n == null && lines.find(l => /^raw/i.test(l.label || ''));
+    if (raw) {
+      const at = p => p[0] + ',' + p[1], want = zip(raw).map(at);
+      const c = want.length && cmpElxCycles(sr).find(c => {
+        const have = new Set(c.pts.map(at));
+        return want.every(k => have.has(k));
+      });
+      if (c) n = c.n;
+    }
+    return { n, pts: zip(fixed), plot: ir.plot };
+  }).filter(Boolean));
+}
+// Cycling: the kind of a run's plot, and its values per cycle by what they
+// are read at, [{label, pts}] in the plot's order (its main voltage first).
+const cmpElxKindOf = sr => (sr && sr.plot_type === 'elx_v_vs_cycle' ? 'V' : 'j');
+function cmpElxHolds(sr) {
+  return cmpElxMemo(sr, 'holds', () => {
+    const out = [];
+    (sr.axes || []).filter(a => !a.is_twin).forEach(ax => (ax.lines || []).forEach(l => {
+      const m = /^([jV]\s*@\s*.+?)(?:\s*\(interp\))?$/.exec(String(l.label || ''));
+      if (!m) return;
+      let h = out.find(x => x.label === m[1]);
+      if (!h) out.push(h = { label: m[1], pts: [] });
+      h.pts.push(...zip(l));
+    }));
+    out.forEach(h => h.pts.sort((a, b) => a[0] - b[0]));
+    return out;
+  });
+}
+const cmpElxSeries = u => CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+// The kind of the chart: that of the first run added that has been read.
+function cmpElxCycKind() {
+  const sr = cmpSelected().map(cmpElxSeries).find(Boolean);
+  return sr ? cmpElxKindOf(sr) : '';
+}
+// What the chart's runs are read at, in the order they first appear, and
+// the one drawn: the one chosen, else the first run's first.
+function cmpElxHoldList() {
+  const kind = cmpElxCycKind(), seen = [];
+  cmpSelected().map(cmpElxSeries).forEach(sr => {
+    if (sr && cmpElxKindOf(sr) === kind) {
+      cmpElxHolds(sr).forEach(h => { if (!seen.includes(h.label)) seen.push(h.label); });
+    }
+  });
+  return seen;
+}
+function cmpElxHold() {
+  const list = cmpElxHoldList();
+  return list.includes(CMP_OPT.ehold) ? CMP_OPT.ehold : (list[0] || '');
+}
+// The cycle chosen: 'last', 'first', 'all' or a number. Anything else (a
+// view edited by hand) is the last.
+function cmpElxCycChoice() {
+  const c = String(CMP_OPT.ecyc || '');
+  return ['last', 'first', 'all'].includes(c) || /^[1-9]\d*$/.test(c) ? c : 'last';
+}
+// What a unit draws — {pts, extra, plot, cycle, of, irfree} — or {why} it
+// draws nothing. `extra` are its further lines (the other cycles, faint; the
+// fitted line, dashed); `plot` is the stored plot the curve is from, which
+// Export compares.
+function cmpElxPick(sr) {
+  const c = cmpElxCycChoice();
+  if (CMP_TYPE === 'elx_pc') {
+    if (CMP_OPT.eir) {
+      const irs = cmpElxIrs(sr);
+      if (!irs.length) return { why: 'no iR correction stored' };
+      const known = irs.filter(x => x.n != null).sort((a, b) => a.n - b.n);
+      const ir = (/^\d+$/.test(c) && known.find(x => x.n === +c))
+        || (c === 'first' ? known[0] || irs[0] : known[known.length - 1] || irs[irs.length - 1]);
+      return { pts: ir.pts, cycle: ir.n, irfree: true, plot: ir.plot,
+               extra: c === 'all' ? irs.filter(x => x !== ir)
+                 .map(x => ({ pts: x.pts, faint: true, plot: x.plot, cycle: x.n })) : null };
+    }
+    const cycles = cmpElxCycles(sr);
+    if (!cycles.length) return { why: 'no cycles stored' };
+    const cy = c === 'first' ? cycles[0]
+      : /^\d+$/.test(c) ? cycles.find(x => x.n === +c) : cycles[cycles.length - 1];
+    if (!cy) return { why: `no cycle ${c} (${cycles.length} stored)` };
+    return { pts: cy.pts, cycle: cy.n, of: cycles.length, plot: sr.plot,
+             extra: c === 'all' ? cycles.filter(x => x !== cy).map(x => ({ pts: x.pts, faint: true })) : null };
+  }
+  if (CMP_TYPE === 'elx_cyc') {
+    const kind = cmpElxKindOf(sr), chart = cmpElxCycKind();
+    if (chart && kind !== chart) return { why: kind === 'V' ? 'cycled at fixed current' : 'cycled at fixed voltage' };
+    const hold = cmpElxHold();
+    const h = cmpElxHolds(sr).find(x => x.label === hold);
+    if (!h || !h.pts.length) return { why: hold ? `no ${hold}` : 'no values per cycle stored' };
+    return { pts: h.pts, plot: sr.plot, dots: true };
+  }
+  const lines = (sr.axes || []).flatMap(a => a.lines || []);
+  if (CMP_TYPE === 'elx_nyq') {
+    const ln = (((sr.axes || [])[0] || {}).lines || []).find(l => zip(l).length > 1);
+    return ln ? { pts: zip(ln), plot: sr.plot } : { why: 'no spectrum stored' };
+  }
+  if (CMP_TYPE === 'elx_dur') {
+    const v = lines.find(l => /^cell voltage/i.test(l.label || ''))
+      || lines.find(l => zip(l).length > 2 && !/^fit/i.test(l.label || ''));
+    if (!v) return { why: 'no voltage trace stored' };
+    const fit = CMP_OPT.efit && lines.find(l => /^fit/i.test(l.label || ''));
+    return { pts: zip(v), plot: sr.plot, extra: fit ? [{ pts: zip(fit), dash: '6 3' }] : null };
+  }
+  return { why: '' };
+}
+// The chart's axis labels: the pol curve's y says iR-free, the cycling y the
+// value drawn and its unit.
+function cmpElxLabels() {
+  const t = CMP_TYPES[CMP_TYPE] || {};
+  if (CMP_TYPE === 'elx_pc' && CMP_OPT.eir) return { x: t.x, y: 'iR-free voltage (V)' };
+  if (CMP_TYPE === 'elx_cyc') {
+    const kind = cmpElxCycKind() || 'j', hold = cmpElxHold();
+    return { x: t.x, y: hold ? `${hold} (${kind === 'V' ? 'V' : 'A/cm²'})`
+                             : kind === 'V' ? 'Cell voltage (V)' : 'Current density (A/cm²)' };
+  }
+  return { x: t.x, y: t.y };
+}
+// What a row adds to its cell's conditions: the cycle its curve is.
+function cmpElxNote(sr) {
+  if (CMP_TYPE !== 'elx_pc' || !sr) return '';
+  const p = cmpElxPick(sr);
+  if (p.why != null) return '';
+  if (p.irfree) return p.cycle != null ? `iR-free, cycle ${p.cycle}` : 'iR-free, cycle not recorded';
+  return cmpElxCycChoice() === 'all' ? `all ${p.of} cycles, the last solid`
+                                     : `cycle ${p.cycle} of ${p.of}`;
+}
+// The options a type adds before its checkboxes: which cycle, and what the
+// cycling values are read at (where a chart's runs have more than one).
+function cmpElxOpts() {
+  if (CMP_TYPE === 'elx_pc') {
+    const c = cmpElxCycChoice();
+    const most = Math.max(0, ...cmpSelected().map(cmpElxSeries).filter(Boolean)
+      .map(sr => cmpElxCycles(sr).reduce((m, x) => Math.max(m, x.n), 0)));
+    const nums = Array.from({ length: most }, (_, i) => String(i + 1));
+    if (/^\d+$/.test(c) && !nums.includes(c)) nums.push(c);
+    const opt = (v, l) => `<option value="${v}" ${c === v ? 'selected' : ''}>${l}</option>`;
+    return `<label title="The cycle of each pol curve drawn. The index values are read from the last.">Cycle
+        <select id="cmpCyc" onchange="cmpSetCyc(this.value)">${
+          opt('last', 'last') + opt('first', 'first') + opt('all', 'all, earlier faint')
+          + nums.map(n => opt(n, n)).join('')}</select></label>`;
+  }
+  if (CMP_TYPE === 'elx_cyc') {
+    const list = cmpElxHoldList(), cur = cmpElxHold();
+    if (list.length < 2) return '';
+    return `<label title="What each run's value per cycle is read at; a run read at two offers both, one at a time">Per cycle
+        <select id="cmpHold" onchange="cmpSetHold(this.value)">${list.map(h =>
+          `<option value="${escapeAttr(h)}" ${h === cur ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
+        </select></label>`;
+  }
+  return '';
+}
+// The controls are rebuilt with the chart, so each takes the focus back.
+function cmpSetCyc(v) {
+  CMP_OPT.ecyc = v;
+  cmpRender();
+  const el = document.getElementById('cmpCyc');
+  if (el) el.focus();
+}
+function cmpSetHold(v) {
+  CMP_OPT.ehold = v;
+  cmpRender();
+  const el = document.getElementById('cmpHold');
+  if (el) el.focus();
+}
+// What an exported image's subtitle says of the options.
+function cmpElxBits() {
+  if (CMP_TYPE === 'elx_pc') {
+    const c = cmpElxCycChoice();
+    return [CMP_OPT.eir ? 'iR-free' : c === 'all' ? 'all cycles' : /^\d+$/.test(c) ? `cycle ${c}` : `${c} cycle`];
+  }
+  if (CMP_TYPE === 'elx_cyc') return cmpElxHold() ? [cmpElxHold()] : [];
+  if (CMP_TYPE === 'elx_dur' && CMP_OPT.efit) return ['fitted lines dashed'];
+  return [];
+}
 
 // The series of a whole-test plot, named without the quantity: the lines of
 // its panel the type counts as series, grouped by name. A series can be
@@ -7059,8 +7485,15 @@ const CMP_UNDRAWN_WHY = {
   'RH cycles not loaded': 'RH cycles could not be fetched (set x to hold hours and back to try again)',
   'no j @ 0.65 V stored': 'stored before j @ 0.65 V replaced j @ 0.6 V '
     + '(analyse and store it again to add it)',
+  'no iR correction stored': 'no iR correction stored: the pol-curve run had no current-dependent EIS',
+  'cycled at fixed current': 'cycled at fixed current, so it has a voltage per cycle; this chart is '
+    + 'current density per cycle at a fixed voltage, the kind of the first run added',
+  'cycled at fixed voltage': 'cycled at fixed voltage, so it has a current density per cycle; this '
+    + 'chart is voltage per cycle at a fixed current, the kind of the first run added',
 };
 function cmpUndrawn(key, sr) {
+  // An electrolyzer curve the chart's options leave it without (cmpElxPick).
+  if (sr && cmpElxType(CMP_TYPE)) return cmpElxPick(sr).why || '';
   if (!sr || !cmpWholeType(CMP_TYPE)) return '';
   if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j065 && !cmpPickSeries(sr).length) {
     return 'no j @ 0.65 V stored';
@@ -7128,8 +7561,10 @@ const cmpStepText = s => s.log ? s.step + ' dec' : String(+s.step.toPrecision(6)
 // and what is typed: a minimum, a maximum and a spacing, each null when blank.
 // A minimum at or over the maximum leaves both to the data; one bound typed
 // past the data's far end has the other a span of the data beyond it, so the
-// axis still runs the right way (and shows that nothing is drawn there).
-function cmpScale(ext, uLo, uHi, uStep, log, n) {
+// axis still runs the right way (and shows that nothing is drawn there). An
+// axis of a count (`whole`, cycles) picks a whole spacing, never under 1,
+// for the range as settled.
+function cmpScale(ext, uLo, uHi, uStep, log, n, whole) {
   if (uLo != null && uHi != null && !(uHi > uLo)) { uLo = null; uHi = null; }
   if (log) {
     if (uLo != null && !(uLo > 0)) uLo = null;
@@ -7167,6 +7602,7 @@ function cmpScale(ext, uLo, uHi, uStep, log, n) {
     else { const d = Math.abs(dLo) * 0.05 || 1; dLo -= d; dHi += d; }
   }
   let step = cmpNiceStep(dHi - dLo, n), stepBad = false;
+  if (whole) step = step <= 1 ? 1 : Math.ceil(step - 1e-9);
   if (uStep != null) {
     if (uStep > 0 && (dHi - dLo) / uStep <= CMP_MAX_TICKS) step = uStep;
     else stepBad = true;
@@ -7237,7 +7673,8 @@ function cmpChart(series, cfg) {
   // holds while the other three still follow the data. A typed tick spacing
   // holds whatever the window.
   const V = CMP_VIEW || {};
-  const xsc = cmpScale(xExt, V.x0, V.x1, cmpStep().x, false, 6);
+  // Cycles are counted, so an axis of them (cfg.intX) ticks on whole numbers.
+  const xsc = cmpScale(xExt, V.x0, V.x1, cmpStep().x, false, 6, !!cfg.intX);
   const ysc = cmpScale(yExt, V.y0, V.y1, cmpStep().y, false, 5);
   // On RH cycles, a hold before the cycling starts sits at 0 whole (an FCTS
   // folder's first, 30% RH hold): unless a minimum is set, the axis
@@ -7459,17 +7896,81 @@ const cmpDashSvg = (color, d, w) =>
 // ── render ──────────────────────────────────────────────────────
 // The chart types, the custom plot set apart after them, and what the chart
 // shown encodes.
+//
+// The types of the family in view: fuel cell, electrolyzer, or both, each
+// under its name. The family is Recall's (vfSetFamily), so both tabs show
+// the same runs, and its switch heads the strip while the index holds both;
+// an index of one family shows that family's. The custom plot is fuel-cell.
 function cmpRenderTypes() {
   const custom = CMP_TYPE === CP_TYPE;
-  document.getElementById('cmpTypes').innerHTML =
-    Object.entries(CMP_TYPES).map(([k, v]) =>
+  const fam = cmpShownFamily();
+  const btns = list => list.map(([k, v]) =>
       `<button class="cmp-type${k === CMP_TYPE ? ' on' : ''}"
-        onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
-    + `<span class="cmp-tsep" aria-hidden="true"></span><button class="cmp-type${custom ? ' on' : ''}"
-        aria-pressed="${custom}" onclick="cmpSetType('${CP_TYPE}')">Custom plot</button>`
+        onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('');
+  const fc = Object.entries(CMP_TYPES).filter(([, v]) => v.fam !== 'elx');
+  const elx = Object.entries(CMP_TYPES).filter(([, v]) => v.fam === 'elx');
+  const sep = '<span class="cmp-tsep" aria-hidden="true"></span>';
+  // The electrolyzer types are always under their name; the fuel-cell ones
+  // only beside them.
+  const head = name => `<span class="cmp-tlab">${escapeHtml(familyName(name))}</span>`;
+  const cp = `<button class="cmp-type${custom ? ' on' : ''}"
+        aria-pressed="${custom}" onclick="cmpSetType('${CP_TYPE}')">Custom plot</button>`;
+  document.getElementById('cmpTypes').innerHTML =
+    (_vfBothFamilies ? cmpFamilySwitch(fam) + sep : '')
+    + (fam === 'elx' ? head('elx') + btns(elx)
+       : (fam ? '' : head('fc')) + btns(fc) + sep + cp + (fam ? '' : sep + head('elx') + btns(elx)))
     + `<span class="cmp-hint">${custom
       ? 'Colour is the sample; the marker is the quantity, filled on the left and hollow on the right; dash is the series.'
+      : cmpElxType(CMP_TYPE) ? cmpElxHint()
       : `Colour is the sample, dash is the ${cmpWholeType(CMP_TYPE) ? 'series' : 'step'}.`}</span>`;
+}
+const cmpElxHint = () => (CMP_TYPES[CMP_TYPE] || {}).stepless
+  ? `Colour is the sample${CMP_OPT.efit ? '; the fitted line is dashed' : ''}.`
+  : 'Colour is the sample, dash is the cell.';
+
+// Fuel cell, Electrolyzer or All, as Recall's switch, each with the number
+// of samples holding runs of it.
+function cmpShownFamily() {
+  if (_vfBothFamilies) return vfFamily();
+  return _viewFams.has('elx') && !_viewFams.has('fc') ? 'elx' : 'fc';
+}
+function cmpFamilySwitch(fam) {
+  const n = f => (_viewRuns || []).filter(r => inFamily(r, f)).length;
+  return `<div class="vf-family show" id="cmpFamily" role="group" aria-label="Which chart types to show">${
+    [['fc', 'Fuel cell'], ['elx', 'Electrolyzer'], ['', 'All']].map(([f, l]) =>
+      `<button type="button" class="vf-fam${f === fam ? ' active' : ''}" data-fam="${f}"
+         aria-pressed="${f === fam}" onclick="cmpSetFamily('${f}')">${l}<span class="vf-famn">${n(f)}</span></button>`).join('')
+  }</div>`;
+}
+const cmpTypeFamily = k => (k === CP_TYPE ? 'fc' : (CMP_TYPES[k] || {}).fam || 'fc');
+// The type shown when its family leaves the strip: its counterpart in the
+// other family, else that family's first.
+const CMP_FAMILY_TWIN = {
+  polcurve: 'elx_pc', eis: 'elx_nyq', fcdur_ocv: 'elx_dur', fcdur_xover: 'elx_dur',
+  fcdur_hfr: 'elx_dur', fcdur_ecsa: 'elx_dur', fcdur_perf: 'elx_dur',
+  elx_pc: 'polcurve', elx_cyc: 'polcurve', elx_nyq: 'eis', elx_dur: 'fcdur_ocv',
+};
+function cmpFitType() {
+  const fam = cmpShownFamily();
+  if (!fam || cmpTypeFamily(CMP_TYPE) === fam) return;
+  cmpUseType(CMP_FAMILY_TWIN[CMP_TYPE] || (fam === 'elx' ? 'elx_pc' : 'polcurve'));
+  // A window zoomed on the other family's chart would show nothing of this
+  // one, which nobody chose to open.
+  CMP_VIEW = null;
+}
+// Recall's switch too: the family is the page's.
+function cmpSetFamily(f) {
+  vfSetFamily(f);
+  cmpFitType();
+  cmpHideReadout();
+  cmpRender();
+}
+// A saved view of a type whose family is not in view brings it into view by
+// showing both: choosing its family would drop Recall's choices for the
+// other one (vfSetFamily), which opening a view is not asking for.
+function cmpShowFamilyOf(type) {
+  const fam = cmpShownFamily();
+  if (_vfBothFamilies && fam && fam !== cmpTypeFamily(type)) vfSetFamily('');
 }
 
 // While the page is being drawn. Replacing a field that has the focus blurs
@@ -7490,6 +7991,9 @@ function cmpRender() {
   if (CMP_AGAIN) { CMP_AGAIN = false; cmpRender(); }
 }
 function cmpRenderNow() {
+  // A type whose family has left the strip (the index read again, the
+  // family switched in Recall) gives way to one in it.
+  cmpFitType();
   // The custom plot draws the page its own way (cpRender).
   const custom = CMP_TYPE === CP_TYPE;
   document.getElementById('view-compare').classList.toggle('cp-on', custom);
@@ -7504,10 +8008,11 @@ function cmpRenderNow() {
   });
   // A durability type draws every series of a sample's whole test.
   const whole = cmpWholeType(CMP_TYPE);
+  const elx = cmpElxType(CMP_TYPE);
   const vocab = whole ? cmpSeriesVocab() : [];
   // A saved view can open one with statistics picking still on, whose buttons
   // these types do not show.
-  if (whole && CMP_PICKING) { CMP_PICKING = false; CMP_PICKED = new Set(); }
+  if (cmpNoStats(CMP_TYPE) && CMP_PICKING) { CMP_PICKING = false; CMP_PICKED = new Set(); }
 
   // A bound or spacing left blank shows, greyed, what the chart drew; so the
   // boxes are filled in once it has been (drawOpts).
@@ -7545,6 +8050,7 @@ function cmpRenderNow() {
              <option value="cycles" ${cyc ? 'selected' : ''}>RH cycles</option>
            </select></label>`
       : '')
+    + (elx ? cmpElxOpts() : '')
     + (t.opts.length
       ? t.opts.map(([k, l]) =>
           `<label><input type="checkbox" ${CMP_OPT[k] ? 'checked' : ''}
@@ -7658,11 +8164,13 @@ function cmpRenderNow() {
           <span class="lbl">draw</span>
           <select onchange="cmpSetStat(${i},'style',this.value)">
             ${Object.entries(CMP_STYLES).map(([k, l]) =>
-              `<option value="${k}" ${st.style === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+              `<option value="${k}" ${st.style === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${
+          // A mean of a count or a time has no other direction.
+          CMP_AVG_MODE[CMP_TYPE] === 'along' ? '' : `
           <span class="lbl">avg</span>
           <select onchange="cmpSetStat(${i},'axis',this.value)">
             <option value="x" ${st.axis === 'x' ? 'selected' : ''}>x at each y</option>
-            <option value="y" ${st.axis === 'y' ? 'selected' : ''}>y at each x</option></select>
+            <option value="y" ${st.axis === 'y' ? 'selected' : ''}>y at each x</option></select>`}
           <span class="lbl">curves</span>
           <select onchange="cmpSetStat(${i},'members',this.value==='1')">
             <option value="1" ${st.members ? 'selected' : ''}>shown</option>
@@ -7697,8 +8205,10 @@ function cmpRenderNow() {
         const off = CMP_HIDDEN.has(cmpKey(k, u.step));
         const sr = CMP_SERIES.get(cmpKey(k, CMP_TYPE + '::' + u.step));
         const nodata = sr === null;
-        // A whole test the chart cannot draw says why in place of its lifetime.
-        const why = whole ? cmpUndrawn(k, sr) : '';
+        // A whole test the chart cannot draw says why in place of its lifetime,
+        // as does an electrolyzer curve in place of its conditions; one drawn
+        // says which cycle it is (cmpElxNote).
+        const why = whole || elx ? cmpUndrawn(k, sr) : '';
         const mets = cmpUnitMetrics(u);
         // A whole test draws several series, so its row is their legend.
         const head = whole
@@ -7708,15 +8218,22 @@ function cmpRenderNow() {
                `<span class="ser">${cmpDashSvg(color, cmpSeriesDash(s.name, vocab), 18)}`
                + `${escapeHtml(s.name)}</span>`).join('')}</span>`
           : `${cmpDashSvg(color, cmpDashOf(u.step))}
-             <span class="st">${escapeHtml(u.step)}</span>
-             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>`;
-        return `<div class="cmp-strow${off || nodata || why ? ' off' : ''}"
-                  ${nodata ? 'title="No plot data stored for this step"'
+             <span class="st">${escapeHtml(u.step)}</span>${elx ? '' : `
+             <span class="cond">${escapeHtml(nodata ? 'no plot data' : (u.cond || '—'))}</span>`}`;
+        // An electrolyzer row says its conditions and the cycle drawn on a
+        // line of its own, under its values: beside them they would not fit.
+        const sline = !elx ? '' : `
+          <span class="cond cmp-sline">${escapeHtml(nodata ? 'no plot data'
+            : why ? 'not drawn: ' + why
+            : [u.cond, cmpElxNote(sr)].filter(Boolean).join(' · ') || '—')}</span>`;
+        return `<div class="cmp-strow${elx ? ' elx' : ''}${off || nodata || why ? ' off' : ''}"
+                  ${nodata ? `title="No plot data stored for this ${elx ? cmpUnitWord(CMP_TYPE) : 'step'}"`
                     : why ? `title="Not drawn: ${escapeAttr(CMP_UNDRAWN_WHY[why] || why)}"` : ''}>
           <span class="cmp-scol1">${head}</span>
           <span class="cmp-scol2">${mets.length
             ? mets.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.name)}</span>`
-                + `<span class="v">${m.censored ? '≥ ' : ''}${escapeHtml(fmtNum(m.value))}</span></span>`).join('')
+                + `<span class="v">${m.censored ? '≥ ' : ''}${escapeHtml(fmtNum(m.value))}</span>${
+                  m.unit ? `<span class="u">${escapeHtml(m.unit)}</span>` : ''}</span>`).join('')
             : '<span class="cmp-kv empty">—</span>'}</span>
           <span class="cmp-sacts">
             ${whole && t.bands ? cmpBandAct(k, u.step, color, sr) : ''}
@@ -7724,7 +8241,7 @@ function cmpRenderNow() {
                   onclick="cmpToggleStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">${off ? '○' : '●'}</span>
             <span class="cmp-act" title="Remove"
                   onclick="cmpDropStep('${escapeAttr(k)}','${escapeAttr(u.step)}')">×</span>
-          </span>
+          </span>${sline}
         </div>`; }).join('')}</div>
     </div>`;
   }).join('') || (statHtml ? '' :
@@ -7739,12 +8256,21 @@ function cmpRenderNow() {
   if (CMP_TYPE === 'polcurve' && CMP_OPT.power) ylab = 'Power density (mW/cm²)';
   else if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) ylab = 'iR-free voltage (V)';
   if (CMP_TYPE === 'fcdur_perf' && CMP_OPT.j065) ylab = 'j @ 0.65 V (A/cm²)';
+  if (elx) ({ x: xlab, y: ylab } = cmpElxLabels());
   const series = [];
   const undrawn = new Map();          // why -> the samples it leaves off
   sel.forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     if (!sr) return;
+    // An electrolyzer curve the options leave out is named in the note, by
+    // sample and cell.
+    const ewhy = elx ? cmpUndrawn(u.key, sr) : '';
+    if (ewhy) {
+      if (!undrawn.has(ewhy)) undrawn.set(ewhy, []);
+      undrawn.get(ewhy).push(`${cmpNameOf(u.key, sr.sample_name)} · ${u.step}`);
+      return;
+    }
     if (whole) {
       const why = cmpUndrawn(u.key, sr);
       if (why) {
@@ -7775,7 +8301,13 @@ function cmpRenderNow() {
     xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
     series.push({ pts: line.pts, color: cmpColorOf(u.key), dash: cmpDashOf(u.step),
                   id: cmpCurveId(u.key, u.step),
-                  title: `${cmpNameOf(u.key, sr.sample_name)} · ${u.step}` });
+                  title: `${cmpNameOf(u.key, sr.sample_name)} · ${u.step}`,
+                  ...(line.dots ? { dots: true } : {}) });
+    // Its further lines: the other cycles, faint; a fitted line, dashed.
+    (line.extra || []).forEach((x, j) => series.push({
+      pts: x.pts, color: cmpColorOf(u.key), dash: x.dash != null ? x.dash : cmpDashOf(u.step),
+      faint: !!x.faint, id: cmpCurveId(u.key, u.step) + '::' + j,
+      title: `${cmpNameOf(u.key, sr.sample_name)} · ${u.step}` }));
   });
   // Statistical curves for this analysis type, and the curves they are made
   // of. A contributing curve is drawn as a hairline so the mean reads as the
@@ -7799,7 +8331,7 @@ function cmpRenderNow() {
   series.forEach(sx => { if (memberIds.has(sx.id)) sx.faint = true; });
 
   document.getElementById('cmpChart').innerHTML = cmpChart(series,
-    { x: xlab || 'x', y: ylab || 'y', equal: !!t.equal,
+    { x: xlab || 'x', y: ylab || 'y', equal: !!t.equal, intX: !!t.intX,
       empty: undrawn.size ? 'None of the samples chosen can be drawn here — the note below says why.' : '',
       zeroY: CMP_TYPE === 'polcurve' && CMP_OPT.power,
       stats: stats.map(x => ({ ...x.st, data: x.data,
@@ -7807,10 +8339,13 @@ function cmpRenderNow() {
   drawOpts();
 
   if (CMP_PICKING) {
-    document.getElementById('cmpNote').innerHTML =
-      `<span style="color:var(--accent)">Tick the curves to combine, then
-       <b>Run statistics</b>. A row ticks the steps it is showing, so setting
-       the Step filter first makes that one curve per sample.</span>`;
+    const w = cmpUnitWord(CMP_TYPE);
+    document.getElementById('cmpNote').innerHTML = w === 'test'
+      ? `<span style="color:var(--accent)">Tick the curves to combine, then
+         <b>Run statistics</b>. A row ticks its sample’s test.</span>`
+      : `<span style="color:var(--accent)">Tick the curves to combine, then
+       <b>Run statistics</b>. A row ticks the ${w}s it is showing, so setting
+       the ${w === 'cell' ? 'Cell' : 'Step'} filter first makes that one curve per sample.</span>`;
   } else
   document.getElementById('cmpNote').innerHTML = [...undrawn].map(([why, names]) =>
       `<span class="warn">Not drawn: ${escapeHtml(names.join(', '))} — ${
@@ -7820,7 +8355,11 @@ function cmpRenderNow() {
        stops being readable and the payload gets heavy. Narrow by condition, or
        hide the steps you are not comparing.</span>`
     : 'Drawn from the stored analysis data — nothing is re-analysed. '
-      + (sm.smoothed
+      + (elx
+        ? `Export saves this chart as drawn, and compares the stored plots it is drawn from
+           server-side, with their readouts and workbook: each plot whole, every cycle and
+           line it holds.`
+        : sm.smoothed
         ? `Smoothed here to ${escapeHtml(cmpSmoothedText(sm))}, and so is the chart image Export
            saves; its server-side comparison and workbook use the stored points.`
         : 'Export renders the same comparison server-side, with its readouts and workbook.'));
@@ -7862,10 +8401,14 @@ function cmpUnitPasses(run, unit) {
   const scope = cmpCondScope(CMP_TYPE);
   if (!scope) return true;
   return (run.Data || []).some(d =>
-    String(d.Analysis || '') === CMP_TYPE
-    && String(d.step || '') === String(unit.step || '')
+    String(cmpUnitAna(d) || '') === cmpCondAna(CMP_TYPE)
+    && String(d.step || '') === String(cmpStoredStep(CMP_TYPE, unit.step) || '')
     && scope(d));
 }
+// The analysis whose conditions a type's filter offers: an electrolyzer
+// type's own (temperature and pressure, a durability test's hold current).
+// The fuel-cell types filter by their own id, as they always have.
+const cmpCondAna = type => (cmpElxType(type) ? cmpAnalysisOf(type) : type);
 const cmpCondOn = (a, field, v) => {
   const sel = (CF_COND[a] || {})[field];
   return !sel || sel.has(v);
@@ -7879,7 +8422,7 @@ function cmpToggleCondPop() {
 }
 function cmpToggleCondVal(field, value) {
   const a = CMP_TYPE;
-  const f = vfFacetsFor(_viewRuns || [], a).find(x => x.key === field);
+  const f = vfFacetsFor(_viewRuns || [], cmpCondAna(a)).find(x => x.key === field);
   if (!f) return;
   const sel = cmpCondSel(a);
   const cur = new Set(sel[field] || f.values.map(x => x.v));
@@ -7901,7 +8444,7 @@ function cmpCondFieldAll(field) {
 function cmpCondAll() { delete CF_COND[CMP_TYPE]; cmpSyncCondPop(); cmpRenderPick(); }
 function cmpCondNone() {
   const sel = CF_COND[CMP_TYPE] = {};
-  vfFacetsFor(_viewRuns || [], CMP_TYPE).forEach(f => { sel[f.key] = new Set(); });
+  vfFacetsFor(_viewRuns || [], cmpCondAna(CMP_TYPE)).forEach(f => { sel[f.key] = new Set(); });
   cmpSyncCondPop();
   cmpRenderPick();
 }
@@ -7910,7 +8453,7 @@ function cmpRenderCondPop() {
   const a = CMP_TYPE;
   const pop = document.getElementById('cfCondPop');
   if (!pop) return;
-  const facets = vfFacetsFor(_viewRuns || [], a);
+  const facets = vfFacetsFor(_viewRuns || [], cmpCondAna(a));
   pop.dataset.facets = facets.map(f =>
     f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   pop.innerHTML = `
@@ -7941,7 +8484,7 @@ function cmpSyncCondPop() {
   const a = CMP_TYPE;
   const pop = document.getElementById('cfCondPop');
   if (!pop) return;
-  const facets = vfFacetsFor(_viewRuns || [], a);
+  const facets = vfFacetsFor(_viewRuns || [], cmpCondAna(a));
   const sig = facets.map(f => f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   if (pop.dataset.facets !== sig) { cmpRenderCondPop(); return; }
   pop.querySelectorAll('.vf-opt').forEach(el => {
@@ -8033,10 +8576,10 @@ function cmpRenderPick() {
 
   const chips = [];
   if (CF.stand) chips.push(['stand', CF.stand, 'stand']);
-  if (CF.step) chips.push(['step', CF.step, 'step']);
+  if (CF.step) chips.push([cmpUnitWord(CMP_TYPE) === 'cell' ? 'cell' : 'step', CF.step, 'step']);
   // The faceted filter carries its own chip, since it is several choices.
   if (Object.keys(CF_COND[CMP_TYPE] || {}).length) {
-    const facets = vfFacetsFor(_viewRuns || [], CMP_TYPE);
+    const facets = vfFacetsFor(_viewRuns || [], cmpCondAna(CMP_TYPE));
     const sel = CF_COND[CMP_TYPE];
     let chosen = 0, total = 0;
     facets.forEach(f => {
@@ -8054,7 +8597,10 @@ function cmpRenderPick() {
   host.classList.toggle('show', chips.length > 0);
 
   const nsteps = rows.reduce((a, r) => a + cmpShownUnits(r).length, 0);
-  const unitWord = cmpWholeType(CMP_TYPE) ? 'test' : 'step';
+  const unitWord = cmpUnitWord(CMP_TYPE);
+  // The step filter is of cells for an electrolyzer type.
+  const stepPre = document.querySelector('#cfw-step .pre');
+  if (stepPre) stepPre.textContent = unitWord === 'cell' ? 'Cell' : 'Step';
   document.getElementById('cmpPickHint').textContent = CMP_PICKING
     ? `${CMP_PICKED.size} selected`
     : `${rows.length} sample${rows.length === 1 ? '' : 's'} · ${nsteps} ${unitWord}${nsteps === 1 ? '' : 's'}`;
@@ -8062,7 +8608,7 @@ function cmpRenderPick() {
   // The button lives in this header, and turns it into the statistics bar.
   // A mean of durability trajectories would need them sampled at common hold
   // hours, which characterizations are not; no statistical curve is offered.
-  document.getElementById('cmpStatBtns').innerHTML = cmpWholeType(CMP_TYPE) ? ''
+  document.getElementById('cmpStatBtns').innerHTML = cmpNoStats(CMP_TYPE) ? ''
     : CMP_PICKING
     ? `<button class="btn btn-sm" onclick="cmpCancelPick()">Cancel</button>
        <button class="btn btn-sm btn-go" onclick="cmpRunStats()"
@@ -8106,13 +8652,16 @@ function cmpRenderPick() {
 // ── actions ─────────────────────────────────────────────────────
 function cmpSetType(k) {
   if (k !== CP_TYPE && !CMP_TYPES[k]) return;
-  CMP_TYPE = k; CF.step = '';
-  CMP_NAME_EDIT = null;
-  if (cmpWholeType(k) || k === CP_TYPE) { CMP_PICKING = false; CMP_PICKED = new Set(); }
-  // What could not be read is asked for again on coming back to the plot.
-  if (k === CP_TYPE) CP_FAILED.clear();
+  cmpUseType(k);
   cmpHideReadout();
   cmpRender();
+}
+function cmpUseType(k) {
+  CMP_TYPE = k; CF.step = '';
+  CMP_NAME_EDIT = null;
+  if (cmpNoStats(k) || k === CP_TYPE) { CMP_PICKING = false; CMP_PICKED = new Set(); }
+  // What could not be read is asked for again on coming back to the plot.
+  if (k === CP_TYPE) CP_FAILED.clear();
 }
 function cmpToggleStep(k, st) {
   const kk = cmpKey(k, st);
@@ -8743,22 +9292,15 @@ async function cmpRunStats() {
   // The curves may not be on the chart, so their series may not be cached.
   const want = [...CMP_PICKED].map(id => {
     const [key, step] = id.split('::');
-    return { key, analysis: CMP_TYPE, step };
+    return { key, step };
   }).filter(sel => !CMP_SERIES.has(cmpKey(sel.key, CMP_TYPE + '::' + sel.step)));
   if (want.length) {
-    const epoch = CMP_EPOCH;
+    const epoch = CMP_EPOCH, type = CMP_TYPE;
     try {
-      const r = await fetch('/api/view/series', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selections: want }),
-      });
-      const d = await r.json();
+      const d = await cmpReadUnits(type, want);
       // A run stored again while this was out: asked for again (viewForgetRuns).
       if (epoch !== CMP_EPOCH) return cmpRunStats();
-      (d.series || []).forEach(sr =>
-        CMP_SERIES.set(cmpKey(sr.key, CMP_TYPE + '::' + sr.step), sr));
-      (d.missing || []).forEach(m =>
-        CMP_SERIES.set(cmpKey(m.key, CMP_TYPE + '::' + m.step), null));
+      cmpFileUnits(type, d);
     } catch (e) { alert('Could not read those curves: ' + e.message); return; }
   }
   document.getElementById('cmpStatName').value = '';
@@ -8772,6 +9314,14 @@ async function cmpRunStats() {
       ? 'Averaged at each frequency — Z′ and −Z″ separately. A Nyquist arc is '
         + 'parametric in frequency, so averaging along either axis would take '
         + 'one side of the arc and discard the other.'
+      : mode === 'along'
+      ? (CMP_TYPE === 'elx_cyc'
+        ? 'Averaged at each cycle: the mean of the value drawn, over the cycles '
+          + 'every curve covers. The cycle number says when a value was read, '
+          + 'not what was measured, so the mean has no other direction.'
+        : 'Averaged at each hour of the test: the mean cell voltage, over the '
+          + 'hours every test covers. The hours say when a voltage was read, '
+          + 'not what was measured, so the mean has no other direction.')
       : 'Averaged from the last CV cycle, split into its two sweep directions '
         + 'so each is single-valued in potential, then rejoined. A whole '
         + 'voltammogram is a loop and has no mean along an axis.'}</div>`;
@@ -8797,7 +9347,7 @@ function cmpStatPreview() {
   const pct = cmpReadPct(document.getElementById('cmpSePct').value);
   document.getElementById('cmpPctWrap').style.display =
     spread === 'sem' ? 'block' : 'none';
-  const draft = { ids: [...CMP_PICKED], axis: CMP_AXIS, spread, sePct: pct };
+  const draft = { ids: [...CMP_PICKED], axis: cmpStatAxis(), spread, sePct: pct };
   const rows = draft.ids.map(id => {
     const [key, step] = id.split('::');
     const run = cmpRunFor(key);
@@ -8823,8 +9373,11 @@ function cmpStatPreview() {
     return;
   }
   add.disabled = false;
-  const conds = new Set(rows.map(r => r.cond).filter(Boolean));
-  const steps = new Set(rows.map(r => r.step));
+  // Of an electrolyzer type, only the curves in the mean count.
+  const inMean = new Set(data.rows.map(r => r.id));
+  const used = cmpElxType(CMP_TYPE) ? rows.filter(r => inMean.has(r.id)) : rows;
+  const conds = new Set(used.map(r => r.cond).filter(Boolean));
+  const steps = new Set(used.map(r => r.step));
   const a = data.avg;
   // The span means a different thing in each mode, and reporting a frequency
   // range in Ω·cm² — which the first version did — is worse than saying
@@ -8840,6 +9393,10 @@ function cmpStatPreview() {
     spanTxt = `${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} `
             + cmpUnitOf(data.xlabel);
     au = cmpUnitOf(data.ylabel);
+  } else if (mode === 'along') {
+    // Cycles are counted, and their axis says no unit.
+    spanTxt = `${fmtNum(a.lo)}–${fmtNum(a.hi)} ${cmpUnitOf(data.xlabel) || 'cycles'}`;
+    au = cmpUnitOf(data.ylabel);
   } else {
     const unit = CMP_AXIS === 'x' ? cmpUnitOf(data.ylabel) : cmpUnitOf(data.xlabel);
     spanTxt = `${a.lo.toPrecision(4)}–${a.hi.toPrecision(4)} ${unit}`;
@@ -8850,9 +9407,17 @@ function cmpStatPreview() {
   // than implied.
   const sePctOfMean = a.mid ? Math.abs(a.se / a.mid) * 100 : null;
   sum.innerHTML =
-    ((conds.size > 1 || steps.size > 1)
-      ? `<div class="cmp-box amber">These curves span ${conds.size} condition(s)
-         and ${steps.size} step(s). Averaging across them combines experiments
+    // Electrolyzer curves the chart does not draw are not in the mean.
+    ((data.left || []).length
+      ? `<div class="cmp-box amber">Not in the mean, as the chart does not draw them: ${
+         escapeHtml(data.left.map(r => `${cmpNameOf(r.key, r.name)} · ${r.step} (${r.why})`).join('; '))}.</div>`
+      : '')
+    // Electrolyzer cells under the same conditions are replicates; fuel-cell
+    // steps are different measurements.
+    + ((conds.size > 1 || (steps.size > 1 && !cmpElxType(CMP_TYPE)))
+      ? `<div class="cmp-box amber">These curves span ${conds.size} condition(s)${
+         cmpElxType(CMP_TYPE) ? '' : `
+         and ${steps.size} step(s)`}. Averaging across them combines experiments
          rather than replicates.</div>` : '')
     + (pct && spread === 'sem'
       ? `<div class="cmp-box amber">A fixed ± ${pct} % band is drawn, not a
@@ -8866,8 +9431,8 @@ function cmpStatPreview() {
        <b>± ${a.sd.toPrecision(3)} ${escapeHtml(au)}</b>.${
        a.n < 3 ? ' With two curves a standard deviation is just half their difference.' : ''}</div>`;
   document.getElementById('cmpStatFoot').textContent =
-    `${a.n} curves · averaging ${CMP_AXIS === 'x' ? 'x at each y' : 'y at each x'}`;
-  const names = [...new Set(rows.map(r => cmpAliasOf(r.key)
+    `${a.n} curves · averaging ${cmpStatAxis() === 'x' ? 'x at each y' : 'y at each x'}`;
+  const names = [...new Set(used.map(r => cmpAliasOf(r.key)
     || String(r.stored).split('_').slice(1).join('_')))];
   const el = document.getElementById('cmpStatName');
   if (!el.value) el.value = names.length === 1 ? `Mean of ${names[0]}`
@@ -8877,7 +9442,7 @@ function cmpStatPreview() {
 function cmpCreateStat() {
   const stat = {
     name: document.getElementById('cmpStatName').value.trim() || 'Mean',
-    ids: [...CMP_PICKED], axis: CMP_AXIS,
+    ids: [...CMP_PICKED], axis: cmpStatAxis(),
     spread: document.getElementById('cmpSpread').value,
     sePct: cmpReadPct(document.getElementById('cmpSePct').value),
     style: document.getElementById('cmpStyle').value,
@@ -11599,6 +12164,7 @@ function cmpLoadView(name) {
 
   if (v.type === CP_TYPE) {
     CMP_TYPE = CP_TYPE;
+    cmpShowFamilyOf(CMP_TYPE);
     const { gone } = cpRestore(v.cp);
     cmpLoadNamesAndSteps(v);
     CP_PENDING = [];
@@ -11615,6 +12181,7 @@ function cmpLoadView(name) {
     return;
   }
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
+  cmpShowFamilyOf(CMP_TYPE);
   // A view saved before j @ 0.65 V replaced j @ 0.6 V asks for the panel by
   // its old name; one saved before the RH cycles axis is on hold hours.
   const opt = { ...(v.opt || {}) };
@@ -11622,7 +12189,12 @@ function cmpLoadView(name) {
     if (!('j065' in opt)) opt.j065 = !!opt.j06;
     delete opt.j06;
   }
-  CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0, ...opt };
+  // One saved before the electrolyzer types has their defaults: the last
+  // cycle, as measured, at the first run's voltage, without the fit.
+  CMP_OPT = { irfree: false, power: false, j065: false, x_cyc: false, bin_h: 0,
+              ecyc: 'last', eir: false, ehold: '', efit: false, ...opt };
+  CMP_OPT.ecyc = cmpElxCycChoice();
+  if (typeof CMP_OPT.ehold !== 'string') CMP_OPT.ehold = '';
   CMP_CYC.forEach((m, k) => { if (m === false) CMP_CYC.delete(k); });   // asked again
   // A view saved before smoothing has none; one edited by hand gets none
   // rather than a width the control does not offer.
@@ -11633,7 +12205,9 @@ function cmpLoadView(name) {
   CMP_BAND = new Set((Array.isArray(v.band) ? v.band : []).filter(id => typeof id === 'string'));
   CMP_VIEW = v.view ? { ...v.view } : null;
   cmpLoadNamesAndSteps(v);
-  CMP_STATS = (v.stats || []).map(st => ({ ...st }));
+  // A mean of a type averaged only at each x is so, whatever a view says.
+  CMP_STATS = (v.stats || []).map(st => ({ ...st,
+    ...(CMP_AVG_MODE[st.type] === 'along' ? { axis: 'y' } : {}) }));
 
   // A saved view names samples that may since have been renamed, merged or
   // deleted. Dropping those quietly would misrepresent the comparison, and
@@ -11712,7 +12286,8 @@ function cmpRenderViews(selected) {
         const list = cp && (cp.curves || {})[(CP_X.find(x => x.key === cp.x) || CP_X[0]).fam];
         const n_ = cp ? (Array.isArray(list) ? list.length : 0)
           : Object.values(v.sel || {}).reduce((a, x) => a + x.length, 0);
-        const ty = cp ? 'Custom plot' : (CMP_TYPES[v.type] || {}).label || v.type || '';
+        const t = CMP_TYPES[v.type] || {};
+        const ty = cp ? 'Custom plot' : t.title || t.label || v.type || '';
         return `<option value="${escapeAttr(n)}" ${n === cur ? 'selected' : ''}`
              + ` title="${escapeAttr(`${n_} curve(s) · ${ty}`)}">${escapeHtml(n)}</option>`;
       }).join('');
@@ -11741,30 +12316,44 @@ function cmpExportRows() {
   CMP_STATS.forEach((st, i) => {
     if (st.type !== CMP_TYPE || !st.visible) return;
     const data = cmpStatData(st);
-    if (!data) return;
+    // A mean that cannot be worked out as things stand is not on the chart
+    // either (an electrolyzer one whose curves the options leave undrawn, a
+    // fuel-cell one whose curves double back): reading its average threw,
+    // and an export begun then never ended.
+    if (!data || data.error) return;
     rows.push({ color: cmpStatColor(i), dash: '', weight: 2.6,
                 name: st.name,
                 note: `mean of ${data.avg.n} · ${cmpSpreadLabel(st)} · `
                     + (st.axis === 'x' ? 'x at each y' : 'y at each x'),
                 kv: Object.fromEntries(Object.entries(data.kv).map(([k, v]) =>
-                      [k, `${fmtNum(v.mean)} ±${fmtNum(v.sd)}`])) });
+                      [k, `${fmtNum(v.mean)} ±${fmtNum(v.sd)}` + cmpElxUnitText(k)])) });
   });
   cmpSelected().forEach(u => {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     const run = cmpRunFor(u.key);
     const unit = run && cmpUnitsFor(run, CMP_TYPE).find(x => x.step === u.step);
     const kv = {};
-    Object.entries((unit && unit.kv) || {}).forEach(([k, v]) => {
-      if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = fmtNum(v);
-    });
+    // An electrolyzer cell's values are those its row shows, as it shows
+    // them: in their display units, which the image says (HFR in mΩ·cm²,
+    // where a fuel-cell image has Ω·cm²).
+    if (cmpElxType(CMP_TYPE)) {
+      (unit ? cmpUnitMetrics(unit) : []).forEach(m => { kv[m.name] = fmtNum(m.value) + cmpElxUnitText(m.name); });
+    } else {
+      Object.entries((unit && unit.kv) || {}).forEach(([k, v]) => {
+        if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = fmtNum(v);
+      });
+    }
     // Drawn against RH cycles, a test that counts them is listed by them.
     if (cmpCycAxis()) {
       Object.entries(CMP_CYC_METRIC).forEach(([h, c]) => { if (c in kv) delete kv[h]; });
     }
-    const why = cmpUndrawn(u.key, CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step)));
+    const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    const why = cmpUndrawn(u.key, sr);
+    const cyc = cmpElxType(CMP_TYPE) && !why ? cmpElxNote(sr) : '';
     rows.push({ color: cmpColorOf(u.key), dash: cmpDashOf(u.step), weight: 2,
                 name: cmpNameOf(u.key, run && run.sample_name),
                 note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`
+                      + (cyc ? ' · ' + cyc : '')
                       + (cmpBanded(u) ? ' · high–low shaded' : '')
                       + (why ? ` · not drawn: ${why}` : ''), kv });
   });
@@ -11860,10 +12449,11 @@ function cmpSvgToPng(scale, spec) {
     heading = sp.title;
     bits = (sp.bits || []).slice();
   } else {
-    heading = `${t.label || CMP_TYPE} — comparison`;
+    heading = `${t.title || t.label || CMP_TYPE} — comparison`;
     bits = [`${rows.length} curve${rows.length === 1 ? '' : 's'}`];
     if (CMP_TYPE === 'polcurve' && CMP_OPT.irfree) bits.push('iR-free');
     if (CMP_TYPE === 'polcurve' && CMP_OPT.power) bits.push('power density');
+    bits.push(...cmpElxBits());
     if (cmpCycAxis()) bits.push('against RH cycles');
     // As the chart was drawn: a width that smoothed nothing is not mentioned.
     if (CMP_SMOOTHED && CMP_SMOOTHED.smoothed) {
@@ -11964,13 +12554,22 @@ async function exportComparison() {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     if (cyc && !CMP_CYC.get(u.key)) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    // An electrolyzer curve the chart does not draw is left out, as it is
+    // off the chart; one drawn iR-free is compared from the plot it is from.
+    const pick = sr && cmpElxType(CMP_TYPE) ? cmpElxPick(sr) : null;
+    if (pick && pick.why != null) return;
+    // Drawn iR-free with every cycle, each correction drawn is compared,
+    // named by its cycle.
+    const each = pick && pick.irfree && pick.extra
+      ? [pick, ...pick.extra].map(x => [x.plot, ` cycle ${x.cycle == null ? '?' : x.cycle}`])
+      : [[(pick && pick.plot) || (sr && sr.plot), '']];
     // The server draws a stored band unless told otherwise, so a type with
     // bands says for every sample whether it is shaded here. Its legend and
     // workbook name each curve by its label: the name the chart shows.
-    if (sr) sels.push({ key: u.key, plot: sr.plot,
-                        label: `${cmpNameOf(u.key, sr.sample_name)} ${u.step}`,
+    if (sr) each.forEach(([plot, tail]) => sels.push({ key: u.key, plot,
+                        label: `${cmpNameOf(u.key, sr.sample_name)} ${u.step}${tail}`,
                         ...(bands ? { band: CMP_BAND.has(cmpCurveId(u.key, u.step)) } : {}),
-                        ...(cyc ? { x: 'cycles' } : {}) });
+                        ...(cyc ? { x: 'cycles' } : {}) }));
   });
   const btn = document.getElementById('cmpExport');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
