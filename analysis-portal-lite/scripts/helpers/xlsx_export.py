@@ -65,6 +65,10 @@ def safe_sheet_name(name: str, used: Optional[set] = None) -> str:
 
 def _put(ws, r, c, v, font=_BODY):
     cell = ws.cell(row=r, column=c, value=json_safe(v))
+    # Text stays text: openpyxl writes a string that begins with '=' as a
+    # formula, and a sample's name (or a name it is shown under) can.
+    if isinstance(cell.value, str) and cell.value.startswith('='):
+        cell.data_type = 's'
     cell.font = font
     return cell
 
@@ -398,6 +402,64 @@ def build_plot_workbook(detail: Dict[str, Any], plot: str) -> bytes:
 
     if not wb.sheetnames:
         wb.create_sheet('No Data')
+    return _finish(wb)
+
+
+def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) -> bytes:
+    """The Comparisons custom plot's curves: what the plot is, a row per curve,
+    and every curve's stored points.
+
+    `curves` are viewstore.custom_plot_curves rows, in the legend's order. A
+    curve is named as the legend showed it, its stored name beside it; one
+    with nothing to export is listed with the reason and has no block. Each
+    part of a curve (an FC Durability hold, say) is an x column and a y column
+    of its own, as the other data sheets lay out lines on their own x.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+    used = set()
+    xtitle = str(meta.get('xtitle') or 'x')
+    drawn = [c for c in curves if c.get('parts')]
+    rows = [('Plot', str(meta.get('title') or 'Custom plot')), ('x', xtitle)]
+    rows += [(str(a.get('side') or 'Axis'), str(a.get('text') or ''))
+             for a in (meta.get('axes') or []) if isinstance(a, dict)]
+    rows += [('Layout', str(meta.get('layout') or '')),
+             ('Curves', f'{len(curves)}, {len(drawn)} with points'),
+             ('Exported', str(meta.get('exported') or ''))]
+    _info_sheet(wb, 'Custom plot', rows,
+                note='Every stored point of each curve, read from the stored analysis '
+                     'data. Samples are named as the legend showed them; the Curves '
+                     'sheet gives each one\'s stored name.')
+
+    def label(i, c):
+        return ' · '.join(b for b in (f"{i}. {c.get('name') or c.get('stored') or c.get('key')}",
+                                      c.get('quantity'), c.get('series')) if b)
+
+    table = [[i, c.get('name'), c.get('stored'), c.get('quantity'), c.get('unit'),
+              c.get('axis'), c.get('series'), c.get('cond'),
+              sum(len(p) for p in c.get('parts') or []),
+              f"not exported: {c['reason']}" if c.get('reason') else None]
+             for i, c in enumerate(curves, start=1)]
+    _table_sheet(wb, 'Curves', ['Curve', 'Sample', 'Stored name', 'Quantity', 'Unit', 'Axis',
+                                'Series', 'Condition', 'Points', 'Note'], table, used)
+
+    blocks = []
+    for i, c in enumerate(curves, start=1):
+        if not c.get('parts'):
+            continue
+        ytitle = f"{c.get('quantity') or 'y'}" + (f" ({c['unit']})" if c.get('unit') else '')
+        cols, n = [], len(c['parts'])
+        # A curve in parts (an FC Durability hold each, say), in x order: each
+        # numbered in its y column's title.
+        for j, part in enumerate(c['parts'], start=1):
+            cols += [(xtitle, [p[0] for p in part]),
+                     (ytitle + (f', part {j} of {n}' if n > 1 else ''), [p[1] for p in part])]
+        blocks.append((label(i, c), cols))
+    if blocks:
+        _block_sheet(wb, 'Data', blocks, used)
+    else:
+        ws = wb.create_sheet(safe_sheet_name('Data', used))
+        _put(ws, 1, 1, 'No curve has stored points to export', _LBL)
     return _finish(wb)
 
 

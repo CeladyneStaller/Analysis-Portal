@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.helpers import jsonbin, viewstore  # noqa: E402
+from scripts.helpers import jsonbin, viewstore, xlsx_export  # noqa: E402
 from scripts.helpers.record import encode_sidecars  # noqa: E402
 
 _passed = 0
@@ -427,6 +427,237 @@ finally:
     for b, j in (('BIN-C', 'job-C'), ('BIN-D', 'job-D'), ('BIN-L', 'job-L')):
         BIN_TO_JOB.pop(b)
         DETAILS.pop(j)
+    reset()
+
+print("custom plot: points, labels and the workbook")
+# The Comparisons custom plot reads what other charts leave out: the points an
+# FC Durability plot marks values with (R_short on its own twin axis, a hold's
+# few OCV decay windows), and, to list what a sample stores, labels alone.
+XOVER = {'plot_type': 'fcdur_xover_vs_time', 'data': {'axes': [
+    {'xlabel': 'Hold hours (h)', 'ylabel': 'H₂ crossover (mA/cm²)', 'texts': [], 'axhlines': [],
+     'lines': [{'x': [0.0, 1.0, 2.0], 'y': [2.9, 3.0, 3.1], 'label': 'Crossover, 100% RH, window mean'},
+               {'x': [0.0, 1.0, 2.0], 'y': [2.7, None, 2.8], 'label': 'Crossover, 50% RH, window mean'}],
+     'scatters': [{'x': [0.0], 'y': [2.95], 'label': 'Crossover, 100% RH, earlier repeats'}]},
+    {'ylabel': 'R_short (Ω·cm²), ◆; DOE target ≥ 1,000 (dash-dot)', 'is_twin': True,
+     'scatters': [{'x': [1.0, 2.0], 'y': [9000.0, 4000.0], 'label': 'R_short'}]}]}}
+OCVD = {'plot_type': 'fcdur_ocv_vs_time', 'data': {'axes': [
+    {'ylabel': 'Hold OCV (V)', 'texts': [], 'axhlines': [],
+     'lines': [{'x': [0.5, 1.5], 'y': [0.95, 0.94], 'label': '100↔0% RH cycling'}],
+     'scatters': [{'x': [0.5, 1.5], 'y': [0.9, 0.9], 'label': 'bin low'},
+                  {'x': [0.5, 1.5], 'y': [0.99, 0.98], 'label': 'bin high'},
+                  {'x': [0.2, 1.9], 'y': [0.96, 0.93], 'label': 'settled start and end (30-min medians)'}]},
+    {'xlabel': 'Hold hours (h)', 'ylabel': 'OCV decay (μV/h)\n10 h windows',
+     'lines': [{'x': [0.5, 1.0, 1.5], 'y': [300.0, 320.0, 340.0], 'label': None}],
+     'scatters': [{'x': [2.5], 'y': [500.0], 'label': None}]}]}}
+POL = {'plot_type': 'polcurve', 'data': {'axes': [
+    {'xlabel': 'Current density (A/cm²)', 'ylabel': 'Voltage (V)', 'title': 'Polarization Curve',
+     'lines': [{'x': [0.0, 0.5, 1.0], 'y': [0.95, 0.75, 0.6], 'label': 'Cell voltage'},
+               {'x': [0.0, 0.5, 1.0], 'y': [0.95, 0.78, 0.66], 'label': 'iR-free voltage'}]},
+    {'ylabel': 'Power density (mW/cm²)', 'is_twin': True,
+     'lines': [{'x': [0.0, 0.5, 1.0], 'y': [0.0, 375.0, 600.0], 'label': 'Power density'}]}]}}
+# A short first hold, its decay windows few enough to be stored as points,
+# then a long one whose windows are a line: the points come first in x.
+OCVQ = {'plot_type': 'fcdur_ocv_vs_time', 'data': {'axes': [
+    {'ylabel': 'Hold OCV (V)', 'lines': [{'x': [0.5, 8.0], 'y': [0.95, 0.9], 'label': '30% RH'}]},
+    {'xlabel': 'Hold hours (h)', 'ylabel': 'OCV decay (μV/h)\n10 h windows',
+     'lines': [{'x': [5.0, 6.0, 7.0], 'y': [300.0, 320.0, 340.0], 'label': None}],
+     'scatters': [{'x': [2.5], 'y': [900.0], 'label': None}]}]}}
+_orig = INDEX['runs']
+INDEX['runs'] = _orig + [
+    {'job_id': 'job-X', 'sample_name': '261005_XO', 'script': 'FC Durability',
+     'timestamp': '2026-10-05T10:00:00Z', 'bin_id': 'BIN-X',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]},
+    {'job_id': 'job-S', 'sample_name': '261006_STEADY', 'script': 'FC Durability',
+     'timestamp': '2026-10-06T10:00:00Z', 'bin_id': 'BIN-S',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]},
+    {'job_id': 'job-P', 'sample_name': '261007_POL', 'script': 'FC Polarization Curve',
+     'timestamp': '2026-10-07T10:00:00Z', 'bin_id': 'BIN-P',
+     'Data': [{'Analysis': 'polcurve', 'step': 'b4', 'Conditions': {}}]},
+    {'job_id': 'job-Q', 'sample_name': '261008_ORDER', 'script': 'FC Durability',
+     'timestamp': '2026-10-08T10:00:00Z', 'bin_id': 'BIN-Q',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]}]
+for job, sample, bucket, plots in (
+        ('job-X', '261005_XO', 'fc_durability', {'xo': XOVER, 'ocv': OCVD, 'cyc': MAP}),
+        ('job-S', '261006_STEADY', 'fc_durability', {'xo': XOVER}),
+        ('job-P', '261007_POL', 'polcurve', {'b4': POL}),
+        ('job-Q', '261008_ORDER', 'fc_durability', {'ocv': OCVQ})):
+    BIN_TO_JOB['BIN-' + job[-1]] = job
+    DETAILS[job] = {
+        'schema': 2, 'job_id': job, 'sample_name': sample, 'script': 'S',
+        'metrics': {bucket: {f'{sample}-{k}': {
+            'conditions': {'step': 'b4' if bucket == 'polcurve' else ''}, 'values': {}}
+            for k in plots}},
+        'sidecars': encode_sidecars({f'{sample}-{k}': v for k, v in plots.items()})}
+reset()
+try:
+    FD = {'analysis': 'fc_durability', 'step': ''}
+    plain = viewstore.plot_series('BIN-X', plot_type='fcdur_xover_vs_time', **FD)
+    check('asked for as before, the R_short axis (points only) is left out, and no axis has points',
+          ([a['ylabel'] for a in plain['axes']], any('points' in a for a in plain['axes']),
+           [ln['label'] for ln in plain['axes'][0]['lines']]),
+          (['H₂ crossover (mA/cm²)'], False,
+           ['Crossover, 100% RH, window mean', 'Crossover, 50% RH, window mean']))
+    pts = viewstore.plot_series('BIN-X', plot_type='fcdur_xover_vs_time', points=True, **FD)
+    check('with points: each axis its points, and the R_short axis with only its points',
+          [(a['ylabel'][:7], [ln['label'] for ln in a['lines']],
+            [(p['label'], p['x'], p['y']) for p in a['points']]) for a in pts['axes']],
+          [('H₂ cros', ['Crossover, 100% RH, window mean', 'Crossover, 50% RH, window mean'],
+            [('Crossover, 100% RH, earlier repeats', [0.0], [2.95])]),
+           ('R_short', [], [('R_short', [1.0, 2.0], [9000.0, 4000.0])])])
+    ocv = viewstore.plot_series('BIN-X', plot_type='fcdur_ocv_vs_time', points=True, **FD)
+    check('... a band\'s edges stay lines, not points; unlabelled decay windows come as lines '
+          'and points with an empty label',
+          [([ln['label'] for ln in a['lines']], [p['label'] for p in a['points']]) for a in ocv['axes']],
+          [(['100↔0% RH cycling', 'bin low', 'bin high'], ['settled start and end (30-min medians)']),
+           ([''], [''])])
+    lab = viewstore.plot_series('BIN-X', plot_type='fcdur_xover_vs_time', points=True,
+                                labels=True, **FD)
+    check('labels alone: every line and point its label and stored count, no numbers',
+          [(a['lines'], a['points']) for a in lab['axes']],
+          [([{'label': 'Crossover, 100% RH, window mean', 'n': 3},
+             {'label': 'Crossover, 50% RH, window mean', 'n': 3}],
+            [{'label': 'Crossover, 100% RH, earlier repeats', 'n': 1}]),
+           ([], [{'label': 'R_short', 'n': 2}])])
+    batch = viewstore.plot_series_batch([dict(FD, key='BIN-X', plot_type='fcdur_xover_vs_time',
+                                              points=True, labels=True),
+                                         dict(FD, key='BIN-X', plot_type='fcdur_xover_vs_time',
+                                              points='yes')])
+    check('the batch passes points and labels on, only as true',
+          ([len(a['points']) for a in batch['series'][0]['axes']], 'n' in batch['series'][0]['axes'][0]['lines'][0],
+           len(batch['series'][1]['axes']), 'points' in batch['series'][1]['axes'][0]),
+          ([1, 1], True, 1, False))
+    long_pts = json.loads(json.dumps(XOVER))
+    long_pts['data']['axes'][1]['scatters'][0].update(x=list(range(1000)), y=[float(v) for v in range(1000)])
+    DETAILS['job-S']['sidecars'] = encode_sidecars({'261006_STEADY-xo': long_pts})
+    reset()
+    thin = viewstore.plot_series('BIN-S', plot_type='fcdur_xover_vs_time', points=True, **FD)['axes'][1]['points'][0]
+    whole = viewstore.plot_series('BIN-S', plot_type='fcdur_xover_vs_time', points=True, stored=True,
+                                  **FD)['axes'][1]['points'][0]
+    check('points thinned as lines are; read for an export, every stored point',
+          (thin.get('decimated'), len(thin['x']) <= viewstore.MAX_SERIES_POINTS + 2,
+           whole.get('decimated', False), len(whole['x'])), (True, True, False, 1000))
+    DETAILS['job-S']['sidecars'] = encode_sidecars({'261006_STEADY-xo': XOVER})
+    reset()
+
+    def curve(key, src, pick, **kw):
+        return dict({'key': key, 'name': kw.pop('name', 'shown'), 'stored': 'stored', 'quantity': 'q',
+                     'unit': 'u', 'axis': 'Left', 'series': 's', 'cond': 'c', 'src': src, 'pick': pick}, **kw)
+    XO = dict(FD, plot_type='fcdur_xover_vs_time', points=True)
+    OC = dict(FD, plot_type='fcdur_ocv_vs_time', points=True)
+    PO = {'analysis': 'polcurve', 'step': 'b4'}
+    got = viewstore.custom_plot_curves([
+        curve('BIN-X', XO, {'axis': 1, 'points': [0], 'points_labels': ['R_short']}),
+        curve('BIN-X', XO, {'axis': 0, 'lines': [1], 'lines_labels': ['Crossover, 50% RH, window mean']}),
+        curve('BIN-X', OC, {'axis': 1, 'lines': [0], 'lines_labels': [''], 'points': [0],
+                            'points_labels': ['']}),
+        curve('BIN-P', PO, {'axis': 0, 'lines': [0], 'lines_labels': ['Cell voltage'], 'power': True}),
+        curve('BIN-P', PO, {'axis': 0, 'lines': [1], 'lines_labels': ['Cell voltage']}),
+        curve('BIN-P', PO, {'axis': 5, 'lines': [0], 'lines_labels': ['Cell voltage']}),
+        curve('BIN-A', {'analysis': 'polcurve', 'step': 'zz'}, {'axis': 0, 'lines': [0]}),
+    ])
+    check('the workbook\'s curves: points and lines where the chart found them, a point without '
+          'both numbers left out, the decay windows as lines and points, a power curve j·V in mW/cm²',
+          [c['parts'] for c in got[:4]],
+          [[[[1.0, 9000.0], [2.0, 4000.0]]], [[[0.0, 2.7], [2.0, 2.8]]],
+           [[[0.5, 300.0], [1.0, 320.0], [1.5, 340.0]], [[2.5, 500.0]]],
+           [[[0.0, 0.0], [0.5, 0.75 * 0.5 * 1000.0], [1.0, 600.0]]]])
+    check('... one whose label has moved, or whose axis is gone, or whose plot is not stored, '
+          'has no points and says why',
+          [(c['parts'], c['reason']) for c in got[4:]],
+          [([], 'not found in its stored plot (stored again since?)'),
+           ([], 'not found in its stored plot (stored again since?)'),
+           ([], 'no stored plot data')])
+    check('... its descriptive fields as sent', (got[0]['key'], got[0]['name'], got[0]['stored'],
+                                                got[0]['axis']), ('BIN-X', 'shown', 'stored', 'Left'))
+    cyc = viewstore.custom_plot_curves([
+        curve('BIN-X', XO, {'axis': 0, 'lines': [0], 'lines_labels': ['Crossover, 100% RH, window mean']}),
+        curve('BIN-S', XO, {'axis': 0, 'lines': [0], 'lines_labels': ['Crossover, 100% RH, window mean']}),
+    ], 'cyc')
+    check('against RH cycles: hours read off the test\'s own map; a test without one says so',
+          [(c['parts'], c['reason']) for c in cyc],
+          [([[[0.0, 2.9], [50.0, 3.0], [100.0, 3.1]]], ''), ([], 'no RH cycles counted')])
+
+    from openpyxl import load_workbook
+    import io as _io
+    wbk = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'Hold time (h)', 'layout': 'overlaid', 'exported': '15 Oct 2026',
+         'axes': [{'side': 'Left axis', 'text': 'R_short (Ω·cm²)'}]}, got[:2] + got[4:5])))
+    check('workbook sheets', wbk.sheetnames, ['Custom plot', 'Curves', 'Data'])
+    rows_c = [[c.value for c in r] for r in wbk['Curves'].iter_rows()]
+    check('Curves: one row per curve as the legend named it, with its stored name; '
+          'one with no points says why',
+          [r[:3] + r[8:] for r in rows_c],
+          [['Curve', 'Sample', 'Stored name', 'Points', 'Note'], [1, 'shown', 'stored', 2, None],
+           [2, 'shown', 'stored', 2, None],
+           [3, 'shown', 'stored', 0, 'not exported: not found in its stored plot (stored again since?)']])
+    data = [[c.value for c in r] for r in wbk['Data'].iter_rows()]
+    check('Data: a block per curve with points, x and y columns with their titles',
+          data[:4], [['1. shown · q · s', None, None, '2. shown · q · s', None],
+                     ['Hold time (h)', 'q (u)', None, 'Hold time (h)', 'q (u)'],
+                     [1, 9000, None, 0, 2.7], [2, 4000, None, 2, 2.8]])
+    info = {r[0].value: r[1].value for r in wbk['Custom plot'].iter_rows() if r[0].value}
+    check('the plot described', (info.get('x'), info.get('Left axis'), info.get('Curves')),
+          ('Hold time (h)', 'R_short (Ω·cm²)', '3, 2 with points'))
+
+    # Parts in x order: a short hold's decay windows (points) before a long
+    # one's (a line), though a pick lists lines first.
+    OQ = dict(FD, plot_type='fcdur_ocv_vs_time', points=True)
+    order = viewstore.custom_plot_curves([curve('BIN-Q', OQ, {
+        'axis': 1, 'lines': [0], 'lines_labels': [''], 'points': [0], 'points_labels': ['']})])
+    check('a curve\'s parts in x order, whatever kind each is stored as',
+          order[0]['parts'], [[[2.5, 900.0]], [[5.0, 300.0], [6.0, 320.0], [7.0, 340.0]]])
+    wbq = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'Hold time (h)'}, [dict(order[0], name='=1+1', stored='=HYPERLINK("x")')])))
+    dq = [[c for c in r] for r in wbq['Data'].iter_rows()]
+    cq = [[c for c in r] for r in wbq['Curves'].iter_rows()]
+    check('... each part numbered in its y column\'s title, x beside y',
+          [c.value for c in dq[1]], ['Hold time (h)', 'q (u), part 1 of 2', 'Hold time (h)', 'q (u), part 2 of 2'])
+    check('names that begin with = are written as text, not formulas',
+          [(c.value, c.data_type) for c in cq[1][1:3]] + [(dq[0][0].value, dq[0][0].data_type)],
+          [('=1+1', 's'), ('=HYPERLINK("x")', 's'), ('1. =1+1 · q · s', 's')])
+
+    # Reads: a record read and decoded once per batch or export, a plot once
+    # per export, and a key that cannot be read failing once.
+    _decode, _series = viewstore.decode_sidecars, viewstore.plot_series
+    n_dec, n_ser = [], []
+    viewstore.decode_sidecars = lambda d: (n_dec.append(1), _decode(d))[1]
+    viewstore.plot_series = lambda *a, **k: (n_ser.append(1), _series(*a, **k))[1]
+    try:
+        reset()
+        b4 = viewstore.plot_series_batch([
+            dict(FD, key='BIN-X', plot_type='fcdur_xover_vs_time', points=True, labels=True),
+            dict(FD, key='BIN-X', plot_type='fcdur_ocv_vs_time', points=True, labels=True),
+            dict(FD, key='BIN-X', plot_type='fcdur_xover_vs_time', points=True),
+            dict(FD, key='BIN-S', plot_type='fcdur_xover_vs_time', points=True)])
+        check('a batch decodes each record once, however many of its plots it asks for',
+              (len(b4['series']), len(n_dec)), (4, 2))
+        reset()
+        bad = viewstore.plot_series_batch([dict(FD, key='NOPE', plot_type='fcdur_xover_vs_time'),
+                                           dict(FD, key='NOPE', plot_type='fcdur_ocv_vs_time')])
+        check('... and a key it cannot read fails once: the index read again once, both missing',
+              ([m['reason'][:8] for m in bad['missing']], sum(1 for _m, u in _calls if '/BIN-' not in u)),
+              (['KeyError', 'KeyError'], 2))
+        n_dec.clear()
+        n_ser.clear()
+        reset()
+        twice = viewstore.custom_plot_curves([
+            curve('BIN-X', XO, {'axis': 0, 'lines': [0], 'lines_labels': ['Crossover, 100% RH, window mean']}),
+            curve('BIN-X', XO, {'axis': 0, 'lines': [1], 'lines_labels': ['Crossover, 50% RH, window mean']}),
+            curve('BIN-X', XO, {'axis': 1, 'points': [0], 'points_labels': ['R_short']}),
+            curve('BIN-S', XO, {'axis': 0, 'lines': [0], 'lines_labels': ['Crossover, 100% RH, window mean']}),
+            curve('NOPE', XO, {'axis': 0, 'lines': [0], 'lines_labels': ['x']}),
+            curve('NOPE', XO, {'axis': 0, 'lines': [1], 'lines_labels': ['y']})], 'cyc')
+        check('an export reads each plot once and decodes each record once, its map included',
+              (len(n_ser), len(n_dec), [bool(c['parts']) for c in twice]),
+              (3, 2, [True, True, True, False, False, False]))
+        check('... a key it cannot read says so for each of its curves',
+              [c['reason'][:20] for c in twice[4:]], ['could not be read (K'] * 2)
+    finally:
+        viewstore.decode_sidecars, viewstore.plot_series = _decode, _series
+finally:
+    INDEX['runs'] = _orig
+    for b in ('BIN-X', 'BIN-S', 'BIN-P', 'BIN-Q'):
+        DETAILS.pop(BIN_TO_JOB.pop(b))
     reset()
 
 print(f"\n{_passed} passed, {_failed} failed")

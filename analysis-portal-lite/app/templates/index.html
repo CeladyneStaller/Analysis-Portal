@@ -714,6 +714,8 @@
     flex-direction: column; min-width: 0; }
   .cmp-sidehead { padding: 10px 13px; border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 8px; }
+  .cmp-sidehead .cmp-t, .cmp-sidehead #cmpCount { white-space: nowrap; }
+  .cmp-sidehead .cmp-hint { font-size: 11px; min-width: 0; }
   .cmp-sidehead .spacer, .cmp-pickhead .spacer { margin-left: auto; }
   .cmp-t { font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
     color: var(--text-dim); }
@@ -817,6 +819,10 @@
   .cmp-range:focus { outline: none; border-color: var(--accent); }
   .cmp-range.set { border-color: var(--accent-strong); color: var(--accent); }
   .cmp-range::placeholder { color: var(--text-dim); opacity: .55; }
+  /* A tick spacing; amber when it is too fine for the range and set aside. */
+  .cmp-range.cmp-step { width: 56px; }
+  .cmp-range.bad, .cmp-range.bad:focus { border-color: var(--amber); }
+  .cmp-rlab.dim { font-size: 10px; margin-left: 2px; opacity: .8; }
   #cmpChart { cursor: grab; }
   #cmpChart.panning { cursor: grabbing; }
 
@@ -919,7 +925,10 @@
   }
 
   .cmp-rename-target { cursor: text; border-bottom: 1px dashed transparent; }
-  .cmp-grp.stat:hover .cmp-rename-target { border-bottom-color: var(--border-hover); }
+  /* A button, so the keyboard reaches it, drawn as the name it is. */
+  button.cmp-rename-target { background: none; border: 0; border-bottom: 1px dashed transparent;
+    padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; }
+  .cmp-grp:hover .cmp-rename-target { border-bottom-color: var(--border-hover); }
   .cmp-rename {
     flex: 1; min-width: 0; background: var(--bg);
     border: 1px solid var(--accent); border-radius: var(--radius);
@@ -973,6 +982,9 @@
   .cmp-prow:hover { background: var(--accent-glow); }
   .cmp-pname { font-size: 12.5px; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; }
+  /* The name a sample is shown under on the chart, under its stored one. */
+  .cmp-pname .pa { display: block; font-size: 10.5px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; }
   .cmp-pstand { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
   .cmp-chiprow { display: flex; gap: 6px; flex-wrap: wrap; }
   /* Chips toggle, so the picker shows what is on the chart rather than being
@@ -991,6 +1003,125 @@
   .cmp-note .warn { color: var(--amber); }
   .cmp-empty { padding: 44px; text-align: center; color: var(--text-dim);
     font-size: 13px; }
+
+  /* ── Comparisons: the custom plot ──
+     Its own blocks show only while it is the type shown, and the other
+     types' picker filters only while it is not. */
+  #view-compare:not(.cp-on) .cp-only { display: none !important; }
+  #view-compare.cp-on .std-only { display: none !important; }
+  #view-compare.cp-on #cmpChart { cursor: crosshair; }
+  .cmp-tsep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+  .cp-axes { padding: 14px 18px 16px; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 14px; }
+  .cp-step { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .cp-step.top { align-items: flex-start; }
+  .cp-steplab { display: inline-flex; align-items: center; gap: 8px; min-width: 104px; }
+  .cp-step.top .cp-steplab { padding-top: 9px; }
+  .cp-num { width: 20px; height: 20px; border-radius: 99px; border: 1px solid var(--accent-strong);
+    color: var(--accent); font-family: var(--mono); font-size: 10.5px; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center; }
+  .cp-lab { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
+  .cp-xopts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .cp-xopt { text-align: left; min-width: 172px; border: 1px solid var(--border);
+    background: var(--bg); border-radius: var(--radius); padding: 7px 12px; cursor: pointer;
+    display: flex; flex-direction: column; gap: 1px; color: var(--text); font-family: var(--font); }
+  .cp-xopt:hover { border-color: var(--accent); }
+  .cp-xopt.on { border-color: var(--accent); background: var(--accent-glow); }
+  .cp-xopt .l { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+  .cp-xopt.on .l { color: var(--accent); }
+  .cp-xopt .u { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
+  .cp-xopt .d { font-size: 11px; color: var(--text-dim); }
+  .cp-yrow { flex: 999 1 900px; min-width: 0; display: flex; gap: 12px; flex-wrap: wrap;
+    align-items: stretch; }
+  .cp-zone { flex: 1 1 220px; max-width: 290px; min-width: 0; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg); padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .cp-zhead { display: flex; align-items: baseline; gap: 8px; }
+  .cp-ax { display: flex; flex-direction: column; gap: 6px; }
+  .cp-ax + .cp-ax { border-top: 1px solid var(--border); padding-top: 8px; }
+  .cp-axhead { display: flex; align-items: center; gap: 8px; }
+  .cp-unit { font-family: var(--mono); font-size: 10.5px; color: var(--accent);
+    background: var(--accent-glow); border: 1px solid var(--accent-strong); border-radius: 99px;
+    padding: 0 7px; white-space: nowrap; }
+  .cp-pos { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+  .cp-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; }
+  .cp-axhead .cp-seg { margin-left: auto; }
+  .cp-seg button { border: none; background: transparent; color: var(--text-dim);
+    font-family: var(--font); font-size: 11px; padding: 3px 8px; cursor: pointer; }
+  .cp-seg button + button { border-left: 1px solid var(--border); }
+  .cp-seg button.on { background: var(--accent-glow); color: var(--accent); }
+  .cp-lay { display: inline-flex; align-items: center; gap: 6px; }
+  .cp-lay .cp-seg button { font-size: 12px; padding: 4px 10px; }
+  .cp-axq { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-height: 24px; }
+  .cp-axq .n { flex: 1; min-width: 0; }
+  .cp-x { background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 2px 5px; }
+  .cp-x:hover { color: var(--accent); }
+  .cp-rgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 6px; }
+  .cp-rgrid .h { font-family: var(--mono); font-size: 9.5px; color: var(--text-dim); }
+  .cp-rgrid .cmp-range, .cp-rgrid .cmp-range.cmp-step { width: 100%; min-width: 0;
+    background: var(--surface); padding: 3px 6px; }
+  .cp-quants { flex: 999 1 560px; min-width: 0; border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; }
+  .cp-qhead { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--bg); flex-wrap: wrap; }
+  .cp-qgrp { display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+    border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .cp-qgrp .g { flex: 0 0 168px; font-size: 11.5px; color: var(--text-dim); }
+  .cp-qs { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 300px; min-width: 0; }
+  .cp-q { display: inline-flex; align-items: stretch; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg); overflow: hidden; min-height: 32px; }
+  .cp-q.on { border-color: var(--accent); background: var(--accent-glow); }
+  .cp-q .lr { width: 28px; border: none; background: transparent; color: var(--text-dim);
+    font-family: var(--mono); font-size: 11px; font-weight: 500; cursor: pointer; padding: 0; }
+  .cp-q .lr.l { border-right: 1px solid var(--border); }
+  .cp-q .lr.r { border-left: 1px solid var(--border); }
+  .cp-q .lr:hover:not(:disabled) { color: var(--accent); }
+  .cp-q .lr.on, .cp-q .lr.on:hover { background: var(--accent); color: var(--bg); }
+  .cp-q .lr:disabled { color: var(--border-hover); cursor: not-allowed; }
+  .cp-q .mid { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; }
+  .cp-q .nm { font-size: 12.5px; white-space: nowrap; }
+  .cp-q.none .nm { color: var(--text-dim); }
+  .cp-q .u { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+  .cp-q .c { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+  .cp-chartnote { display: none; flex-direction: column; gap: 4px; }
+  #view-compare.cp-on .cp-chartnote.show { display: flex; }
+  .cp-row .cp-qn { white-space: nowrap; }
+  .cp-tag { font-family: var(--mono); font-size: 9.5px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 99px; padding: 0 6px; white-space: nowrap; }
+  .cmp-prow.cp-prow { grid-template-columns: 238px 84px 1fr auto; }
+  .cp-pname { display: flex; flex-direction: column; min-width: 0; }
+  .cp-pname .n { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cp-pname .l { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .cp-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 3px 9px;
+    cursor: pointer; min-width: 74px; color: var(--text); text-align: left; font-family: var(--font); }
+  .cp-chip:hover { border-color: var(--accent); }
+  .cp-chip.on { border-color: var(--accent); background: var(--accent-glow); }
+  .cp-chip .t { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .cp-chip .q { font-size: 11.5px; line-height: 1.3; white-space: nowrap; }
+  .cp-chip.on .q { color: var(--accent); }
+  .cp-chip .s { font-size: 9.5px; line-height: 1.3; color: var(--text-dim); white-space: nowrap; }
+  .cp-chip.ghost { border-style: dashed; border-color: var(--border-hover); cursor: default; }
+  .cp-chip.ghost .q { color: var(--text-dim); }
+  .cmp-pre.cp-has button { border: none; border-left: 1px solid var(--border); height: 100%;
+    background: transparent; color: var(--text-dim); font-family: var(--font); font-size: 12px;
+    padding: 0 9px; cursor: pointer; }
+  .cmp-pre.cp-has button.on { background: var(--accent-glow); color: var(--accent); }
+  .cmp-pre.cp-has .post { border-left: 1px solid var(--border); padding: 0 9px 0 6px; }
+  .cmp-chartwrap svg .cp-mk { stroke-width: 1.5; }
+  .cmp-chartwrap svg .cp-glyph { stroke: var(--text); stroke-width: 1.3; }
+  .cmp-chartwrap svg .cp-hname { fill: var(--text); font-size: 11px; font-family: var(--font); }
+  .cmp-chartwrap svg .cp-hunit, .cmp-chartwrap svg .cp-spine { fill: var(--text-dim);
+    font-size: 10.5px; font-family: var(--mono); }
+  .cmp-chartwrap svg .cp-spine { font-size: 10px; }
+  .cmp-chartwrap svg .cp-empty { fill: var(--text-dim); font-size: 13px; font-family: var(--font); }
+  .cmp-chartwrap svg .cp-cross { stroke: var(--text-dim); stroke-width: 1; stroke-dasharray: 3 3; }
+  .cmp-readout .it { display: inline-flex; align-items: baseline; gap: 4px; }
+  .cmp-readout .it + .it { margin-left: 10px; }
+  .cmp-readout .k { color: var(--text-dim); font-size: 9.5px; }
 
   .pg-scroll { overflow-x: auto; padding-bottom: 2px; }
   .pgrid { display: grid; gap: 0 8px; margin: 0 0 14px; min-width: min-content; }
@@ -2839,17 +2970,20 @@
           <button class="view-refresh" id="cmpDelView" onclick="cmpDeleteView()"
                   title="Delete the selected saved view">Delete</button>
         </span>
-        <button class="view-refresh" id="cmpExport" onclick="exportComparison()"
+        <button class="view-refresh" id="cmpExport" onclick="exportComparison()" data-label="⭳ Export PNG + xlsx"
                 title="Save this chart as a PNG, and run the server-side comparison for its figure and workbook">
           ⭳ Export PNG + xlsx</button>
       </div>
 
       <div class="cmp-types" id="cmpTypes"></div>
+      <!-- The custom plot's x and y axes (cpAxesHtml) -->
+      <div class="cp-axes cp-only" id="cpAxes"></div>
 
       <div class="cmp-body">
         <div class="cmp-side">
           <div class="cmp-sidehead">
             <span class="cmp-t">Curves — legend</span>
+            <span class="cmp-hint">Click a sample’s name to rename it for the plots.</span>
             <span class="spacer"></span>
             <span class="cmp-hint" id="cmpCount"></span>
             <button class="btn btn-sm" onclick="cmpClear()">Clear</button>
@@ -2865,19 +2999,21 @@
               <div class="cmp-readout" id="cmpReadout"></div>
             </div>
           </div>
+          <div class="cmp-note cp-only cp-chartnote" id="cpChartNote"></div>
         </div>
       </div>
 
       <div class="cmp-picker">
         <div class="cmp-pickhead">
+          <span class="cp-num cp-only">3</span>
           <span class="cmp-t">Add curves</span>
           <span class="cmp-search"><span class="cmp-mag">⌕</span>
             <input id="cf-q" placeholder="Search samples…" oninput="cmpRenderPick()"></span>
           <span class="cmp-pre" id="cfw-stand"><span class="pre">Stand</span>
             <select id="cf-stand" onchange="CF.stand=this.value;cmpRenderPick()"></select></span>
-          <span class="cmp-pre" id="cfw-step"><span class="pre">Step</span>
+          <span class="cmp-pre std-only" id="cfw-step"><span class="pre">Step</span>
             <select id="cf-step" onchange="CF.step=this.value;cmpRenderPick()"></select></span>
-          <span class="vf-anchor">
+          <span class="vf-anchor std-only">
             <span class="cmp-pre vf-multi" id="cfw-cond" onclick="cmpToggleCondPop()">
               <span class="pre">Condition</span>
               <span class="vf-multi-val" id="cfCondVal">All</span>
@@ -2885,12 +3021,13 @@
             </span>
             <div class="vf-pop" id="cfCondPop"></div>
           </span>
-          <span class="cmp-pre" id="cfw-has"><span class="pre">Show</span>
+          <span class="cmp-pre std-only" id="cfw-has"><span class="pre">Show</span>
             <select id="cf-has" onchange="CF.has=this.value;cmpRenderPick()">
               <option value="">all samples</option>
               <option value="none">not yet added</option>
               <option value="some">already added</option>
             </select></span>
+          <span class="cp-only" id="cpPickCtl"></span>
           <span class="spacer"></span>
           <span class="cmp-hint" id="cmpPickHint"></span>
           <span id="cmpStatBtns"></span>
@@ -3185,6 +3322,7 @@ function viewForgetRuns(keys) {
   const theirs = id => keys.some(k => id.startsWith(k + '::'));
   [...CMP_SERIES.keys()].forEach(id => { if (theirs(id)) CMP_SERIES.delete(id); });
   keys.forEach(k => { CMP_CYC.delete(k); delete _detailCache[k]; });
+  [...CP_FAILED].forEach(id => { if (theirs(id)) CP_FAILED.delete(id); });
   Object.keys(_thumbUrls).forEach(id => {
     if (theirs(id)) { URL.revokeObjectURL(_thumbUrls[id]); delete _thumbUrls[id]; }
   });
@@ -6176,11 +6314,12 @@ async function cmpLoadCycles(want) {
     cmpRender();
   }
 }
-// Hours and cycles are different scales, so a window set on one is let go on
-// the other; y is the same quantity either way and keeps its range. The
-// control is rebuilt with the chart, so it takes the focus back.
+// Hours and cycles are different scales, so a window or a tick spacing set on
+// one is let go on the other; y is the same quantity either way and keeps its
+// range. The control is rebuilt with the chart, so it takes the focus back.
 function cmpSetX(v) {
   CMP_OPT.x_cyc = v === 'cycles';
+  CMP_STEPS = { ...CMP_STEPS, [CMP_TYPE]: { ...cmpStep(), x: null } };
   if (CMP_VIEW) {
     CMP_VIEW = { ...CMP_VIEW, x0: null, x1: null };
     if (!cmpHasView()) CMP_VIEW = null;
@@ -6226,6 +6365,121 @@ function cmpSeriesDash(name, vocab) {
   return CMP_DASH[(i < 0 ? 0 : i) % CMP_DASH.length];
 }
 
+// ── axis scales ─────────────────────────────────────────────────
+// One set of rules for the ticks of every Comparisons chart. A blank spacing
+// picks a round one for about n ticks; a blank bound snaps outward to a
+// multiple of the spacing; a typed bound is kept exactly, the ticks falling
+// on the spacing's multiples inside it. A spacing that would put more than
+// CMP_MAX_TICKS ticks across the range is set aside for one picked
+// automatically, and the scale says so (stepBad), so its box can. A log
+// axis (the custom plot's) takes its spacing in decades.
+const CMP_MAX_TICKS = 200;
+function cmpNiceStep(span, n) {
+  const raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  if (!(mag > 0) || !isFinite(mag)) return span > 0 && isFinite(span) ? span : 1;
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * mag >= raw * 0.999) return m * mag;
+  return 10 * mag;
+}
+// A typed number: commas are thousands separators, and the minus sign the
+// ticks are written with is read as one. null when nothing number-like.
+const cmpNum = s => {
+  const v = parseFloat(String(s == null ? '' : s).replace(/,/g, '').replace(/−/g, '-'));
+  return isFinite(v) ? v : null;
+};
+// The decimals a spacing has, to a part in a million of itself (so a step of
+// 1e-7, zoomed far in, has seven, not none).
+function cmpDecimals(step) {
+  let d = 0;
+  for (; d < 20; d++) {
+    const v = step * Math.pow(10, d);
+    if (Math.abs(Math.round(v) - v) <= 1e-6 * Math.abs(v)) break;
+  }
+  return d;
+}
+// A tick's label: as many decimals as the spacing has, thousands grouped.
+function cmpFmtTick(v, step, log) {
+  if (log) return v >= 1 ? Math.round(v).toLocaleString('en-US') : String(+v.toPrecision(3));
+  const d = cmpDecimals(step);
+  return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+    .replace(/^-/, '−');
+}
+// The spacing an axis is drawn at, as its box shows it.
+const cmpStepText = s => s.log ? s.step + ' dec' : String(+s.step.toPrecision(6));
+// An axis's range and ticks, from its data's extent [lo, hi] (null with none)
+// and what is typed: a minimum, a maximum and a spacing, each null when blank.
+// A minimum at or over the maximum leaves both to the data; one bound typed
+// past the data's far end has the other a span of the data beyond it, so the
+// axis still runs the right way (and shows that nothing is drawn there).
+function cmpScale(ext, uLo, uHi, uStep, log, n) {
+  if (uLo != null && uHi != null && !(uHi > uLo)) { uLo = null; uHi = null; }
+  if (log) {
+    if (uLo != null && !(uLo > 0)) uLo = null;
+    if (uHi != null && !(uHi > 0)) uHi = null;
+    const dLo = ext ? ext[0] : 1, dHi = ext ? ext[1] : 10;
+    let lo = uLo != null ? uLo : Math.pow(10, Math.floor(Math.log10(dLo) + 1e-9));
+    let hi = uHi != null ? uHi : Math.pow(10, Math.ceil(Math.log10(dHi) - 1e-9));
+    // A decade on from a typed bound the data lie beyond, or from data at one value.
+    if (!(hi > lo)) { if (uHi != null && uLo == null) lo = hi / 10; else hi = lo * 10; }
+    const L0 = Math.log10(lo), L1 = Math.log10(hi), ticks = [];
+    const dec = uStep != null && uStep >= 1 ? Math.round(uStep) : 0;
+    for (let k = Math.ceil(L0 - 1e-9); k <= Math.floor(L1 + 1e-9) && ticks.length <= CMP_MAX_TICKS;
+         k += dec || 1) ticks.push(Math.pow(10, k));
+    // Within a decade or two, the 2s and 5s as well.
+    if (!dec && ticks.length < 3) {
+      for (let k = Math.floor(L0) - 1; k <= Math.ceil(L1); k++) {
+        for (const m of [2, 5]) {
+          const v = m * Math.pow(10, k);
+          if (v >= lo * 0.999 && v <= hi * 1.001) ticks.push(v);
+        }
+      }
+      ticks.sort((p, q) => p - q);
+    }
+    return { lo, hi, log: true, step: dec || 1, stepBad: uStep != null && !dec, ticks };
+  }
+  // Values a part in a billion apart are one value: float noise, not a span
+  // a scale can be made of.
+  const flat = (a, b) => !(b - a > 1e-9 * Math.max(Math.abs(a), Math.abs(b)));
+  const eLo = ext ? ext[0] : 0, eHi = ext ? ext[1] : 1;
+  let dLo = uLo != null ? uLo : eLo, dHi = uHi != null ? uHi : eHi;
+  if (flat(dLo, dHi) && !(uLo != null && uHi != null)) {
+    const span = flat(eLo, eHi) ? Math.abs(eLo) * 0.1 || 2 : eHi - eLo;
+    if (uHi != null) dLo = uHi - span;
+    else if (uLo != null) dHi = uLo + span;
+    else { const d = Math.abs(dLo) * 0.05 || 1; dLo -= d; dHi += d; }
+  }
+  let step = cmpNiceStep(dHi - dLo, n), stepBad = false;
+  if (uStep != null) {
+    if (uStep > 0 && (dHi - dLo) / uStep <= CMP_MAX_TICKS) step = uStep;
+    else stepBad = true;
+  }
+  // A snapped value cleaned of float noise (0.825, not 0.8250000000000001),
+  // by no more than a millionth of the step.
+  const clean = v => { const r = +v.toPrecision(15); return Math.abs(r - v) <= step * 1e-6 ? r : v; };
+  // A blank bound snaps out to a multiple of the step (one a hair of rounding
+  // off a multiple stays on it).
+  let lo = uLo != null ? uLo : clean(Math.floor(dLo / step + 1e-9) * step);
+  let hi = uHi != null ? uHi : clean(Math.ceil(dHi / step - 1e-9) * step);
+  // A spacing many times the data's span can snap both ends to one multiple.
+  if (!(hi > lo)) { if (uHi == null) hi = lo + step; else lo = hi - step; }
+  const ticks = [];
+  for (let k = Math.ceil(lo / step - 1e-9); k <= Math.floor(hi / step + 1e-9)
+       && ticks.length <= CMP_MAX_TICKS; k++) ticks.push(clean(k * step));
+  return { lo, hi, log: false, step, stepBad, ticks };
+}
+// A scale placed on the page, a at its low end and b at its high one: px
+// takes a value to pixels and inv a pixel back.
+function cmpPlace(s, a, b) {
+  if (s.log) {
+    const L0 = Math.log10(s.lo), L1 = Math.log10(s.hi);
+    s.px = v => a + (Math.log10(v) - L0) / (L1 - L0) * (b - a);
+    s.inv = p => Math.pow(10, L0 + (p - a) / (b - a) * (L1 - L0));
+  } else {
+    s.px = v => a + (v - s.lo) / (s.hi - s.lo) * (b - a);
+    s.inv = p => s.lo + (p - a) / (b - a) * (s.hi - s.lo);
+  }
+  return s;
+}
+
 // ── chart ───────────────────────────────────────────────────────
 function cmpChart(series, cfg) {
   // The plot is redrawn at whatever size the container has rather than being
@@ -6252,65 +6506,62 @@ function cmpChart(series, cfg) {
   // their bands are tens of thousands of values, past what a call takes.
   const most = a => a.reduce((m, v) => (v > m ? v : m), -Infinity);
   const least = a => a.reduce((m, v) => (v < m ? v : m), Infinity);
-  let x0 = 0, x1 = most(xs) * 1.04;
-  let y0 = least(ys), y1 = most(ys);
-  const pad = (y1 - y0) * 0.08 || 0.05; y0 -= pad; y1 += pad;
-  if (cfg.zeroY) y0 = 0;
+  // The fitted range runs from 0 in x, and over the data in y, each snapped
+  // outward to its ticks (cmpScale). Nyquist wants equal units per pixel: a
+  // depressed semicircle is a real feature of the impedance, and stretching
+  // an axis to fill a fixed box invents or hides it, so its x is fitted to
+  // the data, its y from 0, and the box is sized to them below.
+  const xExt = [cfg.equal ? least(xs) : Math.min(0, least(xs)), most(xs)];
+  const yExt = [cfg.equal ? Math.min(0, least(ys)) : cfg.zeroY ? 0 : least(ys), most(ys)];
   // An explicit window — set by the wheel, by dragging, or by typing a range —
   // replaces the fitted one. Each bound is separate, so a single typed maximum
-  // holds while the other three still follow the data.
-  const V = CMP_VIEW;
-  const fixedX = V && (V.x0 != null || V.x1 != null);
-  const fixedY = V && (V.y0 != null || V.y1 != null);
-  if (V) {
-    if (V.x0 != null) x0 = V.x0;
-    if (V.x1 != null) x1 = V.x1;
-    if (V.y0 != null) y0 = V.y0;
-    if (V.y1 != null) y1 = V.y1;
-  }
+  // holds while the other three still follow the data. A typed tick spacing
+  // holds whatever the window.
+  const V = CMP_VIEW || {};
+  const xsc = cmpScale(xExt, V.x0, V.x1, cmpStep().x, false, 6);
+  const ysc = cmpScale(yExt, V.y0, V.y1, cmpStep().y, false, 5);
   // On RH cycles, a hold before the cycling starts sits at 0 whole (an FCTS
   // folder's first, 30% RH hold): unless a minimum is set, the axis
   // starts before 0 by 3% of its right end as shown, its ticks from 0, so
   // that hold is not drawn on the axis line. A chart whose points are all at
   // 0 is a cycle wide.
-  const cycPad = cmpCycAxis() && !(V && V.x0 != null);
-  if (cycPad) {
-    if (!(x1 > 0) && !(V && V.x1 != null)) x1 = 1;
-    x0 = -x1 * 0.03;
+  const cycPad = cmpCycAxis() && V.x0 == null;
+  if (cycPad && !(xsc.hi > 0) && V.x1 == null) xsc.hi = 1;
+  // A maximum typed at or under 0 has no room for it: the axis is as cmpScale
+  // drew it, the right way round.
+  if (cycPad && xsc.hi > 0) {
+    xsc.lo = -xsc.hi * 0.03;
+    xsc.ticks = xsc.ticks.filter(v => v >= 0 && v <= xsc.hi);
   }
-  if (cfg.equal && (fixedX || fixedY)) {
-    // Equal units per pixel still holds under an explicit window: keep the
-    // requested range and size the box to it, rather than overriding what was
-    // asked for. Capped by the height the user has chosen.
-    ih = Math.max(150, Math.min(CMP_SIZE.h - T - B, iw * (y1 - y0) / (x1 - x0 || 1)));
-    H = ih + T + B;
-  } else if (cfg.equal) {
-    // Nyquist wants equal units per pixel: a depressed semicircle is a real
-    // feature of the impedance, and stretching an axis to fill a fixed box
-    // invents or hides it. Size the box to the data instead of padding the
-    // axis, which otherwise leaves a band of empty plot below zero.
-    x0 = Math.min(...xs); x1 = Math.max(...xs);
-    const px = (x1 - x0) * 0.05 || 0.01; x0 -= px; x1 += px;
-    y0 = Math.min(0, Math.min(...ys)); y1 = Math.max(...ys) * 1.10;
-    ih = Math.max(150, Math.min(CMP_SIZE.h - T - B, iw * (y1 - y0) / (x1 - x0)));
+  if (cfg.equal) {
+    // Under an explicit window too: the requested range is kept and the box
+    // sized to it, rather than overriding what was asked for. Capped by the
+    // height the user has chosen.
+    ih = Math.max(150, Math.min(CMP_SIZE.h - T - B, iw * (ysc.hi - ysc.lo) / (xsc.hi - xsc.lo || 1)));
     H = ih + T + B;
   }
-  const sx = v => L + ((v - x0) / (x1 - x0)) * iw;
-  const sy = v => T + ih - ((v - y0) / (y1 - y0)) * ih;
+  cmpPlace(xsc, L, L + iw);
+  cmpPlace(ysc, T + ih, T);
+  const x0 = xsc.lo, x1 = xsc.hi, y0 = ysc.lo, y1 = ysc.hi;
+  const sx = xsc.px, sy = ysc.px;
   // Kept so the wheel and drag handlers can invert the transform — they need
-  // to know what data coordinate the pointer is over.
-  CMP_SCALE = { L, T, iw, ih, W, H, x0, x1, y0, y1,
+  // to know what data coordinate the pointer is over — and so the step boxes
+  // can show the spacing drawn.
+  // (And the data's reach, its span or else its size, which the wheel's zoom
+  // stops a billionth short of.)
+  const reach = e => (e[1] - e[0]) || Math.abs(e[1]) || 1;
+  CMP_SCALE = { L, T, iw, ih, W, H, x0, x1, y0, y1, xs: xsc, ys: ysc,
+                xreach: reach(xExt), yreach: reach(yExt),
                 xunit: cmpUnitOf(cfg.x), yunit: cmpUnitOf(cfg.y) };
-  const tk = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + (b - a) / n * i);
-  const fm = v => Math.abs(v) >= 100 ? v.toFixed(0)
-                : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3);
   let g = '';
-  tk(y0, y1, 5).forEach(v => { g +=
+  ysc.ticks.forEach(v => { g +=
     `<line class="grid" x1="${L}" y1="${sy(v).toFixed(1)}" x2="${L + iw}" y2="${sy(v).toFixed(1)}"/>` +
-    `<text class="tick" x="${L - 8}" y="${(sy(v) + 3.5).toFixed(1)}" text-anchor="end">${fm(v)}</text>`; });
-  tk(cycPad ? 0 : x0, x1, 6).forEach(v => { g +=
+    `<text class="tick" x="${L - 8}" y="${(sy(v) + 3.5).toFixed(1)}" text-anchor="end">${
+      cmpFmtTick(v, ysc.step)}</text>`; });
+  xsc.ticks.forEach(v => { g +=
     `<line class="grid" x1="${sx(v).toFixed(1)}" y1="${T}" x2="${sx(v).toFixed(1)}" y2="${T + ih}"/>` +
-    `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${fm(v)}</text>`; });
+    `<text class="tick" x="${sx(v).toFixed(1)}" y="${T + ih + 16}" text-anchor="middle">${
+      cmpFmtTick(v, xsc.step)}</text>`; });
   g += `<line class="axis" x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"/>` +
        `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${T + ih}"/>`;
   // Zooming in puts most of every curve outside the axes, so the drawing is
@@ -6329,6 +6580,7 @@ function cmpChart(series, cfg) {
     g += `<path class="band hl" d="${up} ${dn} Z" fill="${s.color}">`
        + `<title>${escapeHtml(s.title)} · high–low of each bin</title></path>`;
   });
+  let dots = '';
   series.forEach(s => {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
     g += `<path class="ln${s.faint ? ' faint' : ''}" d="${d}" stroke="${s.color}"` +
@@ -6336,7 +6588,7 @@ function cmpChart(series, cfg) {
     // A path of one point draws nothing, so a curve measured once — a
     // durability series with only its start-of-life point — gets a marker.
     if (s.dots || s.pts.length === 1) {
-      s.pts.forEach(p => { g += `<circle class="dot" cx="${sx(p[0]).toFixed(1)}"`
+      s.pts.forEach(p => { dots += `<circle class="dot" cx="${sx(p[0]).toFixed(1)}"`
         + ` cy="${sy(p[1]).toFixed(1)}" r="2.8" fill="${s.color}"><title>${escapeHtml(s.title)}</title></circle>`; });
     }
   });
@@ -6427,6 +6679,13 @@ function cmpChart(series, cfg) {
        + `<title>${escapeHtml(st.name)}</title></path>`;
   });
   g += '</g>';
+  // Markers over the lines, cut a marker's width outside the plot box: one
+  // on its edge (x from 0, or a range snapped to the data's last tick) is
+  // drawn whole.
+  if (dots) {
+    g += `<defs><clipPath id="cmpClipDots"><rect x="${L - 4}" y="${T - 4}" width="${iw + 8}"
+          height="${ih + 8}"/></clipPath></defs><g clip-path="url(#cmpClipDots)">${dots}</g>`;
+  }
   g += `<text class="alab" x="${L + iw / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(cfg.x)}</text>` +
        `<text class="alab" transform="translate(15,${T + ih / 2}) rotate(-90)" text-anchor="middle">${escapeHtml(cfg.y)}</text>`;
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
@@ -6450,10 +6709,14 @@ function cmpFmtAt(v, span) {
 }
 
 function cmpShowReadout(ev) {
+  if (CMP_TYPE === CP_TYPE) { cpShowReadout(ev); return; }
   const el = document.getElementById('cmpReadout');
   if (!el) return;
   const at = CMP_SCALE ? cmpPointToData(ev) : null;
   if (!at || !at.inside) { el.classList.remove('show'); return; }
+  // The custom plot places it over its own plot; here it sits where the
+  // sheet does.
+  el.style.top = ''; el.style.right = '';
   const { x0, x1, y0, y1, xunit, yunit } = CMP_SCALE;
   el.innerHTML =
     `<span class="v">${cmpFmtAt(at.x, x1 - x0)}</span>`
@@ -6466,6 +6729,7 @@ function cmpShowReadout(ev) {
 function cmpHideReadout() {
   const el = document.getElementById('cmpReadout');
   if (el) el.classList.remove('show');
+  cpHideReadout();
 }
 
 const cmpDashSvg = (color, d, w) =>
@@ -6474,7 +6738,45 @@ const cmpDashSvg = (color, d, w) =>
   `${d ? ` stroke-dasharray="${d}"` : ''}/></svg>`;
 
 // ── render ──────────────────────────────────────────────────────
+// The chart types, the custom plot set apart after them, and what the chart
+// shown encodes.
+function cmpRenderTypes() {
+  const custom = CMP_TYPE === CP_TYPE;
+  document.getElementById('cmpTypes').innerHTML =
+    Object.entries(CMP_TYPES).map(([k, v]) =>
+      `<button class="cmp-type${k === CMP_TYPE ? ' on' : ''}"
+        onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
+    + `<span class="cmp-tsep" aria-hidden="true"></span><button class="cmp-type${custom ? ' on' : ''}"
+        aria-pressed="${custom}" onclick="cmpSetType('${CP_TYPE}')">Custom plot</button>`
+    + `<span class="cmp-hint">${custom
+      ? 'Colour is the sample; the marker is the quantity, filled on the left and hollow on the right; dash is the series.'
+      : `Colour is the sample, dash is the ${cmpWholeType(CMP_TYPE) ? 'series' : 'step'}.`}</span>`;
+}
+
+// While the page is being drawn. Replacing a field that has the focus blurs
+// it, in the middle of the drawing: a name field's blur is then no one
+// leaving it, and keeps nothing (cmpNameHtml), the field being drawn again as
+// typed; and a range box changed by that blur draws the page again only once
+// this drawing is done, as does anything else asking meanwhile, rather than
+// replacing the page from inside its own replacement.
+let CMP_DRAWING = 0, CMP_AGAIN = false;
+let CMP_AFTER = null;   // a redraw waiting for a press to be over (cmpRenderAfterPress)
+let CMP_EXPORTING = false;   // a chart type's export under way (exportComparison)
 function cmpRender() {
+  if (CMP_DRAWING) { CMP_AGAIN = true; return; }
+  // A redraw waiting for a press to be over is this one.
+  if (CMP_AFTER) cmpAfterDrop();
+  CMP_DRAWING += 1;
+  try { cmpRenderNow(); } finally { CMP_DRAWING -= 1; }
+  if (CMP_AGAIN) { CMP_AGAIN = false; cmpRender(); }
+}
+function cmpRenderNow() {
+  // The custom plot draws the page its own way (cpRender).
+  const custom = CMP_TYPE === CP_TYPE;
+  document.getElementById('view-compare').classList.toggle('cp-on', custom);
+  cmpRenderTypes();
+  if (custom) { cpRender(); return; }
+  cpUnfit();
   const t = CMP_TYPES[CMP_TYPE];
   // A curve taken off the chart forgets its band: put back, it starts unshaded.
   CMP_BAND.forEach(id => {
@@ -6487,17 +6789,27 @@ function cmpRender() {
   // A saved view can open one with statistics picking still on, whose buttons
   // these types do not show.
   if (whole && CMP_PICKING) { CMP_PICKING = false; CMP_PICKED = new Set(); }
-  document.getElementById('cmpTypes').innerHTML =
-    Object.entries(CMP_TYPES).map(([k, v]) =>
-      `<button class="cmp-type${k === CMP_TYPE ? ' on' : ''}"
-        onclick="cmpSetType('${k}')">${escapeHtml(v.label)}</button>`).join('')
-    + `<span class="cmp-hint">Colour is the sample, dash is the ${whole ? 'series' : 'step'}.</span>`;
 
+  // A bound or spacing left blank shows, greyed, what the chart drew; so the
+  // boxes are filled in once it has been (drawOpts).
+  const AXW = { x0: 'x minimum', x1: 'x maximum', y0: 'y minimum', y1: 'y maximum' };
   const box = (k, ph) => {
     const v = CMP_VIEW && CMP_VIEW[k] != null ? String(+(CMP_VIEW[k].toPrecision(4))) : '';
+    const drawn = CMP_SCALE && isFinite(CMP_SCALE[k]) ? String(+(CMP_SCALE[k].toPrecision(4))) : '';
     return `<input class="cmp-range${v ? ' set' : ''}" type="text" value="${escapeAttr(v)}"
-      placeholder="${ph}" title="Blank follows the data"
+      placeholder="${escapeAttr(drawn || ph)}" title="Blank follows the data" aria-label="${AXW[k]}"
       onchange="cmpSetBound('${k}', this.value)">`;
+  };
+  const stepBox = k => {
+    const v = cmpStep()[k] != null ? String(cmpStep()[k]) : '';
+    const s = CMP_SCALE && CMP_SCALE[k + 's'], unit = CMP_SCALE && CMP_SCALE[k + 'unit'];
+    const bad = !!(s && s.stepBad);
+    return `<input class="cmp-range cmp-step${v ? ' set' : ''}${bad ? ' bad' : ''}" type="text"
+      value="${escapeAttr(v)}" placeholder="${escapeAttr(s ? cmpStepText(s) : 'auto')}"
+      aria-label="${k} tick spacing" title="${bad
+        ? 'Too fine for this range: the spacing is picked automatically'
+        : `Tick spacing${unit ? ', in ' + escapeAttr(unit) : ''}. Blank picks one.`}"
+      onchange="cmpSetStep('${k}', this.value)">`;
   };
   const sm = CMP_SMOOTHED = cmpSmoothing();
   const bin = sm.w;
@@ -6506,7 +6818,7 @@ function cmpRender() {
   // it is loading them, and fetched now, so nothing thrown while drawing can
   // leave them marked and never fetched.
   cmpLoadCycles(cmpCycAsk());
-  document.getElementById('cmpOpts').innerHTML =
+  const drawOpts = () => { document.getElementById('cmpOpts').innerHTML =
     (whole
       ? `<label title="Hold hours, or the RH cycles completed by then, for a test that cycles RH">x
            <select id="cmpX" onchange="cmpSetX(this.value)">
@@ -6530,13 +6842,16 @@ function cmpRender() {
       : '')
     + `<span class="cmp-ranges">
          <span class="cmp-rlab">x</span>${box('x0', 'min')}${box('x1', 'max')}
+         <span class="cmp-rlab dim">step</span>${stepBox('x')}
          <span class="cmp-rlab">y</span>${box('y0', 'min')}${box('y1', 'max')}
+         <span class="cmp-rlab dim">step</span>${stepBox('y')}
          <button class="btn btn-sm" onclick="cmpResetView()"
-                 ${cmpHasView() ? '' : 'disabled'}>Reset</button>
+                 title="Clear the ranges and tick steps"
+                 ${cmpHasView() || cmpHasStep() ? '' : 'disabled'}>Reset</button>
        </span>`
     + (cmpHasView()
         ? '<span class="cmp-hint">Zoomed — scroll to zoom, drag to pan.</span>'
-        : '<span class="cmp-hint">Scroll over the plot to zoom, drag to pan.</span>');
+        : '<span class="cmp-hint">Scroll over the plot to zoom, drag to pan.</span>'); };
 
   const sel = cmpSelected();
   document.getElementById('cmpCount').textContent =
@@ -6552,13 +6867,15 @@ function cmpRender() {
     const kv = data ? data.kv : {};
     // Fall back to the stored ids so the member list and the count still read
     // correctly before the series arrive.
+    // A sample shown under another name is listed by it.
     const names = data
-      ? data.rows.map(r => String(r.name).split('_').slice(1).join('_') + ' · ' + r.step)
+      ? data.rows.map(r => (cmpAliasOf(r.key) || String(r.name).split('_').slice(1).join('_'))
+                           + ' · ' + r.step)
       : (st.ids || []).map(id => {
           const [key, step] = id.split('::');
           const run = cmpRunFor(key);
           const nm = run ? String(run.sample_name || key) : key;
-          return nm.split('_').slice(1).join('_') + ' · ' + step;
+          return (cmpAliasOf(key) || nm.split('_').slice(1).join('_')) + ' · ' + step;
         });
     const count = data ? data.avg.n : (st.ids || []).length;
     return `<div class="cmp-grp stat${st.visible ? '' : ' off'}"
@@ -6572,11 +6889,13 @@ function cmpRender() {
         <span class="cmp-handle" title="Drag to reorder — order sets the colour">⠿</span>
         <span class="cmp-sw" style="background:${cmpStatColor(i)}"></span>
         ${CMP_STAT_EDIT === i
-          ? `<input class="cmp-rename" value="${escapeAttr(st.name)}" autofocus
-               onblur="cmpStatRenameCommit(${i}, this.value)"
+          ? `<input class="cmp-rename" value="${escapeAttr(CMP_STAT_DRAFT)}" autofocus
+               oninput="CMP_STAT_DRAFT=this.value;cmpCaret(this)" onkeyup="cmpCaret(this)"
+               onmouseup="cmpCaret(this)" onselect="cmpCaret(this)"
+               onblur="if (!CMP_DRAWING) cmpStatRenameCommit(${i}, this.value)"
                onkeydown="cmpStatRenameKey(event,${i})">`
-          : `<span class="nm cmp-rename-target" title="Click to rename"
-               onclick="cmpStatRename(${i})">${escapeHtml(st.name)}</span>`}
+          : `<button type="button" class="nm cmp-rename-target" data-stat="${i}" title="Click to rename"
+               onclick="cmpStatRename(${i})">${escapeHtml(st.name)}</button>`}
         <span class="cmp-badge">${data ? `mean of ${count}`
           : (raw && raw.error ? 'cannot average'
              : CMP_LOADING ? 'loading…' : `mean of ${count} — no plot data`)}</span>
@@ -6640,7 +6959,8 @@ function cmpRender() {
     const color = cmpColorOf(k);
     const mine = cmpUnitsFor(run, CMP_TYPE).filter(u => CMP_SEL.get(k).has(u.step));
     if (!mine.length) return '';
-    return `<div class="cmp-grp" draggable="true" data-cmpkey="${escapeAttr(k)}"
+    return `<div class="cmp-grp" draggable="${CMP_NAME_EDIT === k ? 'false' : 'true'}"
+        data-cmpkey="${escapeAttr(k)}"
         ondragstart="cmpDragStart(event,'${escapeAttr(k)}')"
         ondragover="cmpDragOver(event,'${escapeAttr(k)}')"
         ondragleave="cmpDragLeave(event)"
@@ -6649,7 +6969,7 @@ function cmpRender() {
       <div class="cmp-grphead">
         <span class="cmp-handle" title="Drag to reorder — order sets the colour">⠿</span>
         <span class="cmp-sw" style="background:${color}"></span>
-        <span class="nm" title="${escapeAttr(run.sample_name || '')}">${escapeHtml(run.sample_name || '—')}</span>
+        ${cmpNameHtml(k, run.sample_name)}
         <span class="cnt">${mine.length}</span>
         <span class="cmp-act" title="Remove sample"
               onclick="cmpDropSample('${escapeAttr(k)}')">×</span>
@@ -6710,7 +7030,7 @@ function cmpRender() {
       const why = cmpUndrawn(u.key, sr);
       if (why) {
         if (!undrawn.has(why)) undrawn.set(why, []);
-        undrawn.get(why).push(sr.sample_name || u.key);
+        undrawn.get(why).push(cmpNameOf(u.key, sr.sample_name));
         return;
       }
       const groups = cmpPickSeries(sr);
@@ -6728,7 +7048,7 @@ function cmpRender() {
         pts, color: cmpColorOf(u.key), dash: cmpSeriesDash(s.name, vocab), dots: !!t.dots,
         band: bands && bands[gi][j],
         id: cmpCurveId(u.key, u.step) + '::' + s.name + '::' + j,
-        title: `${sr.sample_name || ''} · ${s.name}` })));
+        title: `${cmpNameOf(u.key, sr.sample_name)} · ${s.name}` })));
       return;
     }
     const line = cmpPickLine(sr);
@@ -6736,7 +7056,7 @@ function cmpRender() {
     xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
     series.push({ pts: line.pts, color: cmpColorOf(u.key), dash: cmpDashOf(u.step),
                   id: cmpCurveId(u.key, u.step),
-                  title: `${sr.sample_name || ''} · ${u.step}` });
+                  title: `${cmpNameOf(u.key, sr.sample_name)} · ${u.step}` });
   });
   // Statistical curves for this analysis type, and the curves they are made
   // of. A contributing curve is drawn as a hairline so the mean reads as the
@@ -6755,7 +7075,7 @@ function cmpRender() {
     if (!line || !line.pts.length) return;
     xlab = xlab || line.xlabel; ylab = ylab || line.ylabel;   // only if the type declares none
     series.push({ pts: line.pts, color: '#8a97a8', dash: '', faint: true,
-                  id, title: `${(sr && sr.sample_name) || key} · ${step}` });
+                  id, title: `${cmpNameOf(key, sr && sr.sample_name)} · ${step}` });
   });
   series.forEach(sx => { if (memberIds.has(sx.id)) sx.faint = true; });
 
@@ -6765,6 +7085,7 @@ function cmpRender() {
       zeroY: CMP_TYPE === 'polcurve' && CMP_OPT.power,
       stats: stats.map(x => ({ ...x.st, data: x.data,
                               color: cmpStatColor(x.i) })) });
+  drawOpts();
 
   if (CMP_PICKING) {
     document.getElementById('cmpNote').innerHTML =
@@ -6785,12 +7106,10 @@ function cmpRender() {
            saves; its server-side comparison and workbook use the stored points.`
         : 'Export renders the same comparison server-side, with its readouts and workbook.'));
 
+  // Off while an export is still saving, this type's or the custom plot's.
   document.getElementById('cmpExport').disabled =
-    series.length < 2 && !stats.length;
-  if (CMP_STAT_EDIT !== null) {
-    const f = document.querySelector('.cmp-rename');
-    if (f) { f.focus(); f.select(); }
-  }
+    (series.length < 2 && !stats.length) || CP_EXPORTING || CMP_EXPORTING;
+  cmpFocusRename();
   cmpWireChart();
   cmpObserveSize();
   cmpRenderPick();
@@ -6952,13 +7271,22 @@ function cmpClearFilters() {
   cmpSyncCondPop();
 }
 
-function cmpRenderPick() {
+// The stand filter's choices, from the stands in the index: shared by every
+// type's Add curves list.
+function cmpFillStands() {
   const stands = [...new Set((_viewRuns || []).map(r => r.stand).filter(Boolean))].sort();
   const fams = [...new Set(stands.map(v => String(v).split(' ')[0]))].map(f => 'All ' + f);
   const ss = document.getElementById('cf-stand');
   if (ss) ss.innerHTML = '<option value="">All</option>' +
     [...fams, ...stands].map(v =>
       `<option ${CF.stand === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const w = document.getElementById('cfw-stand');
+  if (w) w.classList.toggle('set', !!CF.stand);
+}
+
+function cmpRenderPick() {
+  if (CMP_TYPE === CP_TYPE) { cpRenderPick(); return; }
+  cmpFillStands();
   const stepSel = document.getElementById('cf-step');
   if (stepSel) stepSel.innerHTML = '<option value="">All</option>' +
     cmpStepVocab().map(v =>
@@ -7039,7 +7367,8 @@ function cmpRenderPick() {
           ? '26px 230px 96px 1fr' : '250px 96px 1fr auto'}">
       ${CMP_PICKING ? `<span class="cmp-ptick"><input type="checkbox"
          ${rowPicked ? 'checked' : ''} onchange="cmpTickRow('${escapeAttr(k)}')"></span>` : ''}
-      <span class="cmp-pname" title="${escapeAttr(r.sample_name || '')}">${escapeHtml(r.sample_name || '—')}</span>
+      <span class="cmp-pname" title="${escapeAttr(r.sample_name || '')}">${escapeHtml(r.sample_name || '—')}${
+        cmpAliasOf(k) ? `<span class="pa">plotted as “${escapeHtml(cmpAliasOf(k))}”</span>` : ''}</span>
       <span class="cmp-pstand">${escapeHtml(r.stand || '—')}</span>
       <span class="cmp-chiprow">${units.map(u => {
         const on = CMP_PICKING ? CMP_PICKED.has(cmpCurveId(k, u.step)) : have.has(u.step);
@@ -7057,8 +7386,13 @@ function cmpRenderPick() {
 
 // ── actions ─────────────────────────────────────────────────────
 function cmpSetType(k) {
+  if (k !== CP_TYPE && !CMP_TYPES[k]) return;
   CMP_TYPE = k; CF.step = '';
-  if (cmpWholeType(k)) { CMP_PICKING = false; CMP_PICKED = new Set(); }
+  CMP_NAME_EDIT = null;
+  if (cmpWholeType(k) || k === CP_TYPE) { CMP_PICKING = false; CMP_PICKED = new Set(); }
+  // What could not be read is asked for again on coming back to the plot.
+  if (k === CP_TYPE) CP_FAILED.clear();
+  cmpHideReadout();
   cmpRender();
 }
 function cmpToggleStep(k, st) {
@@ -7101,6 +7435,8 @@ function cmpDropStep(k, st) {
 }
 function cmpDropSample(k) { CMP_SEL.delete(k); cmpRender(); }
 function cmpClear() {
+  // The custom plot clears the curves its chart shows.
+  if (CMP_TYPE === CP_TYPE) { cpClear(); return; }
   CMP_SEL = new Map(); CMP_HIDDEN = new Set(); CMP_BAND = new Set(); CMP_STATS = [];
   cmpRender();
 }
@@ -7141,16 +7477,35 @@ function cmpObserveSize() {
   if (!box || CMP_RO) return;
   CMP_RO = new ResizeObserver(entries => {
     const r = entries[0].contentRect;
+    // Hidden (another tab shown), the box has no size of its own to keep.
+    if (!r.width && !r.height) return;
     const w = Math.max(CMP_MIN_W, Math.round(r.width));
     const h = Math.max(CMP_MIN_H, Math.round(r.height));
-    if (w === CMP_SIZE.w && h === CMP_SIZE.h) return;
-    CMP_SIZE = { w, h };
+    // A size the custom plot gave the box to fit its chart is not one the
+    // user chose (cpFit); dragging one edge of such a box chooses that one
+    // dimension, and the other stays the user's (within a few px: the handle
+    // is a corner, and a drag along one edge drifts).
+    const f = CP_FORCED, near = (a, b) => Math.abs(a - b) <= 4;
+    const nw = f && near(w, f.w) ? CMP_SIZE.w : w, nh = f && near(h, f.h) ? CMP_SIZE.h : h;
+    if (nw === CMP_SIZE.w && nh === CMP_SIZE.h) return;
+    CMP_SIZE = { w: nw, h: nh };
     // Redrawing inside the observer's own callback is what triggers the
     // "loop completed with undelivered notifications" warning, so it waits a
     // frame.
     requestAnimationFrame(() => cmpRender());
   });
   CMP_RO.observe(box);
+  // The room beside the legend bounds the custom plot's width (cpChart): the
+  // window resized, or the tab shown again, draws it to the room it now has,
+  // narrower once the chart no longer fits, wider past 4 px.
+  const wrap = box.closest('.cmp-chartwrap');
+  if (wrap) new ResizeObserver(() => {
+    if (CMP_TYPE !== CP_TYPE || CP_ROOM == null) return;
+    const room = cpRoom();
+    if (room !== Infinity && ((room < CP_ROOM && CP_CH && room < CP_CH.W) || room - CP_ROOM > 4)) {
+      requestAnimationFrame(() => cmpRender());
+    }
+  }).observe(wrap);
 }
 
 // ── Zoom, pan and axis ranges ───────────────────────────────────
@@ -7187,7 +7542,9 @@ function chartPointToData(ev, scale, sel) {
 const cmpPointToData = ev => chartPointToData(ev, CMP_SCALE, '#cmpChart svg');
 
 function cmpWheel(ev) {
-  if (!CMP_SCALE) return;
+  // The custom plot shares the box but has no zoom: its ranges are typed, an
+  // axis at a time, and the page scrolls over it.
+  if (!CMP_SCALE || CMP_TYPE === CP_TYPE) return;
   const at = cmpPointToData(ev);
   if (!at || !at.inside) return;
   // Only once the pointer is over the plot itself, so the page still scrolls
@@ -7195,6 +7552,11 @@ function cmpWheel(ev) {
   ev.preventDefault();
   const f = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
   const { x0, x1, y0, y1 } = CMP_SCALE;
+  // Zooming in stops short of float resolution (a window under a billionth
+  // of its values, or of the data's reach about 0), where it could no longer
+  // be labelled or zoomed out of.
+  const fine = (a, b, r) => (b - a) * f <= 1e-9 * Math.max(Math.abs(a), Math.abs(b), r);
+  if (f < 1 && (fine(x0, x1, CMP_SCALE.xreach) || fine(y0, y1, CMP_SCALE.yreach))) return;
   // Zoom about the pointer rather than the centre: the point under the cursor
   // stays put, which is what makes zooming feel like it is aimed.
   CMP_VIEW = {
@@ -7209,7 +7571,7 @@ function cmpWheel(ev) {
 // Accumulating ev.movementX instead would drift, and movementX is unset on
 // synthetic events, so the behaviour could not be tested.
 function cmpPanStart(ev) {
-  if (ev.button !== 0 || !CMP_SCALE) return;
+  if (ev.button !== 0 || !CMP_SCALE || CMP_TYPE === CP_TYPE) return;
   const at = cmpPointToData(ev);
   if (!at || !at.inside) return;
   CMP_PAN = { grabbed: { x: at.x, y: at.y }, scale: { ...CMP_SCALE },
@@ -7218,7 +7580,7 @@ function cmpPanStart(ev) {
   ev.preventDefault();
 }
 function cmpPanMove(ev) {
-  if (!CMP_PAN) return;
+  if (!CMP_PAN || CMP_TYPE === CP_TYPE) return;
   const { grabbed, scale: v, rect: r } = CMP_PAN;
   if (!r.width || !r.height) return;
   // Where the pointer is now, in the coordinates the chart had when grabbed.
@@ -7241,11 +7603,27 @@ function cmpSetBound(which, raw) {
   CMP_VIEW = CMP_VIEW || { x0: null, x1: null, y0: null, y1: null };
   // Blank returns that edge to following the data, so the boxes can be used
   // one at a time rather than all four or none.
-  CMP_VIEW[which] = v === '' ? null : (isFinite(parseFloat(v)) ? parseFloat(v) : null);
+  CMP_VIEW[which] = v === '' ? null : cmpNum(v);
   if (!cmpHasView()) CMP_VIEW = null;
   cmpRender();
 }
-function cmpResetView() { CMP_VIEW = null; cmpRender(); }
+// The spacing of an axis's ticks, typed (cmpScale); blank picks one. Kept
+// apart from the window, so zooming and panning keep it, and per chart type,
+// each of whose axes is in units of its own.
+let CMP_STEPS = {};           // chart type -> {x, y}, each null when blank
+const cmpStep = () => CMP_STEPS[CMP_TYPE] || { x: null, y: null };
+const cmpHasStep = () => cmpStep().x != null || cmpStep().y != null;
+function cmpSetStep(which, raw) {
+  const v = String(raw).trim();
+  CMP_STEPS = { ...CMP_STEPS, [CMP_TYPE]: { ...cmpStep(), [which]: v === '' ? null : cmpNum(v) } };
+  cmpRender();
+}
+function cmpResetView() {
+  CMP_VIEW = null;
+  CMP_STEPS = { ...CMP_STEPS };
+  delete CMP_STEPS[CMP_TYPE];
+  cmpRender();
+}
 
 // The chart is replaced on every render, so the listeners live on the
 // container, which is not.
@@ -7305,6 +7683,7 @@ function cmpDrop(ev, key) {
   const above = el.classList.contains('drop-above');
   cmpDragEnd();
   if (!src || src === key) return;
+  if (CMP_TYPE === CP_TYPE) { cpMoveSample(src, key, above); return; }
 
   const keys = [...CMP_SEL.keys()].filter(x => x !== src);
   let at = keys.indexOf(key);
@@ -7390,21 +7769,232 @@ function cmpStatDragEnd() {
 // field instead of a label.
 let CMP_STAT_EDIT = null;
 
-function cmpStatRename(i) { CMP_STAT_EDIT = i; cmpRender(); }
+let CMP_STAT_DRAFT = '';     // the name typed so far, kept across redraws
+function cmpStatRename(i) {
+  CMP_STAT_EDIT = i;
+  CMP_STAT_DRAFT = CMP_STATS[i].name;
+  CMP_NAME_FRESH = true;
+  CMP_NAME_SEL = null;
+  cmpRender();
+}
 function cmpStatRenameCommit(i, value) {
   const name = String(value || '').trim();
   if (name) CMP_STATS[i].name = name;
   CMP_STAT_EDIT = null;
-  cmpRender();
+  cmpRenderAfterPress();
 }
 function cmpStatRenameKey(ev, i) {
-  if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
-  else if (ev.key === 'Escape') {
+  if (ev.key === 'Enter' || ev.key === 'Tab') {
+    // Left by the keyboard: no press to wait for, and the focus goes back to
+    // the name (Enter) or on (Tab), as from a sample's.
+    ev.preventDefault();
+    CMP_PRESS = null;
+    CMP_NAME_REFOCUS = { stat: i, by: ev.key === 'Tab' ? (ev.shiftKey ? -1 : 1) : 0 };
+    ev.target.blur();
+  } else if (ev.key === 'Escape') {
     // Cancel: clear the edit before blur fires, so blur has nothing to commit.
     CMP_STAT_EDIT = null;
     ev.target.value = CMP_STATS[i].name;
+    CMP_NAME_REFOCUS = { stat: i, by: 0 };
     cmpRender();
   }
+}
+
+// ── sample names on the plots ───────────────────────────────────
+// A sample can be shown under another name on a chart and in what it
+// exports: the legend, the chart and its PNG, and the server-side
+// comparison's figure and workbook. The stored name, the index and the
+// records never change, and the Add curves list keeps the stored name,
+// saying what it is plotted as. A name belongs to the chart type it was made
+// on and is saved only with the saved view it is made in (Corey, 15 Oct):
+// opening a view brings its names for its type, and drops the others shown
+// on that type (cmpLoadNamesAndSteps).
+let CMP_ALIAS = {};           // chart type -> {sample key -> name shown}
+let CMP_NAME_EDIT = null;     // the sample whose name is being edited
+let CMP_NAME_DRAFT = '';      // what is typed so far, kept across redraws
+let CMP_NAME_FRESH = false;   // a new field, whose text is selected once
+let CMP_NAME_SEL = null;      // [start, end] of the selection in it, kept across redraws
+const cmpAliasOf = k => (CMP_ALIAS[CMP_TYPE] || {})[k] || '';
+const cmpNameOf = (k, stored) => cmpAliasOf(k) || stored || k;
+const cmpCaret = el => { CMP_NAME_SEL = [el.selectionStart, el.selectionEnd]; };
+// A sample's name in its legend group: a field while it is being edited,
+// otherwise the name shown, a click to edit it, and ↺ back to the stored one
+// when another is shown. The key rides in a data attribute rather than in the
+// handlers' text, where a quote in it would be read after the page decodes it.
+function cmpNameHtml(k, stored) {
+  const alias = cmpAliasOf(k), shown = alias || stored || '—';
+  if (CMP_NAME_EDIT === k) {
+    return `<input class="cmp-rename" data-k="${escapeAttr(k)}" value="${escapeAttr(CMP_NAME_DRAFT)}"
+      aria-label="Name shown for ${escapeAttr(stored || k)}"
+      oninput="CMP_NAME_DRAFT=this.value;cmpCaret(this)" onkeyup="cmpCaret(this)"
+      onmouseup="cmpCaret(this)" onselect="cmpCaret(this)"
+      onblur="if (!CMP_DRAWING) cmpRenameCommit(this.dataset.k)"
+      onkeydown="cmpRenameKey(event,this.dataset.k)">`;
+  }
+  return `<button type="button" class="nm cmp-rename-target" data-k="${escapeAttr(k)}"
+      onclick="cmpRename(this.dataset.k)"
+      title="${escapeAttr(`Rename for the plots and their export${alias ? ` (stored as ${stored})` : ''}. `
+        + 'The stored name does not change.')}">${escapeHtml(shown)}</button>`
+    + (alias ? `<span class="cmp-act" role="button" data-k="${escapeAttr(k)}"
+        title="${escapeAttr(`Back to the stored name, ${stored}`)}"
+        onclick="cmpSetAlias(this.dataset.k,'')">↺</span>` : '');
+}
+function cmpRename(k) {
+  const run = cmpRunFor(k);
+  CMP_NAME_EDIT = k;
+  CMP_NAME_DRAFT = cmpNameOf(k, run && run.sample_name);
+  CMP_NAME_FRESH = true;
+  CMP_NAME_SEL = null;
+  cmpRender();
+}
+// A blank name, or the stored one typed back, shows the stored name again.
+// Kept as the field is left (`left`), the page is drawn again once the press
+// that left it is over (cmpRenderAfterPress).
+function cmpSetAlias(k, name, left) {
+  const run = cmpRunFor(k), stored = run ? String(run.sample_name || '') : '';
+  const v = String(name == null ? '' : name).trim();
+  const mine = { ...(CMP_ALIAS[CMP_TYPE] || {}) };
+  if (!v || v === stored) delete mine[k]; else mine[k] = v;
+  if (Object.keys(mine).length) CMP_ALIAS = { ...CMP_ALIAS, [CMP_TYPE]: mine };
+  else { CMP_ALIAS = { ...CMP_ALIAS }; delete CMP_ALIAS[CMP_TYPE]; }
+  CMP_NAME_EDIT = null; CMP_NAME_DRAFT = ''; CMP_NAME_SEL = null;
+  if (left) cmpRenderAfterPress(); else cmpRender();
+}
+// Enter keeps the name, as leaving the field does; Escape cancels, clearing
+// the edit first so a blur that follows has nothing to keep. Left by the
+// keyboard, the focus goes back to the name (Enter, Escape), or on to the
+// next sample's (Tab) or the one before (Shift+Tab), as the legend is drawn
+// again (cmpFocusRename).
+let CMP_NAME_REFOCUS = null;  // { k, by: 0 | 1 | -1 }
+function cmpRenameCommit(k) { if (CMP_NAME_EDIT === k) cmpSetAlias(k, CMP_NAME_DRAFT, true); }
+function cmpRenameKey(ev, k) {
+  // Left by the keyboard: no press to wait for.
+  if (ev.key === 'Enter' || ev.key === 'Tab') CMP_PRESS = null;
+  if (ev.key === 'Enter') { ev.preventDefault(); CMP_NAME_REFOCUS = { k, by: 0 }; ev.target.blur(); }
+  else if (ev.key === 'Tab') { ev.preventDefault(); CMP_NAME_REFOCUS = { k, by: ev.shiftKey ? -1 : 1 }; ev.target.blur(); }
+  else if (ev.key === 'Escape') {
+    ev.preventDefault();
+    CMP_NAME_EDIT = null; CMP_NAME_DRAFT = ''; CMP_NAME_SEL = null;
+    CMP_NAME_REFOCUS = { k, by: 0 };
+    cmpRender();
+  }
+}
+// A name field left by pressing on something else is kept at once, but the
+// page is drawn again only once that press has done what it does: drawn at
+// once, what was pressed would be replaced under the pointer and its click
+// lost. So the redraw waits while the pointer is down, and comes just after
+// the press's click, once the click has done all it does (a checkbox's change
+// and a label's click on its control follow the click itself). A release
+// with no click after it (let go elsewhere, cancelled, taken by a context
+// menu, the window left) is given a moment, and a press begun in it is waited
+// for in turn. A touch's field is left only as the finger lifts, just before
+// its click. A select pressed opens: the redraw waits for its choice,
+// its closing by a key, or its losing the focus (and then for the press that
+// took the focus, if one did). A field left by the keyboard, or with no
+// press under way, is drawn at once.
+let CMP_PRESS = null;   // the pointer press under way: { el, up, button, ctrl }, up the time of its release (0 while down)
+// The select a primary press opens (other buttons open none).
+const cmpPressSel = p => (p.button === 0 && p.el && p.el.closest ? p.el.closest('select') : null);
+document.addEventListener('pointerdown', ev => {
+  CMP_PRESS = { el: ev.target, up: 0, button: ev.button, ctrl: ev.ctrlKey };
+  // A redraw still waiting waits for this press now, or for the select it opens.
+  const w = CMP_AFTER;
+  if (!w || w.sel) return;
+  clearTimeout(w.timer);
+  const sel = cmpPressSel(CMP_PRESS);
+  if (sel) cmpAfterSel(sel);
+}, true);
+function cmpPressUp() {
+  if (CMP_PRESS && !CMP_PRESS.up) CMP_PRESS.up = performance.now();
+  cmpAfterTry(false);
+}
+document.addEventListener('pointerup', cmpPressUp, true);
+document.addEventListener('pointercancel', cmpPressUp, true);
+// A context menu takes the release where it opens on the press (Linux, macOS):
+// a secondary press's, or a Ctrl press's (macOS), not a primary press held
+// while a key opens the menu.
+document.addEventListener('contextmenu', () => {
+  if (CMP_PRESS && (CMP_PRESS.button !== 0 || CMP_PRESS.ctrl)) cmpPressUp();
+}, true);
+window.addEventListener('blur', cmpPressUp);
+document.addEventListener('click', () => { CMP_PRESS = null; cmpAfterTry(true); });
+function cmpRenderAfterPress() {
+  const p = CMP_PRESS;
+  if (!p || (p.up && performance.now() - p.up > 600)) { cmpRender(); return; }
+  if (CMP_AFTER) return;
+  CMP_AFTER = { sel: null, timer: 0 };
+  const sel = cmpPressSel(p);
+  if (sel && sel.isConnected) cmpAfterSel(sel);
+  else cmpAfterTry(false);
+}
+// Not while a select it waits on is open or a pointer is down; then just
+// after the event at hand (soon), or after a moment for a click to come.
+function cmpAfterTry(soon) {
+  const w = CMP_AFTER;
+  if (!w || w.sel || (CMP_PRESS && !CMP_PRESS.up)) return;
+  clearTimeout(w.timer);
+  w.timer = setTimeout(cmpAfterGo, soon ? 0 : 400);
+}
+function cmpAfterGo() { if (CMP_AFTER) cmpRender(); }
+function cmpAfterDrop() {
+  const w = CMP_AFTER;
+  CMP_AFTER = null;
+  clearTimeout(w.timer);
+  if (w.sel) CMP_SEL_ENDS.forEach(t => w.sel.removeEventListener(t, cmpAfterSelEnd));
+}
+const CMP_SEL_ENDS = ['change', 'keyup', 'blur', 'click'];
+function cmpAfterSel(sel) {
+  const w = CMP_AFTER;
+  if (w.sel) CMP_SEL_ENDS.forEach(t => w.sel.removeEventListener(t, cmpAfterSelEnd));
+  w.sel = sel;
+  if (sel) CMP_SEL_ENDS.forEach(t => sel.addEventListener(t, cmpAfterSelEnd));
+}
+// The select's own press is over with its choice or its closing (a click on
+// it is the popup's choice unless it is the click of a press just let go,
+// which comes before that press is over); left for a press elsewhere, the
+// redraw waits for that one.
+function cmpAfterSelEnd(ev) {
+  const w = CMP_AFTER;
+  if (!w || !w.sel || (ev && ev.type === 'click' && CMP_PRESS && CMP_PRESS.up)) return;
+  const sel = w.sel;
+  cmpAfterSel(null);
+  if (CMP_PRESS && sel.contains(CMP_PRESS.el)) CMP_PRESS = null;
+  cmpAfterTry(true);
+}
+// After a redraw, the field being typed in takes the focus back: its text
+// selected when it is new, the caret or selection where it was after that.
+// A name just left by the keyboard hands the focus on (CMP_NAME_REFOCUS) to
+// the name, the next or the one before (samples' and statistics' alike), or
+// past the last or first to where Tab would have gone from it.
+function cmpFocusRename() {
+  const back = CMP_NAME_REFOCUS;
+  CMP_NAME_REFOCUS = null;
+  if (back && CMP_NAME_EDIT === null && CMP_STAT_EDIT === null) {
+    const box = document.getElementById('cmpCurves');
+    const all = box ? [...box.querySelectorAll('.cmp-rename-target')] : [];
+    const i = all.findIndex(b => (back.k != null ? b.dataset.k === back.k : b.dataset.stat === String(back.stat)));
+    if (i < 0) return;
+    const to = all[i + back.by] || (back.by ? cmpFocusPast(box, back.by) : null);
+    if (to) to.focus();
+    return;
+  }
+  if (CMP_STAT_EDIT === null && CMP_NAME_EDIT === null) return;
+  const f = document.querySelector('#cmpCurves .cmp-rename');
+  if (!f) return;
+  if (document.activeElement !== f) f.focus();
+  if (CMP_NAME_FRESH) { f.select(); CMP_NAME_SEL = [0, f.value.length]; }
+  else if (CMP_NAME_SEL) f.setSelectionRange(...CMP_NAME_SEL);
+  else f.setSelectionRange(f.value.length, f.value.length);
+  CMP_NAME_FRESH = false;
+}
+// The first control after the legend the keyboard reaches (by 1), or the last
+// before it (by -1).
+function cmpFocusPast(box, by) {
+  const els = [...document.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+    .filter(e => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length && !box.contains(e)
+      && (box.compareDocumentPosition(e)
+          & (by > 0 ? Node.DOCUMENT_POSITION_FOLLOWING : Node.DOCUMENT_POSITION_PRECEDING)));
+  return by > 0 ? els[0] : els[els.length - 1];
 }
 
 // ── statistical selection mode ──────────────────────────────────
@@ -7493,7 +8083,8 @@ function cmpStatPreview() {
     const [key, step] = id.split('::');
     const run = cmpRunFor(key);
     const u = run && cmpUnitsFor(run, CMP_TYPE).find(x => x.step === step);
-    return { name: (run && run.sample_name) || key, step,
+    return { name: cmpNameOf(key, run && run.sample_name), step, key,
+             stored: (run && run.sample_name) || key,
              cond: (u && u.cond) || '', id };
   });
   document.getElementById('cmpChosen').innerHTML = rows.map(r =>
@@ -7557,7 +8148,8 @@ function cmpStatPreview() {
        a.n < 3 ? ' With two curves a standard deviation is just half their difference.' : ''}</div>`;
   document.getElementById('cmpStatFoot').textContent =
     `${a.n} curves · averaging ${CMP_AXIS === 'x' ? 'x at each y' : 'y at each x'}`;
-  const names = [...new Set(rows.map(r => String(r.name).split('_').slice(1).join('_')))];
+  const names = [...new Set(rows.map(r => cmpAliasOf(r.key)
+    || String(r.stored).split('_').slice(1).join('_')))];
   const el = document.getElementById('cmpStatName');
   if (!el.value) el.value = names.length === 1 ? `Mean of ${names[0]}`
                                                : `Mean of ${a.n} curves`;
@@ -7588,6 +8180,1536 @@ function cmpDropStat(i) { CMP_STATS.splice(i, 1); cmpRender(); }
 function cmpToggleStat(i) {
   CMP_STATS[i].visible = !CMP_STATS[i].visible;
   cmpRender();
+}
+
+// ═══ Comparisons: the custom plot ═══════════════════════════════════
+//
+// Quantities of different analyses against one x: hold time, RH cycles,
+// current density or potential. x is chosen first; the quantities it offers
+// then go to the left or the right of the plot, a unit new to a side getting
+// an axis of its own, offset outside the last (overlaid) or in a panel of its
+// own (stacked); and Add curves lists the samples that store them. Colour is
+// the sample, as on every comparison; the marker is the quantity, filled on
+// the left and hollow on the right; the dash is the series (a condition, a
+// step or a characterization). Each y axis takes its own range, tick spacing
+// and linear or log scale, x its range and spacing. Mocked up and settled with
+// Corey on 15 Oct 2026 (claude/comparisons-custom-plot.md).
+//
+// Durability quantities are an FC Durability test's plots against hold hours,
+// a series for each condition it was measured at (100% RH, say); against RH
+// cycles each test's hours are read off its own map (cmpLoadCycles). Curves
+// against current density or potential are a standalone analysis's steps (pol
+// curve, H₂ crossover, ECSA), or a durability test's characterizations (its
+// evolution plots: a curve for each characterization at each condition). What
+// a test stores is read from its plots' labels alone (cpLoad), a few hundred
+// bytes a plot; points are read only for the curves on the chart.
+const CP_TYPE = 'custom';
+const CP_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'tridown', 'plus'];
+// A second unit on a side is an axis CP_OFF px outside the last, CP_MAX_AX a
+// side; a quantity is a marker shape, so CP_SHAPES.length quantities in all.
+// The plot keeps up to CP_MIN_PLOT px between its axes, as the mockup did, and
+// at least CP_FLOOR_PLOT: with more axes than the box has room for, the box
+// widens to the chart (cpChart, cpFit).
+const CP_OFF = 58, CP_MAX_AX = 3, CP_MIN_PLOT = 600, CP_FLOOR_PLOT = 360;
+// The width the chart can take before the page scrolls sideways: the chart
+// panel's, less its padding (unknown while it is hidden).
+function cpRoom() {
+  const box = document.getElementById('cmpChartBox'), wrap = box && box.closest('.cmp-chartwrap');
+  if (!wrap || !wrap.clientWidth) return Infinity;
+  const cs = getComputedStyle(wrap);
+  return wrap.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+}
+const CP_ORDINAL = ['first', 'second', 'third', 'fourth'];
+const CP_X = [
+  { key: 'time', fam: 'dur', label: 'Hold time', lower: 'hold time', unit: 'h',
+    title: 'Hold time (h)', src: 'Durability' },
+  { key: 'cyc', fam: 'dur', label: 'RH cycles', lower: 'RH cycles', unit: 'cycles',
+    title: 'RH cycles', src: 'Durability, RH cycling' },
+  { key: 'j', fam: 'j', label: 'Current density', lower: 'current density', unit: 'A/cm²',
+    title: 'Current density (A/cm²)', src: 'Pol curves' },
+  { key: 'pot', fam: 'pot', label: 'Potential', lower: 'potential', unit: 'V',
+    title: 'Potential (V)', src: 'Crossover and ECSA CVs' },
+];
+const cpTrace = l => !!l && l !== 'bin minimum' && l !== CMP_BAND_LOW && l !== CMP_BAND_HIGH;
+// Each quantity's source. `dur`: a durability plot against hold hours, its
+// panel by y label, which of its lines and points are series, grouped by
+// name (cmpSeriesName) or, with `one`, all one series. `std`: a standalone
+// analysis, a series a step (CP_STD finds the line). `evo`: a durability
+// evolution plot, a series each line of each condition's panel; `power` is
+// current density times voltage. `kind` says how it is marked: `pts` at every
+// point, a `trace` or a `curve` every so far along it (cpMarks).
+const CP_Q = {
+  dur: [
+    { id: 'ocv', grp: 'Durability — OCV', name: 'Hold OCV', unit: 'V', kind: 'trace',
+      dur: { plot: 'fcdur_ocv_vs_time', axis: /^Hold OCV/i, lines: cpTrace } },
+    { id: 'dec', grp: 'Durability — OCV', name: 'OCV decay rate', unit: 'μV/h', kind: 'trace',
+      dur: { plot: 'fcdur_ocv_vs_time', axis: /^OCV decay/i, lines: () => true, points: () => true,
+             one: ax => (String(ax.ylabel || '').split('\n')[1] || 'decay windows').trim() } },
+    { id: 'xover', grp: 'Durability — H₂ crossover', name: 'H₂ crossover', unit: 'mA/cm²', kind: 'pts',
+      dur: { plot: 'fcdur_xover_vs_time', axis: /crossover/i, lines: l => /window mean/i.test(l) } },
+    { id: 'rshort', grp: 'Durability — H₂ crossover', name: 'R_short', unit: 'Ω·cm²', kind: 'pts',
+      log: true, dur: { plot: 'fcdur_xover_vs_time', axis: /^R_short/i, points: l => l === 'R_short',
+                        one: () => 'whole test' } },
+    { id: 'hfr', grp: 'Durability — HFR', name: 'HFR', unit: 'mΩ·cm²', kind: 'pts',
+      dur: { plot: 'fcdur_hfr_vs_time', axis: /^HFR/i, lines: l => !!l } },
+    { id: 'rf', grp: 'Durability — ECSA', name: 'Roughness factor', unit: 'cm² Pt/cm²', kind: 'pts',
+      dur: { plot: 'fcdur_ecsa_vs_time', axis: /^Roughness/i, lines: l => !!l } },
+    { id: 'v1', grp: 'Durability — performance', name: 'V @ 1 A/cm²', unit: 'V', kind: 'pts',
+      dur: { plot: 'fcdur_perf_vs_time', axis: /^V @ 1/i, lines: l => !!l } },
+    { id: 'j065', grp: 'Durability — performance', name: 'j @ 0.65 V', unit: 'A/cm²', kind: 'pts',
+      dur: { plot: 'fcdur_perf_vs_time', axis: /^j @ 0\.65 V/i, lines: l => !!l } },
+    { id: 'rhc', grp: 'Durability — RH cycles', name: 'RH cycles completed', unit: 'cycles',
+      kind: 'trace', only: 'time',
+      dur: { plot: CMP_CYC_PLOT, axis: /^RH cycles/i, lines: l => l === CMP_CYC_LINE,
+             one: () => 'whole test' } },
+  ],
+  j: [
+    { id: 'vcell', grp: 'Polarization curve', name: 'Cell voltage', unit: 'V', kind: 'curve',
+      std: 'polcurve', evo: { plot: 'fcdur_polcurve_evolution' } },
+    { id: 'virf', grp: 'Polarization curve', name: 'iR-free voltage', unit: 'V', kind: 'curve',
+      std: 'polcurve' },
+    { id: 'pwr', grp: 'Polarization curve', name: 'Power density', unit: 'mW/cm²', kind: 'curve',
+      std: 'polcurve', evo: { plot: 'fcdur_polcurve_evolution', power: true } },
+  ],
+  pot: [
+    { id: 'xcv', grp: 'H₂ crossover', name: 'Crossover current', unit: 'mA/cm²', kind: 'curve',
+      std: 'crossover', evo: { plot: 'fcdur_xover_evolution' } },
+    { id: 'ecv', grp: 'ECSA', name: 'CV current', unit: 'mA/cm²', kind: 'curve',
+      std: 'ecsa', evo: { plot: 'fcdur_ecsa_evolution' } },
+  ],
+};
+// Where a standalone step draws each quantity, found as that analysis's own
+// chart type finds it (cmpPickLine): the polarization panel's first line, its
+// iR-free line, the power twin's line; the crossover's averaged panel; the
+// ECSA scan's first line.
+const CP_STD = {
+  vcell: () => ({ axis: 0, line: 0 }),
+  virf: sr => ({ axis: 0, line: ((sr.axes[0] || {}).lines || [])
+    .findIndex(l => /ir[- ]?free/i.test(l.label || '')) }),
+  pwr: sr => ({ axis: sr.axes.findIndex(a => /power/i.test(a.ylabel || a.title || '')), line: 0 }),
+  xcv: sr => ({ axis: Math.max(0, sr.axes.findIndex(a => /averag/i.test(a.title || ''))), line: 0 }),
+  ecv: () => ({ axis: 0, line: 0 }),
+};
+
+// The plot, as it stands; saved views keep it whole (cpSnapshot). Curves are
+// ids [sample key, quantity, series] as JSON. Ranges are kept as typed, per x.
+function cpFresh() {
+  return { x: 'time', assign: { dur: {}, j: {}, pot: {} }, curves: { dur: [], j: [], pot: [] },
+           scale: { dur: {}, j: {}, pot: {} }, rng: {}, hidden: {}, layout: 'dual',
+           has: 'any', order: [] };
+}
+let CP = cpFresh();
+let CP_CH = null;              // the chart as last drawn, for the readout
+let CP_PENDING = [];           // quantities to add for samples whose plots are being listed
+let CP_FORCED = null;          // a chart box size the custom plot set to fit, not the user
+let CP_ROOM = null;            // the room beside the legend it was last drawn in (cpRoom)
+let CP_OPENED = '';            // what opening a saved view left out, until the plot changes
+let CP_SAVED = '';             // what Export saved, said until the plot changes
+let CP_EXPORTING = false;      // an export under way: its button stays off through redraws
+const CP_ASKED = new Set();    // CMP_SERIES keys being read
+const CP_FAILED = new Set();   // ... that could not be read: asked again on a new x
+// Handlers by number, rebuilt with what they act on (cpDo): the ids and keys
+// they carry are not strings an inline handler should have to quote.
+const CP_ACT = { axes: [], opts: [], legend: [], pick: [] };
+const cpOn = (part, fn) => { CP_ACT[part].push(fn); return `cpDo('${part}',${CP_ACT[part].length - 1}`; };
+function cpDo(part, i, v) { const f = CP_ACT[part][i]; if (f) f(v); }
+
+const cpX = () => CP_X.find(x => x.key === CP.x) || CP_X[0];
+const cpQ = (fam, id) => (CP_Q[fam] || []).find(q => q.id === id);
+const cpId = (key, qid, sid) => JSON.stringify([key, qid, sid]);
+function cpParse(id) {
+  try {
+    const a = JSON.parse(id);
+    return Array.isArray(a) && a.length === 3 && a.every(s => typeof s === 'string') ? a : null;
+  } catch (e) { return null; }
+}
+// Numbers as the readout, the legend and the blank boxes show them.
+function cpFmt(v) {
+  if (v == null || !isFinite(v)) return '—';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  const s = a >= 1000 ? Math.round(v).toLocaleString('en-US') : a >= 100 ? v.toFixed(1)
+    : a >= 10 ? v.toFixed(2) : a >= 1 ? v.toFixed(3) : a >= 1e-3 || !a ? v.toFixed(4)
+    : v.toPrecision(3);
+  return s.replace(/^-/, '−');
+}
+// A marker's outline, centred on (x, y): one path holds every marker of a curve.
+function cpShapePath(shape, x, y, r) {
+  const f = n => (Math.round(n * 10) / 10).toString();
+  if (shape === 'square') {
+    const s = r * 0.86;
+    return 'M' + f(x - s) + ' ' + f(y - s) + 'h' + f(2 * s) + 'v' + f(2 * s) + 'h' + f(-2 * s) + 'Z';
+  }
+  if (shape === 'triangle' || shape === 'tridown') {
+    const s = r * 1.15, d = shape === 'triangle' ? 1 : -1;
+    return 'M' + f(x) + ' ' + f(y - d * s) + 'L' + f(x + s) + ' ' + f(y + d * s * 0.75)
+      + 'L' + f(x - s) + ' ' + f(y + d * s * 0.75) + 'Z';
+  }
+  if (shape === 'diamond') {
+    const s = r * 1.2;
+    return 'M' + f(x) + ' ' + f(y - s) + 'L' + f(x + s) + ' ' + f(y) + 'L' + f(x) + ' ' + f(y + s)
+      + 'L' + f(x - s) + ' ' + f(y) + 'Z';
+  }
+  if (shape === 'plus') {
+    const a = r * 1.15, b = r * 0.4;
+    return 'M' + f(x - b) + ' ' + f(y - a) + 'h' + f(2 * b) + 'v' + f(a - b) + 'h' + f(a - b)
+      + 'v' + f(2 * b) + 'h' + f(b - a) + 'v' + f(a - b) + 'h' + f(-2 * b) + 'v' + f(b - a)
+      + 'h' + f(b - a) + 'v' + f(-2 * b) + 'h' + f(a - b) + 'Z';
+  }
+  return 'M' + f(x - r) + ' ' + f(y) + 'a' + f(r) + ' ' + f(r) + ' 0 1 0 ' + f(2 * r) + ' 0a'
+    + f(r) + ' ' + f(r) + ' 0 1 0 ' + f(-2 * r) + ' 0Z';
+}
+// A quantity's marker at a size, filled on the left and hollow on the right.
+const cpGlyph = (shape, side, size, stroke) => `<svg width="${size}" height="${size}" aria-hidden="true"`
+  + ` style="flex:0 0 auto"><path d="${cpShapePath(CP_SHAPES[shape], size / 2, size / 2, size * 0.35)}"`
+  + ` fill="${side === 'L' ? 'var(--text)' : 'var(--surface)'}" stroke="${stroke || 'var(--text)'}"`
+  + ' stroke-width="1.3"/></svg>';
+// A curve's key: its colour and dash with its quantity's marker over them.
+const cpKey = (color, dash, shape, side) => `<svg width="28" height="12" aria-hidden="true"`
+  + ` style="flex:0 0 auto"><line x1="1" y1="6" x2="27" y2="6" stroke="${color}" stroke-width="2"`
+  + `${dash ? ` stroke-dasharray="${dash}"` : ''}/><path d="${cpShapePath(shape, 14, 6, 3.6)}"`
+  + ` fill="${side === 'L' ? color : 'var(--surface)'}" stroke="${color}" stroke-width="1.4"/></svg>`;
+
+// ── what a sample stores ────────────────────────────────────────
+const cpIsTest = run => (run.Data || []).some(d => d.Analysis === 'fc_durability');
+// A test that counts RH cycles says how many it tested in the index.
+const cpCounts = run => (run.Data || []).some(d => d.Analysis === 'fc_durability'
+  && Number((d.key_values || {})['RH cycles tested']) > 0);
+const cpListKey = (key, plot) => key + '::cpl::' + plot;
+const cpDataKey = (key, src) => (src.plot ? key + '::cp::' + src.plot
+  : cmpKey(key, src.analysis + '::' + src.step));
+// The durability plots a family's quantities come from.
+const cpFamPlots = fam => [...new Set((CP_Q[fam] || []).map(q => (q.dur || q.evo || {}).plot)
+  .filter(Boolean))];
+// A sample with anything a family can draw.
+const cpFamHas = (run, fam) => cpIsTest(run)
+  || (CP_Q[fam] || []).some(q => q.std && cmpUnitsFor(run, q.std).length);
+// The series of a quantity in a durability plot, from its answer (labels or
+// points alike): each with where it is, by position and label, as the
+// workbook asks for it again (viewstore.custom_plot_curves).
+function cpPicks(q, sr) {
+  const axes = (sr && sr.axes) || [], out = [];
+  if (q.dur) {
+    const ai = axes.findIndex(a => q.dur.axis.test(a.ylabel || ''));
+    if (ai < 0) return out;
+    const ax = axes[ai];
+    const put = (kind, i, label) => {
+      const name = q.dur.one ? q.dur.one(ax) : cmpSeriesName(label);
+      let g = out.find(x => x.label === name);
+      if (!g) {
+        out.push(g = { sid: 'd:' + name, label: name, sub: '', match: name,
+          pick: { axis: ai, lines: [], points: [], lines_labels: [], points_labels: [] } });
+      }
+      g.pick[kind].push(i);
+      g.pick[kind + '_labels'].push(label);
+    };
+    (ax.lines || []).forEach((l, i) => {
+      if (q.dur.lines && q.dur.lines(l.label || '')) put('lines', i, l.label || '');
+    });
+    (ax.points || []).forEach((p, i) => {
+      if (q.dur.points && q.dur.points(p.label || '')) put('points', i, p.label || '');
+    });
+    return out;
+  }
+  if (q.evo) {
+    axes.forEach((ax, ai) => {
+      const sub = cmpSeriesName(ax.title || ''), seen = {};
+      (ax.lines || []).forEach((l, li) => {
+        const label = l.label || '';
+        seen[label] = (seen[label] || 0) + 1;
+        out.push({ sid: 'e:' + (ax.title || '') + '\n' + label + (seen[label] > 1 ? '\n' + seen[label] : ''),
+          label, sub, match: label.replace(/\s*\([^)]*\)$/, '') + '|' + sub,
+          pick: { axis: ai, lines: [li], points: [], lines_labels: [label], points_labels: [],
+                  power: !!q.evo.power } });
+      });
+    });
+  }
+  return out;
+}
+// Where a standalone step's answer draws a quantity, or null.
+function cpStdPick(q, sr) {
+  const f = CP_STD[q.id];
+  if (!f || !sr || !(sr.axes || []).length) return null;
+  const p = f(sr), ln = p.axis >= 0 && p.line >= 0 && ((sr.axes[p.axis] || {}).lines || [])[p.line];
+  if (!ln) return null;
+  return { axis: p.axis, lines: [p.line], points: [], lines_labels: [ln.label || ''], points_labels: [] };
+}
+// What a sample stores of a quantity, as far as is known: its series in order,
+// each {sid, label, sub, match, src}, and whether a durability plot that may
+// hold more is still being listed, or could not be read (until x is chosen
+// again, cpSetX).
+function cpSeriesOf(run, q) {
+  const key = runKey(run), list = [];
+  let loading = false, failed = false;
+  if (q.std) {
+    cmpUnitsFor(run, q.std).forEach(u => list.push({ sid: 's:' + u.step, label: u.step,
+      sub: u.cond || '', match: u.step, src: { analysis: q.std, step: u.step } }));
+  }
+  const plot = (q.dur || q.evo || {}).plot;
+  if (plot && cpIsTest(run)) {
+    const sr = CMP_SERIES.get(cpListKey(key, plot));
+    if (sr === undefined) {
+      failed = CP_FAILED.has(cpListKey(key, plot));
+      loading = !failed;
+    } else if (sr) cpPicks(q, sr).forEach(s => list.push({ ...s, src: { plot } }));
+  }
+  return { list, loading, failed };
+}
+// A curve's parts as stored, [[x, y], ...] for each line and set of points it
+// takes, both numbers, in order of their first x (a pick lists lines before
+// points: a short hold's decay windows, stored as points, can come before a
+// long one's line); null when they are not where its pick says. The workbook
+// lists them in the same order (viewstore.custom_plot_curves).
+function cpPartsOf(sr, pick) {
+  const ax = ((sr && sr.axes) || [])[pick.axis];
+  if (!ax) return null;
+  const parts = [];
+  for (const kind of ['lines', 'points']) {
+    const have = ax[kind] || [], want = pick[kind] || [];
+    for (let j = 0; j < want.length; j++) {
+      const t = have[want[j]];
+      if (!t || (t.label || '') !== (pick[kind + '_labels'] || [])[j]) return null;
+      const pts = [];
+      (t.x || []).forEach((x, i) => {
+        const y = (t.y || [])[i];
+        if (Number.isFinite(x) && Number.isFinite(y)) pts.push(pick.power ? [x, x * y * 1000] : [x, y]);
+      });
+      parts.push(pts);
+    }
+  }
+  const first = p => (p.length ? p[0][0] : Infinity);
+  return parts.sort((p, q) => first(p) - first(q));
+}
+
+// ── the curves ──────────────────────────────────────────────────
+// The y axes: one per unit on each side, in the order their first quantity
+// went there. The first is on the plot's edge; overlaid, later ones are
+// offset outside it, and stacked, each axis is a panel of its own.
+// With X null, every quantity on the axes, those not drawn against this x as
+// well (RH cycles completed against RH cycles): hold time and RH cycles share
+// their axes, so the limits are on these.
+function cpAxesOf(fam, X, A) {
+  const out = { L: [], R: [] };
+  (CP_Q[fam] || []).filter(q => A[q.id] && (!X || !q.only || q.only === X.key))
+    .sort((p, q) => (A[p.id].ord || 0) - (A[q.id].ord || 0) || A[p.id].shape - A[q.id].shape)
+    .forEach(q => {
+      const a = A[q.id], list = out[a.side];
+      let ax = list.find(x => x.unit === q.unit);
+      if (!ax) {
+        ax = { key: a.side + '|' + q.unit, side: a.side, unit: q.unit, qs: [], i: list.length };
+        list.push(ax);
+      }
+      ax.qs.push(q);
+    });
+  return out;
+}
+// The samples on a family's chart, in the legend's order, which is the order
+// of their colours: CP.order, kept by the curves (cpSyncOrder) and by dragging.
+// A sample whose only curves are of quantities off the axes (kept for their
+// return) is not on the chart, and takes no colour.
+function cpSamplesOf(fam) {
+  const X = cpX(), A = CP.assign[fam] || {};
+  const keys = new Set((CP.curves[fam] || []).map(cpParse).filter(p => {
+    const q = p && cpQ(fam, p[1]);
+    return q && A[q.id] && (!q.only || q.only === X.key);
+  }).map(p => p[0]));
+  return CP.order.filter(k => keys.has(k));
+}
+function cpSyncOrder() {
+  const keys = [];
+  Object.values(CP.curves).forEach(list => list.forEach(id => {
+    const p = cpParse(id);
+    if (p && !keys.includes(p[0])) keys.push(p[0]);
+  }));
+  CP.order = CP.order.filter(k => keys.includes(k)).concat(keys.filter(k => !CP.order.includes(k)));
+}
+const cpLabelOfSid = sid => (sid.startsWith('e:') ? sid.split('\n')[1] || '' : sid.slice(2));
+// What a series is across samples, from its id alone (cpPicks' `match`): a
+// condition, a step, or a characterization (its name less the step) in its
+// condition's panel.
+function cpMatchOfSid(sid) {
+  if (!sid.startsWith('e:')) return sid.slice(2);
+  const [title, label] = sid.slice(2).split('\n');
+  return (label || '').replace(/\s*\([^)]*\)$/, '') + '|' + cmpSeriesName(title || '');
+}
+// The series on a family's chart, in the order their first curves came. A
+// series takes the same dash on every sample and quantity, as the other
+// types' steps do (cmpStepVocab); one not on the chart (a chip) shows the
+// dash it would take, added next.
+function cpSeriesVocab(fam, X, A) {
+  const out = [];
+  (CP.curves[fam] || []).forEach(id => {
+    const p = cpParse(id), q = p && cpQ(fam, p[1]);
+    if (!q || !A[q.id] || (q.only && q.only !== X.key)) return;
+    const m = cpMatchOfSid(p[2]);
+    if (!out.includes(m)) out.push(m);
+  });
+  return out;
+}
+function cpDashOf(vocab, match) {
+  const i = vocab.indexOf(match);
+  return CMP_DASH[(i < 0 ? vocab.length : i) % CMP_DASH.length];
+}
+// A curve on the chart: what it is, and its parts in x as drawn; `why` none
+// are drawn, or `loading` while they are read.
+function cpCurve(id, X, A, colours, vocab) {
+  const p = cpParse(id);
+  if (!p) return null;
+  const [key, qid, sid] = p;
+  const q = cpQ(X.fam, qid), a = A[qid];
+  if (!q || !a || (q.only && q.only !== X.key)) return null;
+  const run = cmpRunFor(key);
+  const c = { id, key, q, sid, side: a.side, axKey: a.side + '|' + q.unit,
+    shape: CP_SHAPES[a.shape], shapeIx: a.shape, color: colours.get(key) || CMP_PAL[0],
+    sample: Math.max(0, [...colours.keys()].indexOf(key)), label: cpLabelOfSid(sid), sub: '',
+    si: 0, dash: cpDashOf(vocab || [], cpMatchOfSid(sid)), segs: [], why: '', loading: false,
+    stored: run ? String(run.sample_name || key) : key };
+  if (!run) { c.why = 'no longer stored'; return c; }
+  const { list, loading } = cpSeriesOf(run, q);
+  const si = list.findIndex(s => s.sid === sid), ser = list[si];
+  if (!ser) {
+    if (loading) c.loading = true;
+    else c.why = `stores no ${q.name} ${c.label} now`;
+    return c;
+  }
+  Object.assign(c, { label: ser.label, sub: ser.sub, si, src: ser.src });
+  const dk = cpDataKey(key, ser.src), sr = CMP_SERIES.get(dk);
+  if (sr === undefined) {
+    if (CP_FAILED.has(dk)) c.why = 'could not be read';
+    else c.loading = true;
+    return c;
+  }
+  if (sr === null) { c.why = 'no plot data stored'; return c; }
+  const pick = ser.src.plot ? ((cpPicks(q, sr).find(s => s.sid === sid) || {}).pick || null)
+    : cpStdPick(q, sr);
+  const parts = pick && cpPartsOf(sr, pick);
+  if (!parts || !parts.some(pt => pt.length)) {
+    c.why = q.id === 'virf' ? 'no iR-free voltage stored for this step' : `no ${q.name} stored`;
+    return c;
+  }
+  c.pick = pick;
+  if (X.key === 'cyc') {
+    const m = CMP_CYC.get(key);
+    if (m === undefined) { c.loading = true; return c; }
+    if (m === null) { c.why = 'no RH cycles counted (RH held steady)'; return c; }
+    if (m === false) { c.why = 'RH cycles could not be fetched (pick hold time and back to try again)'; return c; }
+    c.segs = parts.map(pts => pts.map(pt => [cmpCycAt(m, pt[0]), pt[1]])).filter(pts => pts.length);
+  } else c.segs = parts.filter(pts => pts.length);
+  return c;
+}
+// The colour of each sample on a family's chart, by its place in the legend.
+const cpColours = fam => new Map(cpSamplesOf(fam).map((k, i) => [k, CMP_PAL[i % CMP_PAL.length]]));
+function cpCurves(X, A) {
+  const colours = cpColours(X.fam), vocab = cpSeriesVocab(X.fam, X, A);
+  return (CP.curves[X.fam] || []).map(id => cpCurve(id, X, A, colours, vocab)).filter(Boolean);
+}
+
+// ── state changes ───────────────────────────────────────────────
+// The plot changed: what opening a view left out, or what Export saved, is
+// no longer said.
+function cpChanged() { CP_OPENED = ''; CP_SAVED = ''; }
+function cpSetX(key) {
+  if (!CP_X.some(x => x.key === key)) return;
+  CP.x = key;
+  cpChanged();
+  CP_FAILED.clear();
+  CMP_CYC.forEach((m, k) => { if (m === false) CMP_CYC.delete(k); });
+  cmpRender();
+}
+// Sends a quantity to a side, moves it across, or (clicked on its own side)
+// takes it off. A unit new to the side gets an axis of its own; a quantity
+// newly on the axes is added for every sample already on the chart.
+function cpSetSide(fam, qid, side) {
+  const X = cpX(), q = cpQ(fam, qid);
+  if (!q || X.fam !== fam) return;
+  const A0 = CP.assign[fam] || {}, a = { ...A0 }, cur = a[qid];
+  const sc = { ...(CP.scale[fam] || {}) };
+  let curves = CP.curves[fam] || [];
+  if (cur && cur.side === side) {
+    delete a[qid];
+    CP_PENDING = CP_PENDING.filter(w => !(w.fam === fam && w.qid === qid));
+  } else {
+    const here = cpAxesOf(fam, null, a)[side];
+    const exists = here.some(ax => ax.unit === q.unit);
+    if (!exists && here.length >= CP_MAX_AX) return;
+    let shape = cur ? cur.shape : 0;
+    if (!cur) {
+      const used = Object.keys(a).map(k => a[k].shape);
+      while (used.includes(shape)) shape++;
+      if (shape >= CP_SHAPES.length) return;
+    }
+    const ord = 1 + Math.max(0, ...Object.keys(a).map(k => a[k].ord || 0));
+    if (!exists) sc[side + '|' + q.unit] = q.log ? 'log' : 'lin';
+    a[qid] = { side, shape, ord };
+    if (!cur) {
+      const got = cpAutoAdd(fam, X, A0, q, curves);
+      curves = curves.concat(got.add.filter(id => !curves.includes(id)));
+      CP_PENDING = CP_PENDING.concat(got.wait);
+    }
+  }
+  CP.assign = { ...CP.assign, [fam]: a };
+  CP.scale = { ...CP.scale, [fam]: sc };
+  CP.curves = { ...CP.curves, [fam]: curves };
+  cpChanged();
+  cpSyncOrder();
+  cmpRender();
+}
+// What a quantity q newly on the axes brings for one sample, as its curves of
+// the other quantities on the axes (A) stand in `curves`: the series with a
+// label those show, else one of the same step or characterization, else q's
+// first; [] when the sample has none of them (it is not on the chart), has a
+// curve of q already (its own pick, or one kept from before), or stores no
+// q; null while any of the lists this needs is still being read. The curves
+// of a quantity not drawn against this x (RH cycles completed against RH
+// cycles) count: the decision was made where they are drawn.
+function cpPickFor(fam, X, key, q, A, curves) {
+  const run = cmpRunFor(key), shown = [];
+  if (!run) return [];
+  if (curves.some(id => { const p = cpParse(id); return p && p[0] === key && p[1] === q.id; })) return [];
+  for (const id of curves) {
+    const p = cpParse(id), qq = p && p[0] === key && p[1] !== q.id && A[p[1]] && cpQ(fam, p[1]);
+    if (!qq) continue;
+    const info = cpSeriesOf(run, qq);
+    if (info.loading) return null;
+    const se = info.list.find(s => s.sid === p[2]);
+    if (se) shown.push(se);
+  }
+  if (!shown.length) return [];
+  const { list, loading } = cpSeriesOf(run, q);
+  if (loading) return null;
+  if (!list.length) return [];
+  const labels = shown.map(s => s.label), matches = shown.map(s => s.match);
+  let pick = list.filter(s => labels.includes(s.label));
+  if (!pick.length) pick = list.filter(s => matches.includes(s.match));
+  if (!pick.length) pick = [list[0]];
+  return pick.map(s => cpId(key, q.id, s.sid));
+}
+// The curves a quantity newly on the axes brings, for every sample already on
+// the chart (cpPickFor); a sample one of whose lists is still being read
+// waits (`wait`, CP_PENDING) until it is.
+function cpAutoAdd(fam, X, A0, q, curves) {
+  const keys = [];
+  curves.forEach(id => {
+    const p = cpParse(id), qq = p && A0[p[1]] && cpQ(fam, p[1]);
+    if (qq && (!qq.only || qq.only === X.key) && !keys.includes(p[0])) keys.push(p[0]);
+  });
+  const add = [], wait = [];
+  keys.forEach(key => {
+    const ids = cpPickFor(fam, X, key, q, A0, curves);
+    if (ids === null) wait.push({ fam, qid: q.id, key });
+    else ids.forEach(id => add.push(id));
+  });
+  return { add, wait };
+}
+// Adds what waited for lists to be read, once they are, judged on the chart
+// as it then stands: nothing for a sample taken off it meanwhile, or for a
+// quantity no longer on the axes. Kept while its family is not shown.
+function cpResolvePending() {
+  if (!CP_PENDING.length) return;
+  const X = cpX(), keep = [];
+  CP_PENDING.forEach(w => {
+    const q = cpQ(w.fam, w.qid), A = CP.assign[w.fam] || {};
+    if (!q || !A[w.qid] || !cmpRunFor(w.key)) return;
+    if (X.fam !== w.fam) { keep.push(w); return; }
+    const cur = CP.curves[w.fam] || [];
+    const ids = cpPickFor(w.fam, X, w.key, q, A, cur);
+    if (ids === null) { keep.push(w); return; }
+    const fresh = ids.filter(id => !cur.includes(id));
+    if (fresh.length) CP.curves = { ...CP.curves, [w.fam]: cur.concat(fresh) };
+  });
+  CP_PENDING = keep;
+  cpSyncOrder();
+}
+function cpSetCurves(fam, list) {
+  cpChanged();
+  CP.curves = { ...CP.curves, [fam]: list };
+  const live = new Set(Object.values(CP.curves).flat());
+  CP.hidden = Object.fromEntries(Object.entries(CP.hidden).filter(([id]) => live.has(id)));
+  cpSyncOrder();
+  cmpRender();
+}
+function cpToggleCurve(fam, id) {
+  const cur = CP.curves[fam] || [];
+  cpSetCurves(fam, cur.includes(id) ? cur.filter(c => c !== id) : cur.concat([id]));
+}
+function cpAddCurves(fam, ids) {
+  const cur = CP.curves[fam] || [];
+  cpSetCurves(fam, cur.concat(ids.filter(id => !cur.includes(id))));
+}
+function cpDropCurves(fam, ids) {
+  cpSetCurves(fam, (CP.curves[fam] || []).filter(id => !ids.includes(id)));
+}
+function cpToggleHidden(id) {
+  const h = { ...CP.hidden };
+  if (h[id]) delete h[id]; else h[id] = true;
+  CP.hidden = h;
+  cpChanged();
+  cmpRender();
+}
+function cpSetScale(fam, axKey, v) {
+  CP.scale = { ...CP.scale, [fam]: { ...(CP.scale[fam] || {}), [axKey]: v } };
+  cpChanged();
+  cmpRender();
+}
+// Ranges and spacings are kept as typed, per x: hours and cycles, say, are
+// different scales.
+function cpSetRange(k, v) {
+  CP.rng = { ...CP.rng, [CP.x]: { ...(CP.rng[CP.x] || {}), [k]: String(v == null ? '' : v).trim() } };
+  cpChanged();
+  cmpRender();
+}
+function cpSetAxRange(axKey, k, v) {
+  const r = CP.rng[CP.x] || {}, ax = { ...(r.ax || {}) };
+  ax[axKey] = { ...(ax[axKey] || {}), [k]: String(v == null ? '' : v).trim() };
+  CP.rng = { ...CP.rng, [CP.x]: { ...r, ax } };
+  cpChanged();
+  cmpRender();
+}
+function cpResetRange() { CP.rng = { ...CP.rng, [CP.x]: {} }; cpChanged(); cmpRender(); }
+function cpSetLayout(v) { CP.layout = v === 'stack' ? 'stack' : 'dual'; cpChanged(); cmpRender(); }
+function cpSetHas(v) { CP.has = v === 'all' ? 'all' : 'any'; cmpRenderPick(); }
+// A sample dragged in the legend: its colour follows its place.
+function cpMoveSample(src, key, above) {
+  const keys = CP.order.filter(k => k !== src);
+  let at = keys.indexOf(key);
+  if (at < 0) return;
+  if (!above) at += 1;
+  keys.splice(at, 0, src);
+  CP.order = keys;
+  cpChanged();
+  cmpRender();
+}
+// Clear empties the chart of this x's family, the curves of quantities off
+// the axes too, so none come back with them.
+function cpClear() {
+  CP_PENDING = CP_PENDING.filter(w => w.fam !== cpX().fam);
+  cpSetCurves(cpX().fam, []);
+}
+
+// ── reading ─────────────────────────────────────────────────────
+// What the chart and the list need and do not have: what every durability
+// test of the family stores (its plots' labels), the points of the curves on
+// the chart, and against RH cycles their tests' maps. Asked for in batches of
+// up to 64 (the server's most), labels apart from points, and filed as they
+// come; a read that fails is not asked again on every redraw (CP_FAILED).
+function cpLoad() {
+  const X = cpX(), fam = X.fam;
+  const lists = [], data = [], seen = new Set();
+  // Each once: the curves of one plot (two holds' OCV and their decay rate,
+  // a step's voltage and power) are one read.
+  const want = (ck, sel, into) => {
+    if (seen.has(ck)) return;
+    seen.add(ck);
+    if (!CMP_SERIES.has(ck) && !CP_ASKED.has(ck) && !CP_FAILED.has(ck)) into.push([ck, sel]);
+  };
+  const plots = cpFamPlots(fam);
+  (_viewRuns || []).filter(cpIsTest).forEach(run => plots.forEach(plot =>
+    want(cpListKey(runKey(run), plot), { key: runKey(run), analysis: 'fc_durability', step: '',
+      plot_type: plot, points: true, labels: true }, lists)));
+  const A = CP.assign[fam] || {}, cyc = [];
+  (CP.curves[fam] || []).forEach(id => {
+    const p = cpParse(id), q = p && cpQ(fam, p[1]), run = p && cmpRunFor(p[0]);
+    // Only what this x draws (RH cycles completed is not drawn against RH cycles).
+    if (!q || !run || !A[q.id] || (q.only && q.only !== X.key)) return;
+    const ser = cpSeriesOf(run, q).list.find(s => s.sid === p[2]);
+    if (!ser) return;
+    want(cpDataKey(p[0], ser.src), ser.src.plot
+      ? { key: p[0], analysis: 'fc_durability', step: '', plot_type: ser.src.plot, points: true }
+      : { key: p[0], analysis: ser.src.analysis, step: ser.src.step }, data);
+    if (X.key === 'cyc' && !cyc.includes(p[0])) cyc.push(p[0]);
+  });
+  const maps = cyc.filter(k => !CMP_CYC.has(k) && !CMP_CYC_ASKED.has(k));
+  maps.forEach(k => CMP_CYC_ASKED.add(k));
+  cmpLoadCycles(maps);
+  if (!lists.length && !data.length) return;
+  const batches = [];
+  for (const set of [lists, data]) {
+    for (let i = 0; i < set.length; i += 64) batches.push(set.slice(i, i + 64));
+  }
+  batches.flat().forEach(([ck]) => CP_ASKED.add(ck));
+  cpRead(batches);
+}
+async function cpRead(batches) {
+  const epoch = CMP_EPOCH;
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b];
+    // Samples stored again since these were asked for (viewForgetRuns): the
+    // rest are not fetched only to be dropped; the next draw asks afresh.
+    if (epoch !== CMP_EPOCH) {
+      batches.slice(b).forEach(rest => rest.forEach(([ck]) => CP_ASKED.delete(ck)));
+      if (CMP_TYPE === CP_TYPE) cmpRender();
+      return;
+    }
+    const by = new Map(batch.map(([ck, sel]) => [cpAnswerKey(sel), ck]));
+    try {
+      const r = await fetch('/api/view/series', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections: batch.map(([, sel]) => sel) }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      // A sample stored again meanwhile keeps nothing from it (viewForgetRuns).
+      if (epoch === CMP_EPOCH) {
+        const filed = new Set();
+        // An answer carries its plot's type whichever way it was asked for.
+        (d.series || []).forEach(sr => {
+          const ck = by.get(`${sr.key}|${sr.plot_type}`) || by.get(`${sr.key}|${sr.analysis}|${sr.step}`);
+          if (ck) { CMP_SERIES.set(ck, sr); filed.add(ck); }
+        });
+        (d.missing || []).forEach(m => {
+          const ck = by.get(cpAnswerKey(m));
+          if (!ck) return;
+          filed.add(ck);
+          if (m.reason === 'no stored plot data') CMP_SERIES.set(ck, null);
+          else CP_FAILED.add(ck);
+        });
+        batch.forEach(([ck]) => { if (!filed.has(ck)) CP_FAILED.add(ck); });
+      }
+    } catch (e) {
+      console.error('custom plot:', e);
+      if (epoch === CMP_EPOCH) batch.forEach(([ck]) => CP_FAILED.add(ck));
+    } finally {
+      batch.forEach(([ck]) => CP_ASKED.delete(ck));
+    }
+    if (CMP_TYPE === CP_TYPE) cmpRender();
+  }
+}
+// A request, as its answer is matched to it: a durability plot by its type, a
+// standalone step by its analysis and step. A batch never asks for one twice
+// (cpLoad's `seen`), and lists and points go in batches of their own.
+const cpAnswerKey = s => (s.plot_type ? `${s.key}|${s.plot_type}`
+  : `${s.key}|${s.analysis}|${s.step}`);
+
+// ── the chart ───────────────────────────────────────────────────
+// A polyline (pixels, null where a point cannot be drawn) cut to a box: the
+// stretches inside it, each ending where it leaves.
+function cpClip(pts, b) {
+  const out = [];
+  let cur = null;
+  const inside = p => p[0] >= b.x0 && p[0] <= b.x1 && p[1] >= b.y0 && p[1] <= b.y1;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], prev = i ? pts[i - 1] : null;
+    if (!p) { cur = null; continue; }
+    if (!prev) {
+      if (inside(p)) out.push(cur = [p]); else cur = null;
+      continue;
+    }
+    // Liang–Barsky: the part of prev→p inside the box, as t0..t1 along it.
+    const dx = p[0] - prev[0], dy = p[1] - prev[1];
+    let t0 = 0, t1 = 1, ok = true;
+    for (const [pp, qq] of [[-dx, prev[0] - b.x0], [dx, b.x1 - prev[0]],
+                            [-dy, prev[1] - b.y0], [dy, b.y1 - prev[1]]]) {
+      if (pp === 0) { if (qq < 0) { ok = false; break; } continue; }
+      const t = qq / pp;
+      if (pp < 0) { if (t > t1) { ok = false; break; } if (t > t0) t0 = t; }
+      else { if (t < t0) { ok = false; break; } if (t < t1) t1 = t; }
+    }
+    if (!ok) { cur = null; continue; }
+    const a = [prev[0] + dx * t0, prev[1] + dy * t0], z = [prev[0] + dx * t1, prev[1] + dy * t1];
+    if (t0 > 0 || !cur) out.push(cur = [a]);
+    cur.push(z);
+    if (t1 < 1) cur = null;
+  }
+  return out;
+}
+const cpPath = segs => segs.filter(s => s.length > 1).map(s => 'M' + s.map(q =>
+  `${Math.round(q[0] * 10) / 10} ${Math.round(q[1] * 10) / 10}`).join('L')).join('');
+// Markers: on every point of a characterization (pts), and along a trace or a
+// curve every 84 px of its length, staggered by sample and series so they do
+// not stack; a part of fewer than four points (a decay window or two) is
+// marked at each. The spacing runs on from one part to the next, so a trace
+// stored as many short parts (a hold each) is marked as one would be.
+function cpMarks(c, parts, b) {
+  const r = 4.2, out = [];
+  const inside = p => p && p[0] >= b.x0 - 0.5 && p[0] <= b.x1 + 0.5 && p[1] >= b.y0 - 0.5 && p[1] <= b.y1 + 0.5;
+  let rem = 14 + 28 * (c.sample % 3) + 9 * (c.si % 3);
+  parts.forEach(pts => {
+    if (c.q.kind === 'pts' || pts.filter(Boolean).length < 4) {
+      pts.forEach(p => { if (inside(p)) out.push(cpShapePath(c.shape, p[0], p[1], r)); });
+      return;
+    }
+    cpClip(pts, b).forEach(s => {
+      for (let i = 1; i < s.length; i++) {
+        const dx = s[i][0] - s[i - 1][0], dy = s[i][1] - s[i - 1][1], d = Math.hypot(dx, dy);
+        let pos = 0;
+        while (d > 0 && rem <= d - pos) {
+          pos += rem;
+          out.push(cpShapePath(c.shape, s[i - 1][0] + dx * pos / d, s[i - 1][1] + dy * pos / d, r));
+          rem = 84;
+        }
+        rem -= d - pos;
+      }
+    });
+  });
+  return out.join('');
+}
+// Text widths, for laying out the quantity names over the plot.
+let CP_MEASURE = null;
+function cpTextW(s, px, mono) {
+  if (!CP_MEASURE) CP_MEASURE = document.createElement('canvas').getContext('2d');
+  if (!CP_MEASURE) return String(s).length * px * 0.58;
+  const cs = getComputedStyle(document.documentElement);
+  CP_MEASURE.font = `${px}px ${(cs.getPropertyValue(mono ? '--mono' : '--font') || '').trim() || 'sans-serif'}`;
+  return CP_MEASURE.measureText(String(s)).width;
+}
+// The names of an axis's quantities, each with its marker, then its unit:
+// [{w, svg(x, y)}], laid out by cpHeadRow.
+function cpAxisLabel(ax, log, A) {
+  const items = ax.qs.map(q => ({ w: 17 + cpTextW(q.name, 11),
+    svg: (x, y) => `<path class="cp-glyph" d="${cpShapePath(CP_SHAPES[A[q.id].shape], x + 6, y - 4, 4.2)}"`
+      + ` fill="${ax.side === 'L' ? 'var(--text)' : 'var(--surface)'}"/>`
+      + `<text class="cp-hname" x="${(x + 17).toFixed(1)}" y="${y}">${escapeHtml(q.name)}</text>` }));
+  const unit = '(' + ax.unit + (log ? ', log' : '') + ')';
+  items.push({ w: cpTextW(unit, 10.5, true),
+    svg: (x, y) => `<text class="cp-hunit" x="${x.toFixed(1)}" y="${y}">${escapeHtml(unit)}</text>` });
+  return { items, w: items.reduce((s, it) => s + it.w, 0) + 10 * (items.length - 1) };
+}
+// Groups in a row from x, 16 px apart, or ending at x (alignEnd); a group
+// that does not fit before `limit` starts the next row. Returns the markup
+// and the rows used.
+function cpHeadRow(groups, x, y, alignEnd, limit) {
+  let svg = '', rows = 0, used = 0;
+  const lines = [[]];
+  groups.forEach(g => {
+    const line = lines[lines.length - 1];
+    const w = line.reduce((s, h) => s + h.w + 16, 0) + g.w;
+    if (line.length && w > limit) lines.push([g]); else line.push(g);
+  });
+  lines.forEach((line, li) => {
+    if (!line.length) return;
+    rows = li + 1;
+    const total = line.reduce((s, h) => s + h.w, 0) + 16 * (line.length - 1);
+    let cx = alignEnd ? x - total : x;
+    line.forEach(g => {
+      g.items.forEach(it => { svg += it.svg(cx, y + li * 17); cx += it.w + 10; });
+      cx += 6;
+    });
+    used = Math.max(used, total);
+  });
+  return { svg, rows, w: used };
+}
+// The chart: its markup, and what the readout needs (CP_CH). A port of the
+// mockup's, drawn into the SVG whole (ticks, names and units too) so the
+// PNG export is the chart as shown.
+function cpChart(X, A, all) {
+  const fam = X.fam, rng = CP.rng[X.key] || {}, sc = CP.scale[fam] || {}, rax = rng.ax || {};
+  const drawn = all.filter(c => !c.why && !c.loading && !CP.hidden[c.id] && c.segs.length);
+  const AX = cpAxesOf(fam, X, A), axes = AX.L.concat(AX.R);
+  const nL = AX.L.length, nR = AX.R.length;
+  const stacked = CP.layout === 'stack' && axes.length > 1;
+  // Overlaid with an offset axis, each spine carries its unit over it.
+  const spineUnits = !stacked && (nL > 1 || nR > 1);
+  const ML = nL ? 64 + (stacked ? 0 : (nL - 1) * CP_OFF) : 24;
+  const MR = nR ? 64 + (stacked ? 0 : (nR - 1) * CP_OFF) : 24;
+  const MB = 46, GAP = 44;
+  // Offset axes widen the chart rather than narrow the plot: it keeps the
+  // width it has with an axis a side, up to the mockup's CP_MIN_PLOT, as far
+  // as the room beside the legend allows (past that the box would scroll), and
+  // not under CP_FLOOR_PLOT for want of room. A box the user made narrow stays
+  // narrow: the plot is never wider than the box gives it with an axis a side.
+  CP_ROOM = cpRoom();
+  const plotMin = Math.min(CMP_SIZE.w - 128, Math.max(CP_FLOOR_PLOT, Math.min(CP_MIN_PLOT, CP_ROOM - ML - MR)));
+  const W = Math.max(CMP_SIZE.w, ML + plotMin + MR);
+  const px0 = ML, px1 = W - MR;
+  // Overlaid, a header over the plot names each axis's quantities, the
+  // outermost left first and the outermost right last, as the spines stand.
+  let head = null;
+  if (!stacked && axes.length) {
+    const lg = AX.L.slice().reverse().map(ax => cpAxisLabel(ax, sc[ax.key] === 'log', A));
+    const rg = AX.R.map(ax => cpAxisLabel(ax, sc[ax.key] === 'log', A));
+    const lw = lg.reduce((s, g) => s + g.w + 16, 0), rw = rg.reduce((s, g) => s + g.w + 16, 0);
+    const oneRow = lw + rw + 24 <= W - 8;
+    const left = cpHeadRow(lg, 4, 15, false, W - 8);
+    const right = cpHeadRow(rg, W - 4, 15 + (oneRow ? 0 : left.rows * 17), true, W - 8);
+    head = { svg: left.svg + right.svg, h: 17 * (left.rows + (oneRow ? Math.max(0, right.rows - left.rows) : right.rows)) + 6 };
+  }
+  const MT = stacked ? 34 : (head ? head.h : 0) + (spineUnits ? 30 : 14);
+  const panels = [];
+  let H = CMP_SIZE.h;
+  if (stacked) {
+    const n = axes.length, ph = Math.max(130, (CMP_SIZE.h - MT - MB - (n - 1) * GAP) / n);
+    H = Math.max(CMP_SIZE.h, Math.round(MT + n * ph + (n - 1) * GAP + MB));
+    axes.forEach((ax, k) => { const y0 = MT + k * (ph + GAP); panels.push({ axes: [ax], y0, y1: y0 + ph }); });
+  } else panels.push({ axes, y0: MT, y1: H - MB });
+  const top = panels[0].y0, bot = panels[panels.length - 1].y1;
+  const ext = (curves, k, log) => {
+    let lo = Infinity, hi = -Infinity;
+    curves.forEach(c => c.segs.forEach(pts => pts.forEach(p => {
+      const v = p[k];
+      if (log && !(v > 0)) return;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    })));
+    return lo <= hi ? [lo, hi] : null;
+  };
+  // Against RH cycles, a hold before the cycling starts sits at 0: kept clear
+  // of the axis line.
+  const xPad = X.key === 'cyc' ? 8 : 0;
+  const xExt = ext(drawn, 0, false), x0 = cmpNum(rng.x0), x1 = cmpNum(rng.x1);
+  const xs = cmpPlace(cmpScale(xExt, x0, x1, cmpNum(rng.xs), false, 7), px0 + xPad, px1);
+  // An axis with nothing drawn on it, and no bounds typed, shows no ticks.
+  xs.bare = !xExt && x0 == null && x1 == null;
+  if (xs.bare) xs.ticks = [];
+  const ys = {};
+  panels.forEach(pn => pn.axes.forEach(ax => {
+    const on = drawn.filter(c => c.axKey === ax.key), log = sc[ax.key] === 'log';
+    const ur = rax[ax.key] || {}, lo = cmpNum(ur.lo), hi = cmpNum(ur.hi), e = ext(on, 1, log);
+    const s = cmpPlace(cmpScale(e, lo, hi, cmpNum(ur.st), log, stacked ? 4 : 5), pn.y1, pn.y0);
+    s.bare = !e && lo == null && hi == null;
+    if (s.bare) s.ticks = [];
+    s.panel = pn;
+    s.sx = ax.side === 'L' ? px0 - (stacked ? 0 : ax.i * CP_OFF) : px1 + (stacked ? 0 : ax.i * CP_OFF);
+    ys[ax.key] = s;
+  }));
+  const r1 = n => (Math.round(n * 10) / 10).toFixed(1);
+  let grid = '', axl = '', ticks = '', titles = '';
+  const lastPanel = panels[panels.length - 1];
+  panels.forEach(pn => {
+    xs.ticks.forEach(v => { const x = r1(xs.px(v));
+      grid += `<line class="grid" x1="${x}" y1="${pn.y0}" x2="${x}" y2="${pn.y1}"/>`; });
+    const g = pn.axes.length ? ys[pn.axes[0].key] : null;
+    if (g) g.ticks.forEach(v => { const y = r1(g.px(v));
+      grid += `<line class="grid" x1="${px0}" y1="${y}" x2="${px1}" y2="${y}"/>`; });
+    axl += `<line class="axis" x1="${px0}" y1="${pn.y1}" x2="${px1}" y2="${pn.y1}"/>`;
+    if (!pn.axes.length) axl += `<line class="axis" x1="${px0}" y1="${pn.y0}" x2="${px0}" y2="${pn.y1}"/>`;
+    pn.axes.forEach(ax => {
+      const s = ys[ax.key], left = ax.side === 'L';
+      axl += `<line class="axis" x1="${s.sx}" y1="${pn.y0}" x2="${s.sx}" y2="${pn.y1}"/>`;
+      s.ticks.forEach(v => {
+        const y = s.px(v);
+        axl += `<line class="axis" x1="${s.sx}" y1="${r1(y)}" x2="${s.sx + (left ? -4 : 4)}" y2="${r1(y)}"/>`;
+        ticks += `<text class="tick" x="${s.sx + (left ? -7 : 7)}" y="${r1(y + 3.5)}"`
+          + ` text-anchor="${left ? 'end' : 'start'}">${cmpFmtTick(v, s.step, s.log)}</text>`;
+      });
+      if (stacked) {
+        const lab = cpAxisLabel(ax, s.log, A);
+        titles += cpHeadRow([lab], s.sx, pn.y0 - 12, !left, W).svg;
+      }
+      if (spineUnits) {
+        titles += `<text class="cp-spine" x="${s.sx}" y="${pn.y0 - 9}" text-anchor="middle">${
+          escapeHtml(ax.unit + (s.log ? ', log' : ''))}</text>`;
+      }
+    });
+    if (pn === lastPanel) {
+      xs.ticks.forEach(v => { ticks += `<text class="tick" x="${r1(xs.px(v))}" y="${pn.y1 + 17}"`
+        + ` text-anchor="middle">${cmpFmtTick(v, xs.step, false)}</text>`; });
+    }
+  });
+  let lines = '', marks = '';
+  drawn.forEach(c => {
+    const s = ys[c.axKey];
+    if (!s) return;
+    const b = { x0: px0, x1: px1, y0: s.panel.y0, y1: s.panel.y1 };
+    const parts = c.segs.map(pts => pts.map(p => (s.log && !(p[1] > 0) ? null : [xs.px(p[0]), s.px(p[1])])));
+    const d = cpPath(parts.flatMap(pts => cpClip(pts, b)));
+    const title = `<title>${escapeHtml(`${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label}`)}</title>`;
+    if (d) {
+      lines += `<path class="ln" d="${d}" stroke="${c.color}"${c.dash ? ` stroke-dasharray="${c.dash}"` : ''}>`
+        + `${title}</path>`;
+    }
+    const m = cpMarks(c, parts, b);
+    if (m) {
+      marks += `<path class="cp-mk" d="${m}" stroke="${c.color}"`
+        + ` fill="${c.side === 'L' ? c.color : 'var(--surface)'}">${title}</path>`;
+    }
+  });
+  const names = list => list.map(ax => ax.qs.map(q => q.name).join(', ') + ' (' + ax.unit + ')').join('; ');
+  const aria = 'Custom plot against ' + X.title + (nL ? '; left: ' + names(AX.L) : '')
+    + (nR ? '; right: ' + names(AX.R) : '');
+  const emptyMsg = !axes.length ? 'Send a quantity to the left or right axis to start.'
+    : all.some(c => c.loading) ? 'Loading curves…'
+    : all.length ? 'Nothing here can be drawn against ' + X.lower + '.'
+    : 'Add curves from the list below.';
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"`
+    + ` aria-label="${escapeAttr(aria)}">${grid}${axl}${lines}${marks}`
+    + `<line id="cpCross" class="cp-cross" x1="0" y1="${top}" x2="0" y2="${bot}" visibility="hidden"/>`
+    + (head ? head.svg : '') + titles + ticks
+    + `<text class="alab" x="${(px0 + px1) / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(X.title)}</text>`
+    + (drawn.length ? '' : `<text class="cp-empty" x="${(px0 + px1) / 2}" y="${(top + bot) / 2}"`
+      + ` text-anchor="middle">${escapeHtml(emptyMsg)}</text>`)
+    + '</svg>';
+  CP_CH = { W, H, px0, px1, top, bot, xs, ys, axes, stacked, X, empty: !drawn.length };
+  return { svg, W, H, drawn, AX, axes, xs, ys, stacked };
+}
+// The box the chart sits in is the size the user gave it, unless the chart
+// needs more (offset axes, stacked panels): then it is sized to the chart,
+// and that size is not taken as the user's (cmpObserveSize).
+function cpFit(W, H) {
+  const box = document.getElementById('cmpChartBox');
+  if (!box) return;
+  if (W === CMP_SIZE.w && H === CMP_SIZE.h) { cpUnfit(); return; }
+  CP_FORCED = { w: W, h: H };
+  box.style.maxWidth = 'none';
+  box.style.width = W + 'px';
+  box.style.height = H + 'px';
+}
+function cpUnfit() {
+  if (!CP_FORCED) return;
+  CP_FORCED = null;
+  const box = document.getElementById('cmpChartBox');
+  if (!box) return;
+  box.style.maxWidth = '';
+  box.style.width = CMP_SIZE.w + 'px';
+  box.style.height = CMP_SIZE.h + 'px';
+}
+// The readout reads every axis at the pointer, x and each y, and only the
+// panel it is over when stacked; a dashed line marks x. Written into place,
+// not redrawn: the chart is not rebuilt for a moving pointer.
+function cpShowReadout(ev) {
+  const el = document.getElementById('cmpReadout'), svg = document.querySelector('#cmpChart svg');
+  const ch = CP_CH;
+  if (!el || !svg || !ch || ch.empty) { cpHideReadout(); return; }
+  const r = svg.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const px = (ev.clientX - r.left) * (ch.W / r.width), py = (ev.clientY - r.top) * (ch.H / r.height);
+  if (px < ch.px0 || px > ch.px1 || py < ch.top || py > ch.bot) { cpHideReadout(); return; }
+  const items = [['x', cpFmt(ch.xs.inv(px)), ch.X.unit]];
+  ch.axes.forEach(ax => {
+    const s = ch.ys[ax.key];
+    if (!s || s.bare || (ch.stacked && (py < s.panel.y0 || py > s.panel.y1))) return;
+    items.push([ax.side, cpFmt(s.inv(py)), ax.unit]);
+  });
+  el.innerHTML = items.map(([k, v, u]) => `<span class="it"><span class="k">${k}</span>`
+    + `<span class="v">${escapeHtml(v)}</span>${u ? `<span class="u">${escapeHtml(u)}</span>` : ''}</span>`).join('');
+  el.style.top = (ch.top + 6) + 'px';
+  el.style.right = (ch.W - ch.px1 + 6) + 'px';
+  el.classList.add('show');
+  const ln = document.getElementById('cpCross');
+  if (ln) {
+    ln.setAttribute('x1', px.toFixed(1));
+    ln.setAttribute('x2', px.toFixed(1));
+    ln.setAttribute('visibility', 'visible');
+  }
+}
+function cpHideReadout() {
+  const el = document.getElementById('cmpReadout');
+  if (el) el.classList.remove('show');
+  const ln = document.getElementById('cpCross');
+  if (ln) ln.setAttribute('visibility', 'hidden');
+}
+
+// ── drawing the page ────────────────────────────────────────────
+// cmpRender hands the page to this while the custom plot is the type shown.
+function cpRender() {
+  // The other types' transform is not this chart's: their handlers on the
+  // same box (wheel, drag) see none while it is shown.
+  CMP_SCALE = null;
+  cpResolvePending();
+  CP_ACT.axes = []; CP_ACT.opts = []; CP_ACT.legend = [];
+  const X = cpX(), fam = X.fam, A = CP.assign[fam] || {};
+  const all = cpCurves(X, A);
+  const ch = cpChart(X, A, all);
+  cpFit(ch.W, ch.H);
+  document.getElementById('cmpChart').innerHTML = ch.svg;
+  document.getElementById('cpAxes').innerHTML = cpAxesHtml(X, A, ch);
+  document.getElementById('cmpOpts').innerHTML = cpOptsHtml(X, ch);
+  cpRenderLegend(X, A, all);
+  cpRenderNotes(X, A, all);
+  document.getElementById('cmpCount').textContent =
+    `${all.length} curve${all.length === 1 ? '' : 's'}`;
+  document.getElementById('cmpCurveCount').textContent = String(ch.drawn.length);
+  document.getElementById('cmpExport').disabled = !ch.drawn.length || CP_EXPORTING || CMP_EXPORTING;
+  cmpFocusRename();
+  cmpWireChart();
+  cmpObserveSize();
+  cpRenderPick();
+  cmpRenderViews();
+  cpLoad();
+}
+// ① x and ② the y quantities, with the axes each side holds.
+function cpAxesHtml(X, A, ch) {
+  const fam = X.fam, runs = _viewRuns || [];
+  const qdefs = CP_Q[fam].filter(q => !q.only || q.only === X.key);
+  const onX = run => X.key !== 'cyc' || !cpIsTest(run) || cpCounts(run);
+  const xopts = CP_X.map(x => {
+    const n = runs.filter(r => (x.key !== 'cyc' ? cpFamHas(r, x.fam) : cpIsTest(r) && cpCounts(r))).length;
+    const noun = x.fam === 'dur' ? (n === 1 ? 'test' : 'tests') : (n === 1 ? 'sample' : 'samples');
+    const on = x.key === X.key;
+    return `<button type="button" class="cp-xopt${on ? ' on' : ''}" aria-pressed="${on}"
+        onclick="cpSetX('${x.key}')"><span class="l">${escapeHtml(x.label)}<span class="u">${
+        escapeHtml(x.unit)}</span></span><span class="d">${escapeHtml(x.src)} · ${n} ${noun}</span></button>`;
+  }).join('');
+  // How many samples store each quantity: listed so far; '…' while a
+  // durability test's plots are still being read. The limits count every
+  // quantity on the axes, those not drawn against this x too (cpAxesOf).
+  const nAssigned = Object.keys(A).length;
+  const AX = ch.AX, ALL = cpAxesOf(fam, null, A), groups = [];
+  const offHere = ids => {
+    const off = ids.filter(id => !qdefs.some(q => q.id === id)).map(id => (cpQ(fam, id) || {}).name).filter(Boolean);
+    return off.length ? ` (counting ${off.join(' and ')}, not drawn against ${X.lower})` : '';
+  };
+  qdefs.forEach(q => {
+    let n = 0, pending = false;
+    runs.forEach(r => {
+      if (!onX(r)) return;
+      const s = cpSeriesOf(r, q);
+      if (s.list.length) n += 1; else if (s.loading) pending = true;
+    });
+    const a = A[q.id], full = !a && nAssigned >= CP_SHAPES.length;
+    const side = sd => {
+      const on = !!(a && a.side === sd), word = sd === 'L' ? 'left' : 'right', here = ALL[sd];
+      const newAx = !here.some(ax => ax.unit === q.unit);
+      const capped = !on && newAx && here.length >= CP_MAX_AX;
+      const none = n === 0 && !pending;
+      const dis = !on && (none || full || capped);
+      // The axis it would add, as drawn against this x.
+      const shownHere = AX[sd], newShown = !shownHere.some(ax => ax.unit === q.unit);
+      const title = on ? `On the ${word}: click to take it off`
+        : none ? `No ${fam === 'dur' ? 'test' : 'sample'} in the list stores ${q.name}`
+        : full ? 'Six quantities at most' + offHere(Object.keys(A))
+        : capped ? 'Three axes a side at most' + offHere(here.flatMap(ax => ax.qs.map(x => x.id)))
+        : (a ? 'Move to the ' : 'Plot on the ') + word
+          + (newShown && shownHere.length ? `: adds a ${CP_ORDINAL[shownHere.length]} ${word} axis, in ${q.unit}` : '');
+      return `<button type="button" class="lr ${sd === 'L' ? 'l' : 'r'}${on ? ' on' : ''}"
+          aria-pressed="${on}" ${dis ? 'disabled' : ''} title="${escapeAttr(title)}"
+          aria-label="${escapeAttr((on ? `Take ${q.name} off the ` : `Plot ${q.name} on the `) + word)}"
+          onclick="cpSetSide('${fam}','${q.id}','${sd}')">${sd}</button>`;
+    };
+    const noun = fam === 'dur' ? ['test', 'tests'] : ['sample', 'samples'];
+    const nTxt = n ? `${n}${pending ? '…' : ''} ${noun[n === 1 && !pending ? 0 : 1]}`
+      : pending ? 'reading…' : 'none stored';
+    const item = `<span class="cp-q${a ? ' on' : ''}${n ? '' : ' none'}">${side('L')}<span class="mid">${
+        a ? cpGlyph(a.shape, a.side, 12) : ''}<span class="nm">${escapeHtml(q.name)}</span><span class="u">${
+        escapeHtml(q.unit)}</span><span class="c">${escapeHtml(nTxt)}</span></span>${side('R')}</span>`;
+    let g = groups.find(x => x.label === q.grp);
+    if (!g) groups.push(g = { label: q.grp, items: [] });
+    g.items.push(item);
+  });
+  const sc = CP.scale[fam] || {}, rax = (CP.rng[X.key] || {}).ax || {};
+  const zone = sd => {
+    const word = sd === 'L' ? 'left' : 'right';
+    const axs = AX[sd].map(ax => {
+      const s = ch.ys[ax.key], log = sc[ax.key] === 'log', ur = rax[ax.key] || {};
+      const k = ch.axes.indexOf(ax);
+      const seg = v => `<button type="button" class="${(v === 'log') === log ? 'on' : ''}"
+          aria-pressed="${(v === 'log') === log}" onclick="${cpOn('axes', () => cpSetScale(fam, ax.key, v))})">${
+          v === 'log' ? 'Log' : 'Linear'}</button>`;
+      const box = (f, ph, aria, title, extra) => `<input type="text" class="cmp-range${
+          String(ur[f] || '') ? ' set' : ''}${extra || ''}" value="${escapeAttr(ur[f] || '')}"
+          placeholder="${escapeAttr(ph)}" aria-label="${escapeAttr(aria)}" title="${escapeAttr(title)}"
+          onchange="${cpOn('axes', v => cpSetAxRange(ax.key, f, v))}, this.value)">`;
+      const bad = !!(s && s.stepBad);
+      return `<div class="cp-ax">
+          <div class="cp-axhead"><span class="cp-unit">${escapeHtml(ax.unit)}</span>
+            <span class="cp-pos">${ch.stacked ? 'panel ' + (k + 1) : ax.i === 0 ? 'on the plot edge' : 'offset ' + ax.i}</span>
+            <span class="cp-seg" role="group" aria-label="${escapeAttr(`Scale of the ${word} axis in ${ax.unit}`)}">${
+              seg('lin')}${seg('log')}</span></div>
+          ${ax.qs.map(q => `<div class="cp-axq">${cpGlyph(A[q.id].shape, sd, 12)}<span class="n">${
+            escapeHtml(q.name)}</span><button type="button" class="cp-x" title="${escapeAttr(`Take ${q.name} off the ${word}`)}"
+            aria-label="${escapeAttr(`Take ${q.name} off the ${word}`)}"
+            onclick="cpSetSide('${fam}','${q.id}','${sd}')">×</button></div>`).join('')}
+          <div class="cp-rgrid"><span class="h">min</span><span class="h">max</span><span class="h">tick step</span>
+            ${box('lo', s && !s.bare ? cmpFmtTick(s.lo, s.step, s.log) : 'min', `Minimum of the ${word} axis in ${ax.unit}`, 'Blank follows the data')}
+            ${box('hi', s && !s.bare ? cmpFmtTick(s.hi, s.step, s.log) : 'max', `Maximum of the ${word} axis in ${ax.unit}`, 'Blank follows the data')}
+            ${box('st', s && !s.bare ? cmpStepText(s) : 'auto', `Tick spacing of the ${word} axis in ${ax.unit}`,
+              bad ? 'Too fine for this range: the spacing is picked automatically'
+                : s && s.log ? 'Ticks every so many decades. Blank picks one.'
+                : `Tick spacing, in ${ax.unit}. Blank picks one.`, ' cmp-step' + (bad ? ' bad' : ''))}
+          </div></div>`;
+    });
+    return `<div class="cp-zone"><div class="cp-zhead"><span class="cp-lab">${sd === 'L' ? 'Left' : 'Right'}</span>
+        <span class="cmp-hint">${axs.length ? `${axs.length} ${axs.length === 1 ? 'axis' : 'axes'}` : ''}</span></div>
+      ${axs.join('') || `<div class="cmp-hint">Use ${sd} on a quantity to plot it here. A second unit gets an axis of its own.</div>`}
+    </div>`;
+  };
+  return `<div class="cp-step"><span class="cp-steplab"><span class="cp-num">1</span><span class="cp-lab">X axis</span></span>
+      <div class="cp-xopts" role="group" aria-label="X axis">${xopts}</div>
+      <span class="cmp-hint">Choose x first: the quantities offered below are the ones that can be drawn against it.</span></div>
+    <div class="cp-step top"><span class="cp-steplab"><span class="cp-num">2</span><span class="cp-lab">Y axes</span></span>
+      <div class="cp-yrow">${zone('L')}
+        <div class="cp-quants"><div class="cp-qhead"><span class="cp-lab">Quantities against ${escapeHtml(X.lower)}</span>
+          <span class="cmp-hint">Send each to the left or right. A second unit on a side gets an axis of its own.</span>
+          <span class="cmp-hint" style="margin-left:auto">${nAssigned ? `${nAssigned} of ${CP_SHAPES.length} quantities on the axes`
+            : 'Nothing on the axes yet'}</span></div>
+          ${groups.map(g => `<div class="cp-qgrp"><span class="g">${escapeHtml(g.label)}</span>
+            <div class="cp-qs">${g.items.join('')}</div></div>`).join('')}</div>
+        ${zone('R')}</div></div>`;
+}
+// Over the chart: the layout, and x's range and tick spacing.
+function cpOptsHtml(X, ch) {
+  const rg = CP.rng[X.key] || {};
+  const seg = (v, l) => `<button type="button" class="${CP.layout === v ? 'on' : ''}" aria-pressed="${
+    CP.layout === v}" onclick="cpSetLayout('${v}')">${l}</button>`;
+  const any = ['x0', 'x1', 'xs'].some(k => String(rg[k] || '').trim())
+    || Object.values(rg.ax || {}).some(a => ['lo', 'hi', 'st'].some(f => String((a || {})[f] || '').trim()));
+  const xs = ch.xs, bad = !!xs.stepBad;
+  const box = (k, ph, aria, title, extra) => `<input type="text" class="cmp-range${
+    String(rg[k] || '') ? ' set' : ''}${extra || ''}" value="${escapeAttr(rg[k] || '')}" placeholder="${
+    escapeAttr(ph)}" aria-label="${aria}" title="${escapeAttr(title)}"
+    onchange="${cpOn('opts', v => cpSetRange(k, v))}, this.value)">`;
+  return `<span class="cp-lay">Layout <span class="cp-seg" role="group" aria-label="Layout">${seg('dual', 'Overlaid')}${
+      seg('stack', 'Stacked panels')}</span></span>
+    <span class="cmp-ranges"><span class="cmp-rlab">x</span>
+      ${box('x0', xs.bare ? 'min' : cmpFmtTick(xs.lo, xs.step), 'x minimum', 'Blank follows the data')}
+      ${box('x1', xs.bare ? 'max' : cmpFmtTick(xs.hi, xs.step), 'x maximum', 'Blank follows the data')}
+      <span class="cmp-rlab dim">tick step</span>
+      ${box('xs', xs.bare ? 'auto' : cmpStepText(xs), 'x tick spacing',
+        bad ? 'Too fine for this range: the spacing is picked automatically'
+          : `Tick spacing, in ${X.unit}. Blank picks one.`, ' cmp-step' + (bad ? ' bad' : ''))}
+      <button class="btn btn-sm" onclick="cpResetRange()" ${any ? '' : 'disabled'}
+        title="Clear the x range and tick step, and every axis’s">Reset</button></span>
+    <span class="cmp-hint">${ch.stacked ? 'Hover a panel to read it.' : 'Hover the plot to read every axis.'}
+      Each y axis takes its own range, tick step and scale, above.</span>`;
+}
+// The legend: a group per sample, in colour order (drag to reorder, click the
+// name to rename it for the plots), a row per curve.
+function cpRenderLegend(X, A, all) {
+  const fam = X.fam, colours = cpColours(fam);
+  const html = [...colours.keys()].map(k => {
+    const rows = all.filter(c => c.key === k).sort((p, q) =>
+      (p.side === q.side ? 0 : p.side === 'L' ? -1 : 1) || p.shapeIx - q.shapeIx || p.si - q.si);
+    if (!rows.length) return '';
+    const run = cmpRunFor(k), stored = run ? String(run.sample_name || k) : k;
+    // Off the chart altogether: its curves of quantities off the axes too.
+    const ids = (CP.curves[fam] || []).filter(id => (cpParse(id) || [])[0] === k);
+    return `<div class="cmp-grp" draggable="${CMP_NAME_EDIT === k ? 'false' : 'true'}" data-cmpkey="${escapeAttr(k)}"
+        ondragstart="cmpDragStart(event,this.dataset.cmpkey)" ondragover="cmpDragOver(event,this.dataset.cmpkey)"
+        ondragleave="cmpDragLeave(event)" ondrop="cmpDrop(event,this.dataset.cmpkey)" ondragend="cmpDragEnd()">
+      <div class="cmp-grphead">
+        <span class="cmp-handle" title="Drag to reorder — order sets the colour">⠿</span>
+        <span class="cmp-sw" style="background:${colours.get(k)}"></span>
+        ${cmpNameHtml(k, run ? run.sample_name : '')}
+        <span class="cnt">${rows.length}</span>
+        <span class="cmp-act" role="button" title="${escapeAttr('Remove ' + cmpNameOf(k, stored))}"
+          onclick="${cpOn('legend', () => cpDropCurves(fam, ids))})">×</span>
+      </div>
+      <div class="cmp-steps">${rows.map(c => {
+        const off = !!CP.hidden[c.id] || !!c.why || c.loading;
+        const ser = c.why ? 'not drawn' : c.loading ? 'reading…' : c.label;
+        const cond = c.why ? 'Not drawn: ' + c.why : c.label + (c.sub ? ' — ' + c.sub : '');
+        const kv = c.why || c.loading ? [] : cpKv(c, X);
+        const what = `${c.q.name}, ${c.label}`;
+        return `<div class="cmp-strow cp-row${off ? ' off' : ''}" title="${escapeAttr(cond)}">
+          <span class="cmp-scol1">${cpKey(c.color, c.dash, c.shape, c.side)}
+            <span class="cp-qn">${escapeHtml(c.q.name)}</span><span class="cond">${escapeHtml(ser)}</span></span>
+          <span class="cmp-scol2"><span class="cp-tag">${escapeHtml(c.side + ' · ' + c.q.unit)}</span>${
+            kv.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.k)}</span><span class="v">${
+              escapeHtml(m.v)}</span></span>`).join('')}</span>
+          <span class="cmp-sacts">
+            <span class="cmp-act" role="button" title="${escapeAttr((CP.hidden[c.id] ? 'Show ' : 'Hide ') + what)}"
+              onclick="${cpOn('legend', () => cpToggleHidden(c.id))})">${CP.hidden[c.id] ? '○' : '●'}</span>
+            <span class="cmp-act" role="button" title="${escapeAttr('Remove ' + what)}"
+              onclick="${cpOn('legend', () => cpDropCurves(fam, [c.id]))})">×</span></span>
+        </div>`; }).join('')}</div></div>`;
+  }).join('');
+  document.getElementById('cmpCurves').innerHTML = html
+    || '<div class="cmp-empty" style="padding:26px 16px;font-size:12px">No curves yet. Add them from the list below.</div>';
+}
+// What a curve measured, beside it in the legend. Start and end are its
+// earliest and latest points in x, whichever of its parts holds them.
+function cpKv(c, X) {
+  const parts = c.segs, first = parts[0] || [];
+  const xl = x => (X.key === 'cyc' ? Math.round(x).toLocaleString('en-US') + ' cyc' : (Math.round(x * 10) / 10) + ' h');
+  if (!first.length) return [];
+  let a = first[0], z = first[0], n = 0;
+  parts.forEach(pts => pts.forEach(p => { n += 1; if (p[0] < a[0]) a = p; if (p[0] >= z[0]) z = p; }));
+  if (c.q.kind === 'pts') {
+    return n === 1 ? [{ k: xl(a[0]), v: cpFmt(a[1]) }]
+      : [{ k: xl(a[0]), v: cpFmt(a[1]) }, { k: xl(z[0]), v: cpFmt(z[1]) }];
+  }
+  if (c.q.kind === 'trace') {
+    return [{ k: 'start', v: cpFmt(a[1]) }, { k: 'end', v: cpFmt(z[1]) }];
+  }
+  const ys = first.map(p => p[1]);
+  const yAt = x => {
+    for (let i = 1; i < first.length; i++) {
+      const [x0, y0] = first[i - 1], [x1, y1] = first[i];
+      if ((x0 - x) * (x1 - x) <= 0 && x1 !== x0) return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+    }
+    return null;
+  };
+  if (c.q.id === 'vcell' || c.q.id === 'virf') return [{ k: '@ 1 A/cm²', v: cpFmt(yAt(1)) }];
+  if (c.q.id === 'pwr') return [{ k: 'peak', v: cpFmt(Math.max(...ys)) }];
+  if (c.q.id === 'xcv') return [{ k: '@ 0.4 V', v: cpFmt(yAt(0.4)) }];
+  return [{ k: 'min', v: cpFmt(Math.min(...ys)) }, { k: 'max', v: cpFmt(Math.max(...ys)) }];
+}
+// Under the chart: what is not drawn, and why; a quantity with nothing added.
+function cpRenderNotes(X, A, all) {
+  const notes = [], undrawn = new Map();
+  all.forEach(c => {
+    if (!c.why) return;
+    const n = cmpNameOf(c.key, c.stored);
+    if (!undrawn.has(n)) undrawn.set(n, new Set());
+    undrawn.get(n).add(c.why);
+  });
+  undrawn.forEach((whys, n) => notes.push(`<span class="warn">Not drawn against ${escapeHtml(X.lower)}: ${
+    escapeHtml(n)} — ${escapeHtml([...whys].join('; '))}.</span>`));
+  const qa = CP_Q[X.fam].filter(q => A[q.id] && (!q.only || q.only === X.key));
+  const bare = qa.filter(q => !all.some(c => c.q.id === q.id));
+  if (bare.length && all.length) {
+    notes.push(`Nothing added yet for ${escapeHtml(bare.map(q => q.name).join(', '))}: pick it in the list below.`);
+  }
+  if (all.some(c => c.loading)) notes.push('Reading curves…');
+  const el = document.getElementById('cpChartNote');
+  el.innerHTML = notes.map(n => `<span>${n}</span>`).join('');
+  el.classList.toggle('show', notes.length > 0);
+}
+// ③ Add curves: the samples that store the quantities on the axes, against
+// this x, a chip for each series (dashed where a sample stores none of a
+// quantity, under "any"); the search and the stand filter are the other
+// types'.
+function cpRenderPick() {
+  CP_ACT.pick = [];
+  const X = cpX(), fam = X.fam, A = CP.assign[fam] || {};
+  cmpFillStands();
+  const qa = CP_Q[fam].filter(q => A[q.id] && (!q.only || q.only === X.key))
+    .sort((p, q) => (A[p.id].side === A[q.id].side ? 0 : A[p.id].side === 'L' ? -1 : 1)
+      || (A[p.id].ord || 0) - (A[q.id].ord || 0));
+  const needle = (document.getElementById('cf-q')?.value || '').trim().toLowerCase();
+  const colours = cpColours(fam), have = new Set(CP.curves[fam] || []);
+  // A chip shows the dash its series has on the chart, or would take added next.
+  const vocab = cpSeriesVocab(fam, X, A);
+  const famRuns = (_viewRuns || []).filter(r => cpFamHas(r, fam));
+  const rows = [], offX = [], offY = [], shown = [];
+  famRuns.forEach(run => {
+    const k = runKey(run), name = String(run.sample_name || k);
+    if (needle && !name.toLowerCase().includes(needle)) return;
+    if (!standMatches(run.stand, CF.stand)) return;
+    if (!qa.length) return;
+    if (X.key === 'cyc' && !(cpIsTest(run) && cpCounts(run))) { offX.push(name); return; }
+    const info = qa.map(q => ({ q, ...cpSeriesOf(run, q) }));
+    const got = info.filter(i => i.list.length);
+    const missing = info.filter(i => !i.list.length && !i.loading && !i.failed);
+    if (CP.has === 'all' ? missing.length : !got.length && !info.some(i => i.loading || i.failed)) {
+      offY.push(name + (CP.has === 'all' ? ` (no ${missing.map(i => i.q.name).join(', no ')})` : ''));
+      return;
+    }
+    const chips = [], real = [];
+    info.forEach(({ q, list, loading, failed }) => {
+      const a = A[q.id];
+      if (!list.length) {
+        chips.push(`<span class="cp-chip ghost" title="${escapeAttr(loading ? `Reading what ${name} stores`
+          : failed ? `What ${name} stores could not be read: choose x again to try again`
+          : `${name} stores no ${q.name}`)}"><span class="t"><span class="q">${escapeHtml(q.name)}</span>`
+          + `<span class="s">${loading ? 'reading…' : failed ? 'could not be read' : 'none stored'}</span></span></span>`);
+        return;
+      }
+      list.forEach(se => {
+        const id = cpId(k, q.id, se.sid), on = have.has(id);
+        real.push(id);
+        const color = colours.get(k) || '#8a97a8';
+        chips.push(`<button type="button" class="cp-chip${on ? ' on' : ''}" aria-pressed="${on}"
+            title="${escapeAttr(`${q.name}, ${se.label}${se.sub ? ' — ' + se.sub : ''} (${a.side === 'L' ? 'left' : 'right'})`)}"
+            onclick="${cpOn('pick', () => cpToggleCurve(fam, id))})">${
+            cpKey(color, cpDashOf(vocab, se.match), CP_SHAPES[a.shape], a.side)}<span class="t"><span class="q">${
+            escapeHtml(q.name)}</span><span class="s">${escapeHtml(se.label)}</span></span></button>`);
+      });
+    });
+    shown.push(...real);
+    const allOn = real.length && real.every(id => have.has(id));
+    const alias = cmpAliasOf(k);
+    rows.push(`<div class="cmp-prow cp-prow">
+        <span class="cp-pname"><span class="n" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
+          <span class="l">${escapeHtml(cpLife(run, fam) + (alias ? ` · plotted as “${alias}”` : ''))}</span></span>
+        <span class="cmp-pstand">${escapeHtml(run.stand || '—')}</span>
+        <span class="cmp-chiprow">${chips.join('')}</span>
+        ${real.length ? `<button class="btn btn-sm" aria-label="${escapeAttr((allOn ? 'Remove all of ' : 'Add all of ') + name)}"
+          onclick="${cpOn('pick', () => (allOn ? cpDropCurves(fam, real) : cpAddCurves(fam, real)))})">${
+          allOn ? 'Remove all' : 'Add all'}</button>` : '<span></span>'}
+      </div>`);
+  });
+  document.getElementById('cmpPick').innerHTML = !qa.length
+    ? '<div class="cmp-empty" style="padding:26px 18px;font-size:12.5px">Send a quantity to the left or right axis above: this list then shows the samples that store it.</div>'
+    : rows.join('') || '<div class="cmp-empty" style="padding:26px 18px;font-size:12.5px">No sample in the list matches.</div>';
+  const names = qa.map(q => q.name);
+  const listQ = names.length <= 1 ? names.join('')
+    : names.slice(0, -1).join(', ') + (CP.has === 'all' ? ' and ' : ' or ') + names[names.length - 1];
+  const noun = fam === 'dur' ? 'tests' : 'samples';
+  document.getElementById('cmpPickHint').textContent = qa.length
+    ? `${rows.length} of ${famRuns.length} ${noun} ${rows.length === 1 ? 'has' : 'have'} ${listQ}` : '';
+  const hasSeg = (v, l) => `<button type="button" class="${CP.has === v ? 'on' : ''}" aria-pressed="${
+    CP.has === v}" onclick="cpSetHas('${v}')">${l}</button>`;
+  document.getElementById('cpPickCtl').innerHTML = `<span class="cmp-pre cp-has" role="group"
+      aria-label="Which samples to list"><span class="pre">Has</span>${hasSeg('any', 'any')}${hasSeg('all', 'all')}
+      <span class="pre post">of the y quantities</span></span>`;
+  const addable = shown.filter(id => !have.has(id));
+  document.getElementById('cmpStatBtns').innerHTML = `<button class="btn btn-sm" ${addable.length ? '' : 'disabled'}
+      onclick="${cpOn('pick', () => cpAddCurves(fam, addable))})">Add all shown</button>`;
+  const chipsEl = document.getElementById('cmpFChips');
+  chipsEl.innerHTML = CF.stand ? `<span class="vf-chip"><span class="k">stand</span>${escapeHtml(CF.stand)}
+      <span class="x" onclick="cmpClearFilter('stand')">×</span></span>` : '';
+  chipsEl.classList.toggle('show', !!CF.stand);
+  const pickNotes = [];
+  if (offX.length) {
+    pickNotes.push(`Not listed against RH cycles: ${offX.join(', ')} — no RH cycles counted (RH held steady).`);
+  }
+  if (offY.length) {
+    pickNotes.push(`Not listed, having ${CP.has === 'all' ? 'only some' : 'none'} of the y quantities: ${offY.join('; ')}.`);
+  }
+  document.getElementById('cmpNote').innerHTML = CP_OPENED + CP_SAVED
+    + pickNotes.map(n => `<span>${escapeHtml(n)}</span>`).join(' ');
+  const ph = document.querySelector('.cmp-pickhead');
+  if (ph) ph.classList.remove('picking');
+  const pt = ph && ph.querySelector('.cmp-t');
+  if (pt) pt.textContent = 'Add curves';
+}
+// A row's second line: a test's lifetime, or a sample's steps of the family.
+function cpLife(run, fam) {
+  if (cpIsTest(run)) {
+    const u = cmpUnitsFor(run, 'fcdur_ocv')[0];
+    const d = (run.Data || []).find(x => x.Analysis === 'fc_durability') || {};
+    const cyc = Number((d.key_values || {})['RH cycles tested']);
+    return [u && u.cond, cyc > 0 ? `${cyc.toLocaleString('en-US')} RH cycles` : ''].filter(Boolean).join(' · ')
+      || 'durability test';
+  }
+  const LABEL = { polcurve: 'Pol curve', crossover: 'H₂ crossover', ecsa: 'ECSA' };
+  return [...new Set((CP_Q[fam] || []).map(q => q.std).filter(Boolean))].map(an => {
+    const n = cmpUnitsFor(run, an).length;
+    return n ? `${LABEL[an] || an} · ${n} step${n === 1 ? '' : 's'}` : '';
+  }).filter(Boolean).join(', ');
+}
+
+// ── export ──────────────────────────────────────────────────────
+// The chart as drawn, a PNG with its legend under it, and an xlsx of every
+// stored point of each curve (/api/view/custom-export): the server-side
+// comparison overlays one plot type at a time and cannot draw this. Samples
+// are named as the legend names them.
+async function cpExport() {
+  const X = cpX(), A = CP.assign[X.fam] || {};
+  // In the legend's order: by sample, then left before right, by marker and series.
+  const all = cpCurves(X, A).filter(c => !CP.hidden[c.id]).sort((p, q) => p.sample - q.sample
+    || (p.side === q.side ? 0 : p.side === 'L' ? -1 : 1) || p.shapeIx - q.shapeIx || p.si - q.si);
+  const drawn = all.filter(c => !c.why && !c.loading && c.segs.length);
+  const AX = cpAxesOf(X.fam, X, A), sc = CP.scale[X.fam] || {};
+  const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff';
+  const rows = all.filter(c => !c.loading).map(c => ({
+    color: c.color, dash: c.dash, weight: 2,
+    glyph: { shape: c.shape, fill: c.side === 'L' ? c.color : surface },
+    name: cmpNameOf(c.key, c.stored),
+    note: `${c.q.name} · ${c.label}${c.sub ? ' — ' + c.sub : ''} · ${c.side === 'L' ? 'left' : 'right'}, ${c.q.unit}`
+      + (c.why ? ` · not drawn: ${c.why}` : ''),
+    kv: {} }));
+  const axisText = side => AX[side].map((ax, i) => ({
+    side: `${side === 'L' ? 'Left' : 'Right'} axis${AX[side].length > 1 ? ' ' + (i + 1) : ''}`,
+    text: ax.qs.map(q => q.name).join(', ') + ` (${ax.unit}${sc[ax.key] === 'log' ? ', log' : ''})` }));
+  const rng = CP.rng[X.key] || {};
+  const ranged = ['x0', 'x1'].some(k => String(rng[k] || '').trim())
+    || Object.values(rng.ax || {}).some(a => ['lo', 'hi'].some(f => String((a || {})[f] || '').trim()));
+  const btn = document.getElementById('cmpExport');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  // The button's own label: what it says mid-export is not it.
+  const label = btn.dataset.label;
+  CP_EXPORTING = true;
+  CP_SAVED = '';
+  btn.disabled = true;
+  btn.textContent = 'Saving chart…';
+  const png = `custom-plot-${stamp}.png`, xlsx = `custom-plot-${stamp}.xlsx`;
+  let savedPng = false, savedXlsx = false, why = '';
+  try {
+    try {
+      savedPng = await cmpDownloadPng(png, {
+        sel: '#cmpChart svg', title: `Custom plot — against ${X.lower}`, rows, nameCol: 'Sample',
+        bits: [`${drawn.length} curve${drawn.length === 1 ? '' : 's'}`,
+               CP.layout === 'stack' && AX.L.length + AX.R.length > 1 ? 'stacked panels' : 'overlaid']
+          .concat(ranged ? ['ranges set'] : []) });
+    } catch (e) {
+      console.error('custom plot PNG:', e);
+    }
+    btn.textContent = 'Saving data…';
+    const r = await fetch('/api/view/custom-export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        x: X.key, xtitle: X.title, title: `Custom plot against ${X.lower}`,
+        layout: CP.layout === 'stack' ? 'stacked panels' : 'overlaid',
+        exported: new Date().toLocaleString(), axes: axisText('L').concat(axisText('R')),
+        curves: drawn.map(c => ({
+          key: c.key, name: cmpNameOf(c.key, c.stored), stored: c.stored, quantity: c.q.name,
+          unit: c.q.unit, axis: `${c.side === 'L' ? 'Left' : 'Right'} (${c.q.unit})`,
+          series: c.label, cond: c.sub,
+          src: c.src.plot ? { analysis: 'fc_durability', step: '', plot_type: c.src.plot, points: true }
+            : { analysis: c.src.analysis, step: c.src.step },
+          pick: c.pick })) }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error((d && d.detail) || 'HTTP ' + r.status);
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = xlsx;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    savedXlsx = true;
+  } catch (e) {
+    why = e.message;
+  } finally {
+    CP_EXPORTING = false;
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+  // Said under Add curves until the plot is changed (cpChanged), redraws and all.
+  CP_SAVED = '<span>' + [
+    savedPng ? `Chart saved as <b>${escapeHtml(png)}</b>.` : 'Could not save the chart image.',
+    savedXlsx ? `Every stored point of its ${drawn.length} curve${drawn.length === 1 ? '' : 's'} saved as <b>${escapeHtml(xlsx)}</b>.`
+      : `<span class="warn">Could not save its data: ${escapeHtml(why)}.</span>`].join(' ') + '</span> ';
+  // Whichever type is shown now sets the button as it should be.
+  cmpRender();
+}
+
+// ── saved views ─────────────────────────────────────────────────
+const cpSnapshot = () => JSON.parse(JSON.stringify(CP));
+// A saved custom plot, as it opens: anything not what the plot keeps is let go
+// (a view edited by hand, or saved by a later version), and curves of samples
+// no longer stored are dropped and listed (`gone`).
+function cpRestore(s) {
+  const c = cpFresh(), gone = [];
+  if (!s || typeof s !== 'object') return { cp: c, gone };
+  const str = v => typeof v === 'string';
+  if (CP_X.some(x => x.key === s.x)) c.x = s.x;
+  Object.keys(CP_Q).forEach(fam => {
+    const a = ((s.assign || {})[fam]) || {}, out = {}, used = new Set();
+    Object.keys(a).forEach(qid => {
+      const v = a[qid];
+      if (!cpQ(fam, qid) || !v || (v.side !== 'L' && v.side !== 'R')) return;
+      let shape = Number.isInteger(v.shape) && v.shape >= 0 && v.shape < CP_SHAPES.length
+        && !used.has(v.shape) ? v.shape : null;
+      if (shape == null) {
+        shape = 0;
+        while (used.has(shape)) shape++;
+        if (shape >= CP_SHAPES.length) return;
+      }
+      used.add(shape);
+      out[qid] = { side: v.side, shape, ord: Number.isFinite(v.ord) ? v.ord : 0 };
+    });
+    // No more axes a side than the plot allows, the latest let go.
+    ['L', 'R'].forEach(sd => {
+      cpAxesOf(fam, null, out)[sd].slice(CP_MAX_AX)
+        .forEach(ax => ax.qs.forEach(q => { delete out[q.id]; }));
+    });
+    c.assign[fam] = out;
+    const sc = ((s.scale || {})[fam]) || {};
+    c.scale[fam] = Object.fromEntries(Object.entries(sc).filter(([, v]) => v === 'log' || v === 'lin'));
+    const ids = (s.curves && typeof s.curves === 'object') ? s.curves[fam] : null;
+    c.curves[fam] = [...new Set((Array.isArray(ids) ? ids : []).filter(id => {
+      const p = str(id) && cpParse(id);
+      if (!p || !cpQ(fam, p[1])) return false;
+      if (!cmpRunFor(p[0])) { gone.push(`${p[0]} · ${cpQ(fam, p[1]).name} ${cpLabelOfSid(p[2])}`); return false; }
+      return true;
+    }))];
+  });
+  Object.entries(s.rng || {}).forEach(([xk, r]) => {
+    if (!CP_X.some(x => x.key === xk) || !r || typeof r !== 'object') return;
+    const o = {};
+    ['x0', 'x1', 'xs'].forEach(k => { if (str(r[k])) o[k] = r[k]; });
+    if (r.ax && typeof r.ax === 'object') {
+      o.ax = {};
+      Object.entries(r.ax).forEach(([ak, v]) => {
+        if (!v || typeof v !== 'object') return;
+        o.ax[ak] = {};
+        ['lo', 'hi', 'st'].forEach(k => { if (str(v[k])) o.ax[ak][k] = v[k]; });
+      });
+    }
+    c.rng[xk] = o;
+  });
+  const live = new Set(Object.values(c.curves).flat());
+  Object.keys(s.hidden || {}).forEach(id => { if (live.has(id) && s.hidden[id]) c.hidden[id] = true; });
+  c.layout = s.layout === 'stack' ? 'stack' : 'dual';
+  c.has = s.has === 'all' ? 'all' : 'any';
+  c.order = Array.isArray(s.order) ? s.order.filter(str) : [];
+  CP = c;
+  cpSyncOrder();
+  return { cp: CP, gone };
 }
 
 // ═══ Trends ═══════════════════════════════════════════════════════
@@ -8705,9 +10827,10 @@ function cmpWriteViews(views) {
 
 function cmpSaveView() {
   const sel = cmpSelected();
+  const custom = CMP_TYPE === CP_TYPE;
   // A comparison can be nothing but means — the contributing curves need never
   // have been plotted individually — so statistical curves count as content.
-  if (!sel.length && !CMP_STATS.length) {
+  if (custom ? !(CP.curves[cpX().fam] || []).length : !sel.length && !CMP_STATS.length) {
     alert('Add some curves before saving a view.'); return;
   }
   const views = cmpReadViews();
@@ -8716,6 +10839,14 @@ function cmpSaveView() {
   if (!name) return;
   if (views[name] && !confirm(`Replace the saved view "${name}"?`)) return;
 
+  // A custom plot is kept whole: its x, axes, curves, ranges and layout, and
+  // the names its samples are shown under.
+  if (custom) {
+    views[name] = { type: CP_TYPE, cp: cpSnapshot(), alias: { ...(CMP_ALIAS[CP_TYPE] || {}) },
+                    saved: new Date().toISOString() };
+    if (cmpWriteViews(views)) cmpRenderViews(name);
+    return;
+  }
   views[name] = {
     type: CMP_TYPE,
     // Plain objects and arrays: a Map and a Set do not survive JSON.
@@ -8725,8 +10856,13 @@ function cmpSaveView() {
     band: [...CMP_BAND],
     opt: { ...CMP_OPT },
     // A view saved while zoomed should reopen zoomed: the window is part of
-    // what was being looked at, not incidental to it.
+    // what was being looked at, not incidental to it. So are its tick
+    // spacings.
     view: CMP_VIEW ? { ...CMP_VIEW } : null,
+    step: { ...cmpStep() },
+    // The names samples are shown under on this chart, kept with this view
+    // and no other.
+    alias: { ...(CMP_ALIAS[CMP_TYPE] || {}) },
     // Statistical curves are part of the comparison, not decoration on it.
     // Only the definition is stored; the series are refetched like any other.
     stats: CMP_STATS.map(st => ({ ...st })),
@@ -8742,6 +10878,23 @@ function cmpLoadView(name) {
   const v = cmpReadViews()[name];
   if (!v) { cmpRenderViews(''); return; }
 
+  if (v.type === CP_TYPE) {
+    CMP_TYPE = CP_TYPE;
+    const { gone } = cpRestore(v.cp);
+    cmpLoadNamesAndSteps(v);
+    CP_PENDING = [];
+    CP_FAILED.clear();
+    CMP_CYC.forEach((m, k) => { if (m === false) CMP_CYC.delete(k); });   // asked again
+    // Said under Add curves until the plot is changed: the redraws that
+    // follow as its curves are read would otherwise take it away.
+    CP_SAVED = '';
+    CP_OPENED = gone.length ? `<span class="warn">Opened “${escapeHtml(name)}”
+        without ${gone.length} curve${gone.length === 1 ? '' : 's'} of samples no longer stored: ${
+        escapeHtml(gone.slice(0, 4).join(', '))}${gone.length > 4 ? `, and ${gone.length - 4} more` : ''}.</span> ` : '';
+    cmpRenderViews(name);
+    cmpRender();
+    return;
+  }
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
   // A view saved before j @ 0.65 V replaced j @ 0.6 V asks for the panel by
   // its old name; one saved before the RH cycles axis is on hold hours.
@@ -8760,6 +10913,7 @@ function cmpLoadView(name) {
   // A view saved before the band has none shaded.
   CMP_BAND = new Set((Array.isArray(v.band) ? v.band : []).filter(id => typeof id === 'string'));
   CMP_VIEW = v.view ? { ...v.view } : null;
+  cmpLoadNamesAndSteps(v);
   CMP_STATS = (v.stats || []).map(st => ({ ...st }));
 
   // A saved view names samples that may since have been renamed, merged or
@@ -8796,6 +10950,24 @@ function cmpLoadView(name) {
   }
 }
 
+// A saved view's tick spacings and sample names, as it opens, for its own
+// chart type (CMP_TYPE, set before this): the type's names and spacings are
+// the view's, and any shown on it before go. Other types keep theirs (the
+// custom plot's when a standard view opens, and the other way round). One
+// saved before either has none; anything not a number, or not a name, is
+// let go. The custom plot keeps its spacings in its own state (cpRestore).
+function cmpLoadNamesAndSteps(v) {
+  const st = v.step && typeof v.step === 'object' ? v.step : {};
+  const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
+  if (CMP_TYPE !== CP_TYPE) CMP_STEPS = { ...CMP_STEPS, [CMP_TYPE]: { x: num(st.x), y: num(st.y) } };
+  const al = v.alias && typeof v.alias === 'object' && !Array.isArray(v.alias) ? v.alias : {};
+  const mine = Object.fromEntries(Object.entries(al)
+    .filter(([, n]) => typeof n === 'string' && n.trim()).map(([k, n]) => [k, n.trim()]));
+  CMP_ALIAS = { ...CMP_ALIAS };
+  if (Object.keys(mine).length) CMP_ALIAS[CMP_TYPE] = mine; else delete CMP_ALIAS[CMP_TYPE];
+  CMP_NAME_EDIT = null; CMP_NAME_DRAFT = ''; CMP_NAME_SEL = null;
+}
+
 function cmpDeleteView() {
   const sel = document.getElementById('cmpViewSel');
   const name = sel.value;
@@ -8817,8 +10989,11 @@ function cmpRenderViews(selected) {
     + (names.length ? 'Saved views…' : 'No saved views') + '</option>'
     + names.map(n => {
         const v = views[n];
-        const n_ = Object.values(v.sel || {}).reduce((a, x) => a + x.length, 0);
-        const ty = (CMP_TYPES[v.type] || {}).label || v.type || '';
+        const cp = v.type === CP_TYPE && v.cp && typeof v.cp === 'object' ? v.cp : null;
+        const list = cp && (cp.curves || {})[(CP_X.find(x => x.key === cp.x) || CP_X[0]).fam];
+        const n_ = cp ? (Array.isArray(list) ? list.length : 0)
+          : Object.values(v.sel || {}).reduce((a, x) => a + x.length, 0);
+        const ty = cp ? 'Custom plot' : (CMP_TYPES[v.type] || {}).label || v.type || '';
         return `<option value="${escapeAttr(n)}" ${n === cur ? 'selected' : ''}`
              + ` title="${escapeAttr(`${n_} curve(s) · ${ty}`)}">${escapeHtml(n)}</option>`;
       }).join('');
@@ -8869,7 +11044,7 @@ function cmpExportRows() {
     }
     const why = cmpUndrawn(u.key, CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step)));
     rows.push({ color: cmpColorOf(u.key), dash: cmpDashOf(u.step), weight: 2,
-                name: (run && run.sample_name) || u.key,
+                name: cmpNameOf(u.key, run && run.sample_name),
                 note: `${u.step}${u.cond ? ' · ' + u.cond : ''}`
                       + (cmpBanded(u) ? ' · high–low shaded' : '')
                       + (why ? ` · not drawn: ${why}` : ''), kv });
@@ -9008,6 +11183,11 @@ function cmpSvgToPng(scale, spec) {
           stroke: r.color, 'stroke-width': r.weight });
         if (r.dash) ln.setAttribute('stroke-dasharray', r.dash);
         clone.appendChild(ln);
+        // The custom plot's curves carry their quantity's marker over the line.
+        if (r.glyph) {
+          clone.appendChild(mk('path', { d: cpShapePath(r.glyph.shape, 27, y - 4, 3.6),
+            fill: r.glyph.fill, stroke: r.color, 'stroke-width': 1.4 }));
+        }
       }
       const nm = mk('text', { x: 46, y, fill: ink, 'font-family': sans,
         'font-size': 11 }, r.name);
@@ -9055,6 +11235,7 @@ async function cmpDownloadPng(name, spec) {
 }
 
 async function exportComparison() {
+  if (CMP_TYPE === CP_TYPE) { await cpExport(); return; }
   const sels = [];
   const bands = !!(CMP_TYPES[CMP_TYPE] || {}).bands;
   // Drawn against RH cycles, the server draws against them too, off the same
@@ -9065,15 +11246,20 @@ async function exportComparison() {
     if (cyc && !CMP_CYC.get(u.key)) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
     // The server draws a stored band unless told otherwise, so a type with
-    // bands says for every sample whether it is shaded here.
-    if (sr) sels.push({ key: u.key, plot: sr.plot, label: `${sr.sample_name} ${u.step}`,
+    // bands says for every sample whether it is shaded here. Its legend and
+    // workbook name each curve by its label: the name the chart shows.
+    if (sr) sels.push({ key: u.key, plot: sr.plot,
+                        label: `${cmpNameOf(u.key, sr.sample_name)} ${u.step}`,
                         ...(bands ? { band: CMP_BAND.has(cmpCurveId(u.key, u.step)) } : {}),
                         ...(cyc ? { x: 'cycles' } : {}) });
   });
   const btn = document.getElementById('cmpExport');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   btn.disabled = true;
-  const label = btn.textContent;
+  // The button's own label (not what it says mid-export); off on every type
+  // until this is done (CMP_EXPORTING), then as the type shown needs it.
+  const label = btn.dataset.label, type0 = CMP_TYPE;
+  CMP_EXPORTING = true;
 
   // The on-screen chart first, because it is the thing that cannot be
   // reproduced elsewhere: the server renders from the stored sidecars and
@@ -9085,8 +11271,13 @@ async function exportComparison() {
   // The server-side comparison needs two plotted curves; a chart that is only
   // statistical curves still exports its PNG.
   if (sels.length < 2) {
-    btn.disabled = false; btn.textContent = label;
-    document.getElementById('cmpNote').innerHTML = savedPng
+    CMP_EXPORTING = false;
+    btn.textContent = label;
+    // The same type: its button back on, as it was (a redraw here could land
+    // under a press); another type shown meanwhile sets its own.
+    if (CMP_TYPE === type0) btn.disabled = false; else cmpRender();
+    // Said under this chart, if it is still the one shown.
+    if (CMP_TYPE === type0) document.getElementById('cmpNote').innerHTML = savedPng
       ? `Chart saved as <b>comparison-${stamp}.png</b>. The workbook needs at
          least two plotted curves — a statistical curve alone has nothing to
          tabulate against.`
@@ -9111,8 +11302,9 @@ async function exportComparison() {
     alert('The comparison job failed: ' + e.message
           + (savedPng ? '\n\nThe chart image was still saved.' : ''));
   } finally {
-    btn.disabled = false;
+    CMP_EXPORTING = false;
     btn.textContent = label;
+    cmpRender();
   }
 }
 

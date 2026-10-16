@@ -586,13 +586,55 @@ async def view_export(key: str = Query(...), analysis: str = Query(None),
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@app.post("/api/view/custom-export")
+def view_custom_export(payload: dict):
+    """The Comparisons custom plot's curves as an xlsx, every stored point.
+
+    The custom plot overlays quantities of different analyses, which the
+    server-side comparison (one plot type at a time) cannot draw, so its
+    export is the chart's own PNG, saved in the browser, and this workbook:
+    each curve read again from the plot the chart drew it from
+    (viewstore.custom_plot_curves). A data read, not a job. A plain function,
+    so FastAPI runs it in a worker thread: reading the store and building the
+    workbook do not hold up every other request.
+    """
+    from fastapi.responses import Response
+    from scripts.helpers import viewstore, xlsx_export
+
+    curves = payload.get('curves') if isinstance(payload, dict) else None
+    if not isinstance(curves, list) or not curves:
+        raise HTTPException(400, "curves is required")
+    if len(curves) > viewstore.CUSTOM_EXPORT_MAX:
+        raise HTTPException(400, f"too many curves ({len(curves)}); "
+                                 f"{viewstore.CUSTOM_EXPORT_MAX} is the most one export takes")
+    # Each sample is a record to read; an unknown one reads the index again.
+    keys = {str(c.get('key') or '') for c in curves if isinstance(c, dict)}
+    if len(keys) > viewstore.CUSTOM_EXPORT_MAX_SAMPLES:
+        raise HTTPException(400, f"too many samples ({len(keys)}); "
+                                 f"{viewstore.CUSTOM_EXPORT_MAX_SAMPLES} is the most one export takes")
+    try:
+        rows = viewstore.custom_plot_curves(curves, str(payload.get('x') or ''))
+        data = xlsx_export.build_custom_workbook(payload, rows)
+    except Exception as e:
+        raise HTTPException(502, f"could not build the workbook: {e}")
+    return Response(
+        content=data,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".spreadsheetml.sheet"),
+        headers={"Content-Disposition": 'attachment; filename="custom-plot.xlsx"'})
+
+
 @app.post("/api/view/series")
-async def view_series(payload: dict):
+def view_series(payload: dict):
     """Plotted series for a set of stored plots, for charting in the browser.
 
     Every other read path returns a picture. This returns the numbers, so the
     Comparisons tab can redraw on every toggle without a round trip and without
-    an executor job. Read-only; nothing is rendered or analysed.
+    an executor job. Read-only; nothing is rendered or analysed. A plain
+    function, run in a worker thread: its reads of the store (a JSONBin GET
+    per record not cached, and decoding it) would otherwise stall every other
+    request while they run, and the custom plot lists what each test stores
+    through it.
     """
     from scripts.helpers import viewstore
     sels = payload.get('selections') or []

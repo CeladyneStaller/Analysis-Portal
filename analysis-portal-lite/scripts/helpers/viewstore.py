@@ -387,9 +387,42 @@ def _decimate(xs: List[Any], ys: List[Any], limit: int = MAX_SERIES_POINTS) -> D
             'decimated': True}
 
 
+def _whole(xs: List[Any], ys: List[Any]) -> Dict[str, List[Any]]:
+    """A series as stored, for an export: nothing thinned."""
+    n = min(len(xs), len(ys))
+    return {'x': list(xs[:n]), 'y': list(ys[:n])}
+
+
+def _read_record(key: str, memo: Optional[Dict[str, Any]] = None):
+    """A run's detail record and its decoded sidecars, read once per `memo`.
+
+    A batch asks for several plots of one record, and decoding is of the whole
+    record every time; a key that cannot be read fails once per memo too (an
+    unknown key reads the index again before it fails). Without a memo, as
+    before: read and decoded on every call.
+    """
+    if memo is not None and key in memo:
+        got = memo[key]
+        if isinstance(got, BaseException):
+            raise got
+        return got
+    try:
+        detail = fetch_detail(key)
+        got = (detail, decode_sidecars(detail))
+    except Exception as e:                                  # noqa: BLE001
+        if memo is not None:
+            memo[key] = e
+        raise
+    if memo is not None:
+        memo[key] = got
+    return got
+
+
 def plot_series(key: str, analysis: str = '', step: str = '',
                 plot: str = '', plot_type: str = '',
-                full: bool = False) -> Optional[Dict[str, Any]]:
+                full: bool = False, points: bool = False, labels: bool = False,
+                stored: bool = False,
+                memo: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """The plotted series for one stored plot, for charting in the browser.
 
     Every other read path returns a rendered PNG. The numbers behind it are in
@@ -405,13 +438,21 @@ def plot_series(key: str, analysis: str = '', step: str = '',
 
     Lines longer than MAX_SERIES_POINTS come back thinned to bucket extremes
     and marked `decimated`; with `full`, on a plot type in
-    FULL_SERIES_PLOT_TYPES, only past MAX_FULL_SERIES_POINTS.
+    FULL_SERIES_PLOT_TYPES, only past MAX_FULL_SERIES_POINTS; with `stored`
+    (an export's read), never.
+
+    Asked for (the custom plot), each axis also carries its `points`, the
+    scatters the plot marks its values with (an FC Durability test's R_short,
+    or a hold's few OCV decay windows), thinned the same way, and an axis with
+    only points is kept; and with `labels` every line and point is its label
+    and its stored count `n`, without the numbers, which is what a list of
+    what a sample stores needs. Without them the answer is as it always was.
+    `memo` (a dict the caller keeps for one batch) reads each record once.
 
     Returns None when the plot is not stored — cleaning sidecars are excluded
     at write time, so this is an ordinary outcome rather than an error.
     """
-    detail = fetch_detail(key)
-    sidecars = decode_sidecars(detail)
+    detail, sidecars = _read_record(key, memo)
     if not sidecars:
         return None
 
@@ -439,24 +480,34 @@ def plot_series(key: str, analysis: str = '', step: str = '',
     # readout box without implying it applies to all of them.
     whole = full and sc.get('plot_type') in FULL_SERIES_PLOT_TYPES
     limit = MAX_FULL_SERIES_POINTS if whole else MAX_SERIES_POINTS
+
+    def send(label: Any, xs: List[Any], ys: List[Any]) -> Dict[str, Any]:
+        if labels:
+            return {'label': label or '', 'n': min(len(xs), len(ys))}
+        return {'label': label or '',
+                **(_whole(xs, ys) if stored else _decimate(xs, ys, limit))}
+
     axes = []
     for ax in (sc.get('data') or {}).get('axes', []):
-        lines = [{'label': ln.get('label') or '',
-                  **_decimate(ln.get('x') or [], ln.get('y') or [], limit)}
+        lines = [send(ln.get('label'), ln.get('x') or [], ln.get('y') or [])
                  for ln in ax.get('lines', []) if ln.get('x')]
         # A band edge level across a hold's two bins is stored as two points,
         # not a line (the sidecar writer reads a level two-point line as a
         # reference line). It is sent as a line all the same, so a chart pairs
         # it with its trace as the server-side redraw does.
-        lines += [{'label': pts['label'], **_decimate(pts.get('x') or [], pts.get('y') or [], limit)}
+        lines += [send(pts['label'], pts.get('x') or [], pts.get('y') or [])
                   for pts in ax.get('scatters', [])
                   if pts.get('label') in BAND_EDGE_LABELS and pts.get('x')]
-        if lines:
+        marks = [send(pts.get('label'), pts.get('x') or [], pts.get('y') or [])
+                 for pts in ax.get('scatters', [])
+                 if points and pts.get('x') and pts.get('label') not in BAND_EDGE_LABELS]
+        if lines or marks:
             axes.append({'title': ax.get('title') or '',
                          'xlabel': ax.get('xlabel') or '',
                          'ylabel': ax.get('ylabel') or '',
                          'is_twin': bool(ax.get('is_twin')),
-                         'lines': lines})
+                         'lines': lines,
+                         **({'points': marks} if points else {})})
     if not axes:
         return None
     return {'key': key, 'plot': name, 'plot_type': sc.get('plot_type', ''),
@@ -472,9 +523,11 @@ def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
     would be twenty round trips against a cache that already holds the detail
     records after the first. Selections that are not stored come back in
     `missing` rather than failing the batch — one unavailable curve should not
-    cost the other nineteen.
+    cost the other nineteen. Each record is read and decoded once per call,
+    however many of its plots the batch asks for.
     """
     out, missing = [], []
+    memo: Dict[str, Any] = {}
     for sel in selections or []:
         key = str(sel.get('key') or '')
         try:
@@ -482,7 +535,10 @@ def plot_series_batch(selections: List[Dict[str, str]]) -> Dict[str, Any]:
                               str(sel.get('step') or ''),
                               str(sel.get('plot') or ''),
                               str(sel.get('plot_type') or ''),
-                              full=sel.get('full') is True)
+                              full=sel.get('full') is True,
+                              points=sel.get('points') is True,
+                              labels=sel.get('labels') is True,
+                              memo=memo)
         except Exception as e:
             missing.append({**sel, 'reason': f'{type(e).__name__}: {e}'})
             continue
@@ -667,6 +723,108 @@ def materialize_for_compare(selections: List[Dict[str, str]],
             source['band'] = sel['band']
         sources.append(source)
     return sources
+
+
+# The most curves one custom-plot workbook is asked for: six quantities, a
+# dozen samples, a few series each; and the most samples, each a record read.
+CUSTOM_EXPORT_MAX = 400
+CUSTOM_EXPORT_MAX_SAMPLES = 64
+CUSTOM_CURVE_FIELDS = ('name', 'stored', 'quantity', 'unit', 'axis', 'series', 'cond')
+
+
+def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[str, Any]]:
+    """The custom plot's curves, read again with every stored point, for its
+    workbook.
+
+    Each curve names the stored plot the chart drew it from, as the chart asked
+    for it (`src`: analysis, step, plot type, and whether it asked for points),
+    and what it took (`pick`): one axis by position, and lines and points on it
+    by position, each with the label the chart found there. A curve that is
+    the power of a polarization curve (`power`) is its current density times
+    its voltage, in mW/cm². Against RH cycles (`x` 'cyc'), each test's hold
+    hours are read off its own map, as the chart reads them.
+
+    Returns the curves in order, each with its descriptive fields as sent,
+    `parts` (lists of [x, y] with both numbers, in order of their first x, as
+    the chart lists them) and `reason`: why a curve has no parts — its plot
+    not stored, its parts no longer where the chart found them (stored again
+    since), or, against RH cycles, its test counting none. Each record is read
+    once, and each plot once, however many curves come from it.
+    """
+    maps: Dict[str, Any] = {}
+    memo: Dict[str, Any] = {}
+    reads: Dict[Tuple[Any, ...], Any] = {}
+    out: List[Dict[str, Any]] = []
+    for c in curves:
+        c = c if isinstance(c, dict) else {}
+        key = str(c.get('key') or '')
+        row: Dict[str, Any] = {'key': key, **{f: str(c.get(f) or '') for f in CUSTOM_CURVE_FIELDS},
+                               'parts': [], 'reason': ''}
+        out.append(row)
+        src = c.get('src') if isinstance(c.get('src'), dict) else {}
+        pick = c.get('pick') if isinstance(c.get('pick'), dict) else {}
+        want = (key, str(src.get('analysis') or ''), str(src.get('step') or ''),
+                str(src.get('plot_type') or ''), src.get('points') is True)
+        if want not in reads:
+            try:
+                reads[want] = plot_series(want[0], want[1], want[2], '', want[3],
+                                          points=want[4], stored=True, memo=memo)
+            except Exception as e:                      # noqa: BLE001
+                reads[want] = e
+        sr = reads[want]
+        if isinstance(sr, Exception):
+            row['reason'] = f'could not be read ({type(sr).__name__}: {sr})'
+            continue
+        if not sr:
+            row['reason'] = 'no stored plot data'
+            continue
+        axes, ai = sr['axes'], pick.get('axis')
+        if not isinstance(ai, int) or isinstance(ai, bool) or not 0 <= ai < len(axes):
+            row['reason'] = 'not found in its stored plot (stored again since?)'
+            continue
+        found: List[Dict[str, Any]] = []
+        for kind in ('lines', 'points'):
+            have = axes[ai].get(kind) or []
+            want, labs = pick.get(kind) or [], pick.get(kind + '_labels') or []
+            for j, i in enumerate(want):
+                ok = (isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(have)
+                      and j < len(labs) and have[i].get('label', '') == str(labs[j]))
+                if not ok:
+                    found = []
+                    row['reason'] = 'not found in its stored plot (stored again since?)'
+                    break
+                found.append(have[i])
+            if row['reason']:
+                break
+        if row['reason']:
+            continue
+        parts = []
+        for ln in found:
+            pts = [[a, b] for a, b in zip(ln.get('x') or [], ln.get('y') or [])
+                   if _finite(a) and _finite(b)]
+            if pick.get('power') is True:
+                pts = [[a, a * b * 1000.0] for a, b in pts]
+            parts.append(pts)
+        # Lines come before points in a pick: put back in x order (a short
+        # hold's decay windows, stored as points, before a long one's line).
+        parts = sorted((p for p in parts if p), key=lambda p: p[0][0])
+        if x == 'cyc':
+            if key not in maps:
+                try:
+                    maps[key] = rh_cycle_map(_read_record(key, memo)[1])
+                except Exception as e:                  # noqa: BLE001
+                    maps[key] = e
+            if isinstance(maps[key], Exception):
+                row['reason'] = f'could not be read ({type(maps[key]).__name__}: {maps[key]})'
+                continue
+            if maps[key] is None:
+                row['reason'] = 'no RH cycles counted'
+                continue
+            parts = [[[cycles_at(*maps[key], a), b] for a, b in p] for p in parts]
+        row['parts'] = parts
+        if not row['parts']:
+            row['reason'] = 'no points stored'
+    return out
 
 
 def comparable_groups(sources: List[Dict[str, str]]) -> Dict[str, int]:
