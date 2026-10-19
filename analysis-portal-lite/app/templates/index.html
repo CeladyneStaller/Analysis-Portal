@@ -1162,6 +1162,7 @@
   .cmp-pre.cp-has .post { border-left: 1px solid var(--border); padding: 0 9px 0 6px; }
   .cmp-chartwrap svg .cp-mk { stroke-width: 1.5; }
   .cmp-chartwrap svg .cp-glyph { stroke: var(--text); stroke-width: 1.3; }
+  .cmp-chartwrap svg .cp-glyph.cp-bare { stroke-width: 1.6; }
   .cmp-chartwrap svg .cp-hname { fill: var(--text); font-size: 11px; font-family: var(--font); }
   .cmp-chartwrap svg .cp-hunit, .cmp-chartwrap svg .cp-spine { fill: var(--text-dim);
     font-size: 10.5px; font-family: var(--mono); }
@@ -3103,9 +3104,9 @@
             <input id="cf-q" placeholder="Search samples…" oninput="cmpRenderPick()"></span>
           <span class="cmp-pre" id="cfw-stand"><span class="pre">Stand</span>
             <select id="cf-stand" onchange="CF.stand=this.value;cmpRenderPick()"></select></span>
-          <span class="cmp-pre std-only" id="cfw-step"><span class="pre">Step</span>
+          <span class="cmp-pre" id="cfw-step"><span class="pre">Step</span>
             <select id="cf-step" onchange="CF.step=this.value;cmpRenderPick()"></select></span>
-          <span class="vf-anchor std-only">
+          <span class="vf-anchor">
             <span class="cmp-pre vf-multi" id="cfw-cond" onclick="cmpToggleCondPop()">
               <span class="pre">Condition</span>
               <span class="vf-multi-val" id="cfCondVal">All</span>
@@ -3113,7 +3114,7 @@
             </span>
             <div class="vf-pop" id="cfCondPop"></div>
           </span>
-          <span class="cmp-pre std-only" id="cfw-has"><span class="pre">Show</span>
+          <span class="cmp-pre" id="cfw-has"><span class="pre">Show</span>
             <select id="cf-has" onchange="CF.has=this.value;cmpRenderPick()">
               <option value="">all samples</option>
               <option value="none">not yet added</option>
@@ -7920,7 +7921,9 @@ function cmpRenderTypes() {
     + (fam === 'elx' ? head('elx') + btns(elx)
        : (fam ? '' : head('fc')) + btns(fc) + sep + cp + (fam ? '' : sep + head('elx') + btns(elx)))
     + `<span class="cmp-hint">${custom
-      ? 'Colour is the sample; the marker is the quantity, filled on the left and hollow on the right; dash is the series.'
+      ? 'Colour is the sample; the marker is the quantity, filled on the left and hollow on the right'
+        + (cpX().fam === 'dur' ? ' (Hold OCV has none: a bare line, over its high–low band where stored)' : '')
+        + '; dash is the series.'
       : cmpElxType(CMP_TYPE) ? cmpElxHint()
       : `Colour is the sample, dash is the ${cmpWholeType(CMP_TYPE) ? 'series' : 'step'}.`}</span>`;
 }
@@ -7986,9 +7989,93 @@ function cmpRender() {
   if (CMP_DRAWING) { CMP_AGAIN = true; return; }
   // A redraw waiting for a press to be over is this one.
   if (CMP_AFTER) cmpAfterDrop();
+  // A box with the focus has it again once drawn again (left by Tab, the
+  // control after it).
+  const keep = cmpFocusKeep();
   CMP_DRAWING += 1;
   try { cmpRenderNow(); } finally { CMP_DRAWING -= 1; }
   if (CMP_AGAIN) { CMP_AGAIN = false; cmpRender(); }
+  cmpFocusBack(keep);
+}
+// The focus across a redraw. Drawing the page again replaces its boxes, so a
+// box with the focus would lose it and what is typed next. A text box (a
+// range or tick step box, a statistic's spread) hands the focus to the box
+// drawn in its place. Either it had the focus: its caret or selection is put
+// back where its text is unchanged, else at the end (a box clicked into as a
+// name or another box left by that click is kept, which draws the page just
+// after the click, cmpRenderAfterPress; a plot arriving; Enter). Or, left by
+// Tab, it keeps what was typed in it as the focus moves, which draws the page
+// then: the control after it or before it has the focus, a box's text
+// selected as Tab leaves it. A box is found again by its key (cmpFocusKey),
+// which no other box has. A name being edited has its own (cmpFocusRename),
+// and a focus put anywhere else meanwhile stays there.
+let CMP_TAB = null;   // a Tab under way: { el, by }, until the task it is in is over
+document.addEventListener('keydown', ev => {
+  if (ev.key !== 'Tab') return;
+  CMP_TAB = { el: ev.target, by: ev.shiftKey ? -1 : 1 };
+  setTimeout(() => { CMP_TAB = null; });
+}, true);
+const cmpTextBox = e => !!e && e.tagName === 'INPUT' && e.type === 'text' && !e.matches('.cmp-rename')
+  && !!e.closest('#view-compare');
+// What a box is found again by: its `data-fk` where its label can change as
+// it is drawn again (a statistic's spread box is labelled with its name),
+// else its label.
+const cmpFocusKey = e => e.dataset.fk || e.getAttribute('aria-label') || '';
+const cmpBoxKeyed = key => [...document.querySelectorAll('#view-compare input')]
+  .find(e => cmpTextBox(e) && cmpFocusKey(e) === key);
+function cmpFocusMark(el, by, sel) {
+  const key = cmpFocusKey(el);
+  return key ? { el, by, sel, key, value: el.value } : null;
+}
+function cmpFocusKeep() {
+  const a = document.activeElement;
+  if (cmpTextBox(a)) return cmpFocusMark(a, 0, [a.selectionStart, a.selectionEnd, a.selectionDirection]);
+  if (a && a !== document.body) return null;
+  if (CMP_TAB && cmpTextBox(CMP_TAB.el)) return cmpFocusMark(CMP_TAB.el, CMP_TAB.by, null);
+  return null;
+}
+function cmpFocusBack(k) {
+  const a = document.activeElement;
+  if (!k || k.el.isConnected || (a && a !== document.body)) return;
+  const same = cmpBoxKeyed(k.key);
+  if (!same) return;
+  const to = k.by ? cmpFocusNext(same, k.by) : same;
+  if (!to) return;
+  // Not scrolled to: the box is where it was (unless Tab leaves it).
+  to.focus({ preventScroll: !k.by });
+  if (to !== same) { if (cmpTextBox(to)) to.select(); return; }
+  const n = to.value.length;
+  if (k.sel && to.value === k.value) to.setSelectionRange(...k.sel);
+  else to.setSelectionRange(n, n);
+}
+// The control Tab goes to from `el`: the next (by 1) or the one before (by -1).
+function cmpFocusNext(el, by) {
+  const els = [...document.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+    .filter(e => e === el || (e.tabIndex >= 0 && !e.disabled && e.getClientRects().length));
+  const i = els.indexOf(el);
+  return i < 0 ? null : els[i + by] || null;
+}
+// A box's value kept as the box is left (`left`, its change): when the focus
+// has gone to nothing as the change comes (a press taking it from the box,
+// or code), the page is drawn again once a press under way is over
+// (cmpRenderAfterPress), as a name's is, so the press does all it does: the
+// box pressed takes the caret where it was pressed, a button its click, a
+// select opens; with no press under way, at once. Kept by Enter or Tab, or
+// by the page drawn again over the box, or set by code (`left` false): at
+// once.
+function cmpKept(left) {
+  const a = document.activeElement;
+  if (left && !CMP_DRAWING && !CMP_TAB && (!a || a === document.body)) cmpRenderAfterPress();
+  else cmpRender();
+}
+// Zooming or dragging the chart leaves a box the page draws again (one with a
+// key) that has the focus, as a press elsewhere would (the drag's press is
+// kept from taking the focus), rather than giving it the focus again at every
+// step; what was typed in it is kept (the redraw that waits drawn first, as
+// the wheel and the drag read the chart).
+function cmpLeaveBox() {
+  const a = document.activeElement;
+  if (cmpTextBox(a) && cmpFocusKey(a)) a.blur();
 }
 function cmpRenderNow() {
   // A type whose family has left the strip (the index read again, the
@@ -8022,7 +8109,7 @@ function cmpRenderNow() {
     const drawn = CMP_SCALE && isFinite(CMP_SCALE[k]) ? String(+(CMP_SCALE[k].toPrecision(4))) : '';
     return `<input class="cmp-range${v ? ' set' : ''}" type="text" value="${escapeAttr(v)}"
       placeholder="${escapeAttr(drawn || ph)}" title="Blank follows the data" aria-label="${AXW[k]}"
-      onchange="cmpSetBound('${k}', this.value)">`;
+      onchange="cmpSetBound('${k}', this.value, true)">`;
   };
   const stepBox = k => {
     const v = cmpStep()[k] != null ? String(cmpStep()[k]) : '';
@@ -8033,7 +8120,7 @@ function cmpRenderNow() {
       aria-label="${k} tick spacing" title="${bad
         ? 'Too fine for this range: the spacing is picked automatically'
         : `Tick spacing${unit ? ', in ' + escapeAttr(unit) : ''}. Blank picks one.`}"
-      onchange="cmpSetStep('${k}', this.value)">`;
+      onchange="cmpSetStep('${k}', this.value, true)">`;
   };
   const sm = CMP_SMOOTHED = cmpSmoothing();
   const bin = sm.w;
@@ -8158,9 +8245,10 @@ function cmpRenderNow() {
             ${Object.entries(CMP_SPREADS).map(([k, l]) =>
               `<option value="${k}" ${st.spread === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
           ${st.spread === 'sem' ? `<input class="pct" type="text"
+             aria-label="${escapeAttr(`Spread of ${st.name}, as ± % of its mean`)}" data-fk="spread ${i}"
              value="${st.sePct == null ? '' : st.sePct}" placeholder="auto %"
              title="Blank uses the computed standard error"
-             onchange="cmpSetStat(${i},'sePct',cmpReadPct(this.value))">` : ''}
+             onchange="cmpSetStat(${i},'sePct',cmpReadPct(this.value),true)">` : ''}
           <span class="lbl">draw</span>
           <select onchange="cmpSetStat(${i},'style',this.value)">
             ${Object.entries(CMP_STYLES).map(([k, l]) =>
@@ -8413,6 +8501,27 @@ const cmpCondOn = (a, field, v) => {
   const sel = (CF_COND[a] || {})[field];
   return !sel || sel.has(v);
 };
+// What the condition filter is kept under, and offers: a chart type's
+// analysis's conditions, or on the custom plot those of the series its x's
+// family lists (kept per family, cpCondFacets).
+const cmpCondKey = () => (CMP_TYPE === CP_TYPE ? CP_TYPE + ':' + cpX().fam : CMP_TYPE);
+const cmpCondFacets = () => (CMP_TYPE === CP_TYPE ? cpCondFacets()
+  : vfFacetsFor(_viewRuns || [], cmpCondAna(CMP_TYPE)));
+// How many of the offered values are chosen, of how many, and whether an
+// offered field is narrowed. A field narrowed but not offered now (the custom
+// plot's series no longer differ on it) is not counted, nor applied
+// (cpRenderPick): its choice is kept for when it is offered again.
+function cmpCondCount() {
+  const sel = CF_COND[cmpCondKey()] || {};
+  let chosen = 0, total = 0, set = false;
+  cmpCondFacets().forEach(f => {
+    const on = sel[f.key];
+    total += f.values.length;
+    chosen += on ? f.values.filter(x => on.has(x.v)).length : f.values.length;
+    if (on) set = true;
+  });
+  return { chosen, total, set };
+}
 function cmpToggleCondPop() {
   const el = document.getElementById('cfCondPop');
   if (!el) return;
@@ -8421,8 +8530,8 @@ function cmpToggleCondPop() {
   el.classList.toggle('show');
 }
 function cmpToggleCondVal(field, value) {
-  const a = CMP_TYPE;
-  const f = vfFacetsFor(_viewRuns || [], cmpCondAna(a)).find(x => x.key === field);
+  const a = cmpCondKey();
+  const f = cmpCondFacets().find(x => x.key === field);
   if (!f) return;
   const sel = cmpCondSel(a);
   const cur = new Set(sel[field] || f.values.map(x => x.v));
@@ -8434,26 +8543,25 @@ function cmpToggleCondVal(field, value) {
   cmpRenderPick();
 }
 function cmpCondFieldAll(field) {
-  const sel = CF_COND[CMP_TYPE];
+  const a = cmpCondKey(), sel = CF_COND[a];
   if (!sel) return;
   delete sel[field];
-  if (!Object.keys(sel).length) delete CF_COND[CMP_TYPE];
+  if (!Object.keys(sel).length) delete CF_COND[a];
   cmpSyncCondPop();
   cmpRenderPick();
 }
-function cmpCondAll() { delete CF_COND[CMP_TYPE]; cmpSyncCondPop(); cmpRenderPick(); }
+function cmpCondAll() { delete CF_COND[cmpCondKey()]; cmpSyncCondPop(); cmpRenderPick(); }
 function cmpCondNone() {
-  const sel = CF_COND[CMP_TYPE] = {};
-  vfFacetsFor(_viewRuns || [], cmpCondAna(CMP_TYPE)).forEach(f => { sel[f.key] = new Set(); });
+  const sel = CF_COND[cmpCondKey()] = {};
+  cmpCondFacets().forEach(f => { sel[f.key] = new Set(); });
   cmpSyncCondPop();
   cmpRenderPick();
 }
 
 function cmpRenderCondPop() {
-  const a = CMP_TYPE;
   const pop = document.getElementById('cfCondPop');
   if (!pop) return;
-  const facets = vfFacetsFor(_viewRuns || [], cmpCondAna(a));
+  const facets = cmpCondFacets();
   pop.dataset.facets = facets.map(f =>
     f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   pop.innerHTML = `
@@ -8475,16 +8583,18 @@ function cmpRenderCondPop() {
       <button class="btn btn-sm" onclick="cmpCondAll()">All</button>
       <button class="btn btn-sm" onclick="cmpCondNone()">None</button>
       <span class="spacer"></span>
-      <span class="vf-hint">Narrows which curves are offered</span></div>`;
+      <span class="vf-hint">${CMP_TYPE === CP_TYPE
+        ? 'Narrows which curves are offered; a test’s series that names none of these stays'
+        : 'Narrows which curves are offered'}</span></div>`;
   cmpSyncCondPop();
 }
 
 // Ticks written onto the existing nodes, so the scroll position survives.
 function cmpSyncCondPop() {
-  const a = CMP_TYPE;
+  const a = cmpCondKey();
   const pop = document.getElementById('cfCondPop');
   if (!pop) return;
-  const facets = vfFacetsFor(_viewRuns || [], cmpCondAna(a));
+  const facets = cmpCondFacets();
   const sig = facets.map(f => f.key + ':' + f.values.map(x => x.v).join(',')).join('|');
   if (pop.dataset.facets !== sig) { cmpRenderCondPop(); return; }
   pop.querySelectorAll('.vf-opt').forEach(el => {
@@ -8493,17 +8603,11 @@ function cmpSyncCondPop() {
     const box = el.querySelector('input');
     if (box && box.checked !== on) box.checked = on;
   });
-  const sel = CF_COND[a] || {};
-  let chosen = 0, total = 0;
-  facets.forEach(f => {
-    total += f.values.length;
-    chosen += sel[f.key] ? sel[f.key].size : f.values.length;
-  });
+  const { chosen, total, set: constrained } = cmpCondCount();
   const c = document.getElementById('cfCondCount');
   if (c) c.textContent = `${chosen} of ${total}`;
   const val = document.getElementById('cfCondVal');
   const wrap = document.getElementById('cfw-cond');
-  const constrained = Object.keys(sel).length > 0;
   if (val) val.textContent = constrained ? `${chosen} of ${total}` : 'All';
   if (wrap) wrap.classList.toggle('set', constrained);
 }
@@ -8521,16 +8625,16 @@ function cmpConditions() {
   return [...c].sort();
 }
 function cmpClearFilter(w) {
-  if (w === 'cond') { delete CF_COND[CMP_TYPE]; cmpSyncCondPop(); }
+  if (w === 'cond') { delete CF_COND[cmpCondKey()]; cmpSyncCondPop(); }
   else CF[w] = '';
   cmpRenderPick();
 }
 function cmpClearFilters() {
   CF = { stand: '', step: '', cond: '', has: '' };
-  const q = document.getElementById('cf-q'); if (q) q.value = '';
-  cmpRenderPick();
   CF_COND = {};
+  const q = document.getElementById('cf-q'); if (q) q.value = '';
   cmpSyncCondPop();
+  cmpRenderPick();
 }
 
 // The stand filter's choices, from the stands in the index: shared by every
@@ -8549,6 +8653,8 @@ function cmpFillStands() {
 function cmpRenderPick() {
   if (CMP_TYPE === CP_TYPE) { cpRenderPick(); return; }
   cmpFillStands();
+  const stepWrap = document.getElementById('cfw-step');
+  if (stepWrap) stepWrap.style.display = '';
   const stepSel = document.getElementById('cf-step');
   if (stepSel) stepSel.innerHTML = '<option value="">All</option>' +
     cmpStepVocab().map(v =>
@@ -8818,6 +8924,13 @@ function cmpWheel(ev) {
   // Only once the pointer is over the plot itself, so the page still scrolls
   // when the cursor is merely passing over the panel.
   ev.preventDefault();
+  // A box with the focus is left first (cmpLeaveBox), and a redraw waiting
+  // for a press (a value kept from a box) drawn: if that draws the chart
+  // again, this turn zooms nothing, and the next zooms the chart as kept.
+  const was = CMP_SCALE;
+  cmpLeaveBox();
+  if (CMP_AFTER) cmpRender();
+  if (CMP_SCALE !== was) return;
   const f = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
   const { x0, x1, y0, y1 } = CMP_SCALE;
   // Zooming in stops short of float resolution (a window under a billionth
@@ -8840,12 +8953,18 @@ function cmpWheel(ev) {
 // synthetic events, so the behaviour could not be tested.
 function cmpPanStart(ev) {
   if (ev.button !== 0 || !CMP_SCALE || CMP_TYPE === CP_TYPE) return;
+  if (!(cmpPointToData(ev) || {}).inside) return;
+  ev.preventDefault();
+  // A box with the focus is left, and a redraw waiting for a press (a value
+  // kept from a box, this press's own) drawn: the drag starts from the chart
+  // as kept.
+  cmpLeaveBox();
+  if (CMP_AFTER) cmpRender();
   const at = cmpPointToData(ev);
-  if (!at || !at.inside) return;
+  if (!at) return;
   CMP_PAN = { grabbed: { x: at.x, y: at.y }, scale: { ...CMP_SCALE },
               rect: document.querySelector('#cmpChart svg').getBoundingClientRect() };
   document.querySelector('#cmpChart').classList.add('panning');
-  ev.preventDefault();
 }
 function cmpPanMove(ev) {
   if (!CMP_PAN || CMP_TYPE === CP_TYPE) return;
@@ -8866,14 +8985,14 @@ function cmpPanEnd() {
   if (el) el.classList.remove('panning');
 }
 
-function cmpSetBound(which, raw) {
+function cmpSetBound(which, raw, left) {
   const v = String(raw).trim();
   CMP_VIEW = CMP_VIEW || { x0: null, x1: null, y0: null, y1: null };
   // Blank returns that edge to following the data, so the boxes can be used
   // one at a time rather than all four or none.
   CMP_VIEW[which] = v === '' ? null : cmpNum(v);
   if (!cmpHasView()) CMP_VIEW = null;
-  cmpRender();
+  cmpKept(left);
 }
 // The spacing of an axis's ticks, typed (cmpScale); blank picks one. Kept
 // apart from the window, so zooming and panning keep it, and per chart type,
@@ -8881,10 +9000,10 @@ function cmpSetBound(which, raw) {
 let CMP_STEPS = {};           // chart type -> {x, y}, each null when blank
 const cmpStep = () => CMP_STEPS[CMP_TYPE] || { x: null, y: null };
 const cmpHasStep = () => cmpStep().x != null || cmpStep().y != null;
-function cmpSetStep(which, raw) {
+function cmpSetStep(which, raw, left) {
   const v = String(raw).trim();
   CMP_STEPS = { ...CMP_STEPS, [CMP_TYPE]: { ...cmpStep(), [which]: v === '' ? null : cmpNum(v) } };
-  cmpRender();
+  cmpKept(left);
 }
 function cmpResetView() {
   CMP_VIEW = null;
@@ -9456,7 +9575,7 @@ function cmpCreateStat() {
   cmpRender();
 }
 // Restyling happens on the curve; only spread and axis change the statistic.
-function cmpSetStat(i, k, v) { CMP_STATS[i][k] = v; cmpRender(); }
+function cmpSetStat(i, k, v, left) { CMP_STATS[i][k] = v; cmpKept(left); }
 function cmpDropStat(i) { CMP_STATS.splice(i, 1); cmpRender(); }
 // Hiding a mean hides what it is made of: those curves are on the chart
 // because the mean is, so leaving them would hide the conclusion and keep the
@@ -9474,10 +9593,11 @@ function cmpToggleStat(i) {
 // an axis of its own, offset outside the last (overlaid) or in a panel of its
 // own (stacked); and Add curves lists the samples that store them. Colour is
 // the sample, as on every comparison; the marker is the quantity, filled on
-// the left and hollow on the right; the dash is the series (a condition, a
-// step or a characterization). Each y axis takes its own range, tick spacing
-// and linear or log scale, x its range and spacing. Mocked up and settled with
-// Corey on 15 Oct 2026 (claude/comparisons-custom-plot.md).
+// the left and hollow on the right (Hold OCV, a bare line, has none); the
+// dash is the series (a condition, a step or a characterization). Each y axis
+// takes its own range, tick spacing and linear or log scale, x its range and
+// spacing. Mocked up and settled with Corey on 15 Oct 2026
+// (claude/comparisons-custom-plot.md).
 //
 // Durability quantities are an FC Durability test's plots against hold hours,
 // a series for each condition it was measured at (100% RH, say); against RH
@@ -9524,9 +9644,14 @@ const cpTrace = l => !!l && l !== 'bin minimum' && l !== CMP_BAND_LOW && l !== C
 // point, a `trace` or a `curve` every so far along it (cpMarks). `band`: its
 // plot stores each bin's lowest and highest sample beside the trace, shaded
 // under it as on the Durability — OCV chart (cpBandFor), unless turned off.
+// `marker: false` (cpBare): drawn as that chart draws it, a bare line with no
+// markers, a stretch of one point a dot (cpMarks); a plain line where a key
+// shows a quantity's marker (cpQGlyph, cpKey). It still holds a marker shape,
+// so it counts towards the six quantities.
 const CP_Q = {
   dur: [
     { id: 'ocv', grp: 'Durability — OCV', name: 'Hold OCV', unit: 'V', kind: 'trace', band: true,
+      marker: false,
       dur: { plot: 'fcdur_ocv_vs_time', axis: /^Hold OCV/i, lines: cpTrace } },
     { id: 'dec', grp: 'Durability — OCV', name: 'OCV decay rate', unit: 'μV/h', kind: 'trace',
       dur: { plot: 'fcdur_ocv_vs_time', axis: /^OCV decay/i, lines: () => true, points: () => true,
@@ -9602,6 +9727,7 @@ function cpDo(part, i, v) { const f = CP_ACT[part][i]; if (f) f(v); }
 
 const cpX = () => CP_X.find(x => x.key === CP.x) || CP_X[0];
 const cpQ = (fam, id) => (CP_Q[fam] || []).find(q => q.id === id);
+const cpBare = q => !!q && q.marker === false;
 const cpId = (key, qid, sid) => JSON.stringify([key, qid, sid]);
 function cpParse(id) {
   try {
@@ -9650,11 +9776,18 @@ const cpGlyph = (shape, side, size, stroke) => `<svg width="${size}" height="${s
   + ` style="flex:0 0 auto"><path d="${cpShapePath(CP_SHAPES[shape], size / 2, size / 2, size * 0.35)}"`
   + ` fill="${side === 'L' ? 'var(--text)' : 'var(--surface)'}" stroke="${stroke || 'var(--text)'}"`
   + ' stroke-width="1.3"/></svg>';
-// A curve's key: its colour and dash with its quantity's marker over them.
+// A quantity's glyph, or for one drawn as a bare line (cpBare) a short line in
+// its place.
+const cpQGlyph = (q, shape, side, size) => (cpBare(q)
+  ? `<svg width="${size}" height="${size}" aria-hidden="true" style="flex:0 0 auto"><line class="cp-bare"`
+    + ` x1="0.5" y1="${size / 2}" x2="${size - 0.5}" y2="${size / 2}" stroke="var(--text)" stroke-width="1.6"/></svg>`
+  : cpGlyph(shape, side, size));
+// A curve's key: its colour and dash with its quantity's marker over them
+// (none for a quantity drawn bare, whose shape is null).
 const cpKey = (color, dash, shape, side) => `<svg width="28" height="12" aria-hidden="true"`
   + ` style="flex:0 0 auto"><line x1="1" y1="6" x2="27" y2="6" stroke="${color}" stroke-width="2"`
-  + `${dash ? ` stroke-dasharray="${dash}"` : ''}/><path d="${cpShapePath(shape, 14, 6, 3.6)}"`
-  + ` fill="${side === 'L' ? color : 'var(--surface)'}" stroke="${color}" stroke-width="1.4"/></svg>`;
+  + `${dash ? ` stroke-dasharray="${dash}"` : ''}/>${shape ? `<path d="${cpShapePath(shape, 14, 6, 3.6)}"`
+  + ` fill="${side === 'L' ? color : 'var(--surface)'}" stroke="${color}" stroke-width="1.4"/>` : ''}</svg>`;
 
 // ── what a sample stores ────────────────────────────────────────
 const cpIsTest = run => (run.Data || []).some(d => d.Analysis === 'fc_durability');
@@ -9720,6 +9853,97 @@ function cpStdPick(q, sr) {
   if (!ln) return null;
   return { axis: p.axis, lines: [p.line], points: [], lines_labels: [ln.label || ''], points_labels: [] };
 }
+// ── Add curves' filters: the other types' Step, Condition and Show ──
+// A series' step: a standalone step's own, a test's characterization's code
+// from its label ("BOL (b5)"). A test's series against hold time is a
+// condition or the whole test, and has none.
+function cpStepOf(se) {
+  if (se.src && se.src.analysis) return String(se.src.step || '');
+  if (String(se.sid || '').startsWith('e:')) {
+    const m = String(se.label || '').match(/\(([^()]+)\)\s*$/);
+    return m ? m[1].trim() : '';
+  }
+  return '';
+}
+// The steps the listed series have, in order (b2 before b10).
+function cpStepVocab(runs, qa) {
+  const seen = new Set();
+  runs.forEach(run => qa.forEach(q => cpSeriesOf(run, q).list.forEach(se => {
+    const st = cpStepOf(se);
+    if (st) seen.add(st);
+  })));
+  return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+const CP_GAS_FIELD = { H2: 'H2_slpm', AIR: 'Air_slpm', N2: 'N2_slpm', O2: 'O2_slpm' };
+// A test's series' conditions as its analysis names them ("90 °C, 30% RH,
+// H2/Air 0.1/0.1 slpm, 0 kPa", "100↔0% RH cycling", "95% RH"), as the fields
+// the index keeps a step's in (VF_FACETS): numbers as the index writes them,
+// each gas's flow under that gas, RH cycling as its two levels. What the text
+// does not name is not stated.
+function cpParseCond(text) {
+  const out = {}, n = v => String(+v);
+  String(text || '').split(/,\s*/).forEach(tok => {
+    const t = tok.trim();
+    let m;
+    if ((m = t.match(/^(-?\d+(?:\.\d+)?)\s*°C$/))) out.T_C = n(m[1]);
+    else if ((m = t.match(/^(-?\d+(?:\.\d+)?)(?:↔(-?\d+(?:\.\d+)?))?\s*%\s*RH(?:\s+cycling)?$/))) {
+      out.RH_pct = m[2] != null ? n(m[1]) + '↔' + n(m[2]) : n(m[1]);
+    } else if ((m = t.match(/^(?:dry\s+)?([A-Za-z0-9₂]+)\/(?:dry\s+)?([A-Za-z0-9₂]+)\s+(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\s*slpm$/))) {
+      [[m[1], m[3]], [m[2], m[4]]].forEach(([gas, v]) => {
+        const k = CP_GAS_FIELD[gas.replace('₂', '2').toUpperCase()];
+        if (k && !(k in out)) out[k] = n(v);
+      });
+    } else if ((m = t.match(/^(-?\d+(?:\.\d+)?)\s*kPa$/))) { out.P_value = n(m[1]); out.P_unit = 'kPa'; }
+  });
+  return out;
+}
+// A series' conditions: a standalone step's as the index keeps them with its
+// unit, a test's series' as its analysis names them (cpParseCond).
+function cpCondsOf(run, se) {
+  if (se.src && se.src.analysis) {
+    const d = (run.Data || []).find(x => x.Analysis === se.src.analysis
+      && String(x.step || '') === String(se.src.step || ''));
+    const c = (d && d.Conditions) || {}, out = {};
+    VF_FACETS.forEach(([k]) => { if (c[k] != null && c[k] !== '') out[k] = String(c[k]); });
+    if (out.P_value != null) out.P_unit = c.P_unit || '';
+    return out;
+  }
+  return cpParseCond(se.sub || se.label);
+}
+// The fields the series of this x's family vary on, for the quantities on its
+// axes, over every sample the list would show against this x, whatever the
+// other filters (vfFacetsFor's rule: a field every series agrees about is no
+// choice).
+function cpCondFacets() {
+  const X = cpX(), fam = X.fam, A = CP.assign[fam] || {};
+  const qa = (CP_Q[fam] || []).filter(q => A[q.id] && (!q.only || q.only === X.key));
+  const seen = {};
+  (_viewRuns || []).filter(r => cpFamHas(r, fam) && (X.key !== 'cyc' || (cpIsTest(r) && cpCounts(r))))
+    .forEach(run => qa.forEach(q =>
+    cpSeriesOf(run, q).list.forEach(se => {
+      const c = cpCondsOf(run, se);
+      VF_FACETS.forEach(([k, , fmt]) => {
+        if (c[k] == null) return;
+        const text = k === 'RH_pct' && c[k].includes('↔') ? `${c[k]} % RH cycling` : fmt(c[k], c);
+        (seen[k] || (seen[k] = new Map())).set(c[k], text);
+      });
+    })));
+  return VF_FACETS.filter(([k]) => seen[k] && seen[k].size > 1).map(([k, label]) => ({
+    key: k, label,
+    values: [...seen[k].entries()].map(([v, text]) => ({ v, text }))
+      .sort((a, b) => (parseFloat(a.v) - parseFloat(b.v)) || a.v.localeCompare(b.v)) }));
+}
+// Whether a series passes the Step and Condition filters. A test's series
+// that does not state a field is not hidden by it (a "100% RH" crossover
+// names no temperature); a standalone step that does not is, as on its own
+// chart type (cmpCondScope).
+function cpSeriesPasses(run, se, step, sel) {
+  if (step && cpStepOf(se) !== step) return false;
+  if (!sel) return true;
+  const c = cpCondsOf(run, se), std = !!(se.src && se.src.analysis);
+  return Object.entries(sel).every(([k, vals]) => !vals || (c[k] == null ? !std : vals.has(c[k])));
+}
+
 // What a sample stores of a quantity, as far as is known: its series in order,
 // each {sid, label, sub, match, src}, and whether a durability plot that may
 // hold more is still being listed, or could not be read (until x is chosen
@@ -9865,7 +10089,8 @@ function cpCurve(id, X, A, colours, vocab) {
   if (!q || !a || (q.only && q.only !== X.key)) return null;
   const run = cmpRunFor(key);
   const c = { id, key, q, sid, side: a.side, axKey: a.side + '|' + q.unit,
-    shape: CP_SHAPES[a.shape], shapeIx: a.shape, color: colours.get(key) || CMP_PAL[0],
+    shape: cpBare(q) ? null : CP_SHAPES[a.shape], shapeIx: a.shape,
+    color: colours.get(key) || CMP_PAL[0],
     sample: Math.max(0, [...colours.keys()].indexOf(key)), label: cpLabelOfSid(sid), sub: '',
     si: 0, dash: cpDashOf(vocab || [], cpMatchOfSid(sid)), segs: [], bands: [], banded: false,
     shade: false, why: '', loading: false, stored: run ? String(run.sample_name || key) : key };
@@ -10074,17 +10299,17 @@ function cpSetScale(fam, axKey, v) {
 }
 // Ranges and spacings are kept as typed, per x: hours and cycles, say, are
 // different scales.
-function cpSetRange(k, v) {
+function cpSetRange(k, v, left) {
   CP.rng = { ...CP.rng, [CP.x]: { ...(CP.rng[CP.x] || {}), [k]: String(v == null ? '' : v).trim() } };
   cpChanged();
-  cmpRender();
+  cmpKept(left);
 }
-function cpSetAxRange(axKey, k, v) {
+function cpSetAxRange(axKey, k, v, left) {
   const r = CP.rng[CP.x] || {}, ax = { ...(r.ax || {}) };
   ax[axKey] = { ...(ax[axKey] || {}), [k]: String(v == null ? '' : v).trim() };
   CP.rng = { ...CP.rng, [CP.x]: { ...r, ax } };
   cpChanged();
-  cmpRender();
+  cmpKept(left);
 }
 function cpResetRange() { CP.rng = { ...CP.rng, [CP.x]: {} }; cpChanged(); cmpRender(); }
 function cpSetLayout(v) { CP.layout = v === 'stack' ? 'stack' : 'dual'; cpChanged(); cmpRender(); }
@@ -10261,7 +10486,14 @@ function cpBandPath(pts, px, py) {
 // they do not stack; a part of fewer than four points (a decay window or two)
 // is marked at each. The spacing runs on from one part to the next, so a
 // trace stored as many short parts (a hold each) is marked as one would be.
+// A quantity drawn as a bare line (cpBare, Hold OCV) has no markers; a
+// stretch of it of one point (a hold shorter than its plot bin), which draws
+// no line, is a dot, as on the Durability — OCV chart.
 function cpMarks(c, parts, b) {
+  if (!c.shape) {
+    return parts.flatMap(pts => cpClip(pts, b)).filter(s => s.length === 1)
+      .map(s => cpShapePath('circle', s[0][0], s[0][1], 2.8)).join('');
+  }
   const r = 4.2, out = [];
   const inside = p => p && p[0] >= b.x0 - 0.5 && p[0] <= b.x1 + 0.5 && p[1] >= b.y0 - 0.5 && p[1] <= b.y1 + 0.5;
   let rem = 14 + 28 * (c.sample % 3) + 9 * (c.si % 3);
@@ -10302,12 +10534,14 @@ function cpTextW(s, px, mono) {
   CP_MEASURE.font = `${px}px ${(cs.getPropertyValue(mono ? '--mono' : '--font') || '').trim() || 'sans-serif'}`;
   return CP_MEASURE.measureText(String(s)).width;
 }
-// The names of an axis's quantities, each with its marker, then its unit:
-// [{w, svg(x, y)}], laid out by cpHeadRow.
+// The names of an axis's quantities, each with its marker (a short line for
+// one drawn bare), then its unit: [{w, svg(x, y)}], laid out by cpHeadRow.
 function cpAxisLabel(ax, log, A) {
   const items = ax.qs.map(q => ({ w: 17 + cpTextW(q.name, 11),
-    svg: (x, y) => `<path class="cp-glyph" d="${cpShapePath(CP_SHAPES[A[q.id].shape], x + 6, y - 4, 4.2)}"`
-      + ` fill="${ax.side === 'L' ? 'var(--text)' : 'var(--surface)'}"/>`
+    svg: (x, y) => (cpBare(q)
+      ? `<path class="cp-glyph cp-bare" d="M${(x + 1).toFixed(1)} ${y - 4}h10" fill="none"/>`
+      : `<path class="cp-glyph" d="${cpShapePath(CP_SHAPES[A[q.id].shape], x + 6, y - 4, 4.2)}"`
+        + ` fill="${ax.side === 'L' ? 'var(--text)' : 'var(--surface)'}"/>`)
       + `<text class="cp-hname" x="${(x + 17).toFixed(1)}" y="${y}">${escapeHtml(q.name)}</text>` }));
   const unit = '(' + ax.unit + (log ? ', log' : '') + ')';
   items.push({ w: cpTextW(unit, 10.5, true),
@@ -10485,7 +10719,7 @@ function cpChart(X, A, all) {
     const m = cpMarks(c, parts, b);
     if (m) {
       marks += `<path class="cp-mk" d="${m}" stroke="${c.color}"`
-        + ` fill="${c.side === 'L' ? c.color : 'var(--surface)'}">${title}</path>`;
+        + ` fill="${c.side === 'L' || !c.shape ? c.color : 'var(--surface)'}">${title}</path>`;
     }
   });
   const names = list => list.map(ax => ax.qs.map(q => q.name).join(', ') + ' (' + ax.unit + ')').join('; ');
@@ -10644,7 +10878,7 @@ function cpAxesHtml(X, A, ch) {
     const nTxt = n ? `${n}${pending ? '…' : ''} ${noun[n === 1 && !pending ? 0 : 1]}`
       : pending ? 'reading…' : 'none stored';
     const item = `<span class="cp-q${a ? ' on' : ''}${n ? '' : ' none'}">${side('L')}<span class="mid">${
-        a ? cpGlyph(a.shape, a.side, 12) : ''}<span class="nm">${escapeHtml(q.name)}</span><span class="u">${
+        a ? cpQGlyph(q, a.shape, a.side, 12) : ''}<span class="nm">${escapeHtml(q.name)}</span><span class="u">${
         escapeHtml(q.unit)}</span><span class="c">${escapeHtml(nTxt)}</span></span>${side('R')}</span>`;
     let g = groups.find(x => x.label === q.grp);
     if (!g) groups.push(g = { label: q.grp, items: [] });
@@ -10662,14 +10896,14 @@ function cpAxesHtml(X, A, ch) {
       const box = (f, ph, aria, title, extra) => `<input type="text" class="cmp-range${
           String(ur[f] || '') ? ' set' : ''}${extra || ''}" value="${escapeAttr(ur[f] || '')}"
           placeholder="${escapeAttr(ph)}" aria-label="${escapeAttr(aria)}" title="${escapeAttr(title)}"
-          onchange="${cpOn('axes', v => cpSetAxRange(ax.key, f, v))}, this.value)">`;
+          onchange="${cpOn('axes', v => cpSetAxRange(ax.key, f, v, true))}, this.value)">`;
       const bad = !!(s && s.stepBad);
       return `<div class="cp-ax">
           <div class="cp-axhead"><span class="cp-unit">${escapeHtml(ax.unit)}</span>
             <span class="cp-pos">${ch.stacked ? 'panel ' + (k + 1) : ax.i === 0 ? 'on the plot edge' : 'offset ' + ax.i}</span>
             <span class="cp-seg" role="group" aria-label="${escapeAttr(`Scale of the ${word} axis in ${ax.unit}`)}">${
               seg('lin')}${seg('log')}</span></div>
-          ${ax.qs.map(q => `<div class="cp-axq">${cpGlyph(A[q.id].shape, sd, 12)}<span class="n">${
+          ${ax.qs.map(q => `<div class="cp-axq">${cpQGlyph(q, A[q.id].shape, sd, 12)}<span class="n">${
             escapeHtml(q.name)}</span><button type="button" class="cp-x" title="${escapeAttr(`Take ${q.name} off the ${word}`)}"
             aria-label="${escapeAttr(`Take ${q.name} off the ${word}`)}"
             onclick="cpSetSide('${fam}','${q.id}','${sd}')">×</button></div>`).join('')}
@@ -10711,7 +10945,7 @@ function cpOptsHtml(X, ch) {
   const box = (k, ph, aria, title, extra) => `<input type="text" class="cmp-range${
     String(rg[k] || '') ? ' set' : ''}${extra || ''}" value="${escapeAttr(rg[k] || '')}" placeholder="${
     escapeAttr(ph)}" aria-label="${aria}" title="${escapeAttr(title)}"
-    onchange="${cpOn('opts', v => cpSetRange(k, v))}, this.value)">`;
+    onchange="${cpOn('opts', v => cpSetRange(k, v, true))}, this.value)">`;
   return `<span class="cp-lay">Layout <span class="cp-seg" role="group" aria-label="Layout">${seg('dual', 'Overlaid')}${
       seg('stack', 'Stacked panels')}</span></span>
     <span class="cmp-ranges"><span class="cmp-rlab">x</span>
@@ -10832,8 +11066,10 @@ function cpRenderNotes(X, A, all) {
 }
 // ③ Add curves: the samples that store the quantities on the axes, against
 // this x, a chip for each series (dashed where a sample stores none of a
-// quantity, under "any"); the search and the stand filter are the other
-// types'.
+// quantity, under "any"). The search and the Stand, Step, Condition and Show
+// filters are the other types': Step where the series have steps (against
+// current density and potential), Condition by the series' own conditions,
+// Show by whether a sample has curves on this plot.
 function cpRenderPick() {
   CP_ACT.pick = [];
   const X = cpX(), fam = X.fam, A = CP.assign[fam] || {};
@@ -10846,23 +11082,59 @@ function cpRenderPick() {
   // A chip shows the dash its series has on the chart, or would take added next.
   const vocab = cpSeriesVocab(fam, X, A);
   const famRuns = (_viewRuns || []).filter(r => cpFamHas(r, fam));
+  // The filters' controls, as on the other types. Step only where the listed
+  // series have steps; a step no longer offered is let go, once nothing is
+  // being read (a list read again offers it again).
+  const listed = famRuns.filter(r => X.key !== 'cyc' || (cpIsTest(r) && cpCounts(r)));
+  const steps = cpStepVocab(listed, qa);
+  const reading = listed.some(r => qa.some(q => cpSeriesOf(r, q).loading));
+  if (CF.step && !steps.includes(CF.step) && !reading) CF.step = '';
+  const stepOpts = CF.step && !steps.includes(CF.step) ? steps.concat(CF.step) : steps;
+  const stepWrap = document.getElementById('cfw-step');
+  if (stepWrap) stepWrap.style.display = stepOpts.length ? '' : 'none';
+  const stepSel = document.getElementById('cf-step');
+  if (stepSel) stepSel.innerHTML = '<option value="">All</option>' + stepOpts.map(v =>
+    `<option ${CF.step === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const stepPre = document.querySelector('#cfw-step .pre');
+  if (stepPre) stepPre.textContent = 'Step';
+  cmpSyncCondPop();
+  const hs = document.getElementById('cf-has'); if (hs) hs.value = CF.has;
+  [['cfw-stand', CF.stand], ['cfw-step', CF.step], ['cfw-has', CF.has]].forEach(([id, v]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('set', !!v);
+  });
+  // The conditions narrowed among those offered (cmpCondCount).
+  const offered = new Set(cpCondFacets().map(f => f.key));
+  const csel = Object.fromEntries(Object.entries(CF_COND[cmpCondKey()] || {}).filter(([f]) => offered.has(f)));
+  const narrowed = !!CF.step || Object.keys(csel).length > 0;
+  // Show: by the legend's samples, those with curves drawn against this x.
+  const onPlot = new Set(cpSamplesOf(fam));
   const rows = [], offX = [], offY = [], shown = [];
   famRuns.forEach(run => {
     const k = runKey(run), name = String(run.sample_name || k);
     if (needle && !name.toLowerCase().includes(needle)) return;
     if (!standMatches(run.stand, CF.stand)) return;
+    if (CF.has === 'none' ? onPlot.has(k) : CF.has === 'some' ? !onPlot.has(k) : false) return;
     if (!qa.length) return;
     if (X.key === 'cyc' && !(cpIsTest(run) && cpCounts(run))) { offX.push(name); return; }
-    const info = qa.map(q => ({ q, ...cpSeriesOf(run, q) }));
+    const info = qa.map(q => {
+      const s = cpSeriesOf(run, q);
+      return { q, ...s, pass: s.list.filter(se => cpSeriesPasses(run, se, CF.step, csel)) };
+    });
     const got = info.filter(i => i.list.length);
     const missing = info.filter(i => !i.list.length && !i.loading && !i.failed);
     if (CP.has === 'all' ? missing.length : !got.length && !info.some(i => i.loading || i.failed)) {
       offY.push(name + (CP.has === 'all' ? ` (no ${missing.map(i => i.q.name).join(', no ')})` : ''));
       return;
     }
+    // Narrowed by Step or Condition, a sample is listed with what passes: under
+    // "all" something of every quantity it stores, under "any" something.
+    if (narrowed && (CP.has === 'all' ? got.some(i => !i.pass.length)
+      : !info.some(i => i.pass.length || i.loading || i.failed))) return;
     const chips = [], real = [];
-    info.forEach(({ q, list, loading, failed }) => {
+    info.forEach(({ q, list, pass, loading, failed }) => {
       const a = A[q.id];
+      if (list.length && !pass.length) return;
       if (!list.length) {
         chips.push(`<span class="cp-chip ghost" title="${escapeAttr(loading ? `Reading what ${name} stores`
           : failed ? `What ${name} stores could not be read: choose x again to try again`
@@ -10870,14 +11142,14 @@ function cpRenderPick() {
           + `<span class="s">${loading ? 'reading…' : failed ? 'could not be read' : 'none stored'}</span></span></span>`);
         return;
       }
-      list.forEach(se => {
+      pass.forEach(se => {
         const id = cpId(k, q.id, se.sid), on = have.has(id);
         real.push(id);
         const color = colours.get(k) || '#8a97a8';
         chips.push(`<button type="button" class="cp-chip${on ? ' on' : ''}" aria-pressed="${on}"
             title="${escapeAttr(`${q.name}, ${se.label}${se.sub ? ' — ' + se.sub : ''} (${a.side === 'L' ? 'left' : 'right'})`)}"
             onclick="${cpOn('pick', () => cpToggleCurve(fam, id))})">${
-            cpKey(color, cpDashOf(vocab, se.match), CP_SHAPES[a.shape], a.side)}<span class="t"><span class="q">${
+            cpKey(color, cpDashOf(vocab, se.match), cpBare(q) ? null : CP_SHAPES[a.shape], a.side)}<span class="t"><span class="q">${
             escapeHtml(q.name)}</span><span class="s">${escapeHtml(se.label)}</span></span></button>`);
       });
     });
@@ -10911,16 +11183,30 @@ function cpRenderPick() {
   const addable = shown.filter(id => !have.has(id));
   document.getElementById('cmpStatBtns').innerHTML = `<button class="btn btn-sm" ${addable.length ? '' : 'disabled'}
       onclick="${cpOn('pick', () => cpAddCurves(fam, addable))})">Add all shown</button>`;
+  // The filters' chips, as the other types show them.
+  const fchips = [];
+  if (CF.stand) fchips.push(['stand', CF.stand, 'stand']);
+  if (CF.step) fchips.push(['step', CF.step, 'step']);
+  const nc = cmpCondCount();
+  if (nc.set) fchips.push(['conditions', `${nc.chosen} of ${nc.total}`, 'cond']);
+  if (CF.has) fchips.push(['showing', CF.has === 'none' ? 'not yet added' : 'already added', 'has']);
   const chipsEl = document.getElementById('cmpFChips');
-  chipsEl.innerHTML = CF.stand ? `<span class="vf-chip"><span class="k">stand</span>${escapeHtml(CF.stand)}
-      <span class="x" onclick="cmpClearFilter('stand')">×</span></span>` : '';
-  chipsEl.classList.toggle('show', !!CF.stand);
+  chipsEl.innerHTML = fchips.map(([kk, v, w]) =>
+    `<span class="vf-chip"><span class="k">${escapeHtml(kk)}</span>${escapeHtml(v)}
+      <span class="x" onclick="cmpClearFilter('${w}')">×</span></span>`).join('')
+    + (fchips.length ? '<button class="vf-clear" onclick="cmpClearFilters()">Clear filters</button>' : '');
+  chipsEl.classList.toggle('show', fchips.length > 0);
   const pickNotes = [];
   if (offX.length) {
     pickNotes.push(`Not listed against RH cycles: ${offX.join(', ')} — no RH cycles counted (RH held steady).`);
   }
   if (offY.length) {
     pickNotes.push(`Not listed, having ${CP.has === 'all' ? 'only some' : 'none'} of the y quantities: ${offY.join('; ')}.`);
+  }
+  // Under "all" a step narrows every quantity to it, and different analyses
+  // are measured at steps of their own.
+  if (CP.has === 'all' && CF.step && !rows.length && qa.length > 1) {
+    pickNotes.push(`No sample has every y quantity at step ${CF.step}: each is measured at steps of its own. Has any lists them.`);
   }
   document.getElementById('cmpNote').innerHTML = CP_OPENED + CP_SAVED
     + pickNotes.map(n => `<span>${escapeHtml(n)}</span>`).join(' ');
@@ -10960,7 +11246,7 @@ async function cpExport() {
   const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff';
   const rows = all.filter(c => !c.loading).map(c => ({
     color: c.color, dash: c.dash, weight: 2,
-    glyph: { shape: c.shape, fill: c.side === 'L' ? c.color : surface },
+    glyph: c.shape ? { shape: c.shape, fill: c.side === 'L' ? c.color : surface } : null,
     name: cmpNameOf(c.key, c.stored),
     note: `${c.q.name} · ${c.label}${c.sub ? ' — ' + c.sub : ''} · ${c.side === 'L' ? 'left' : 'right'}, ${c.q.unit}`
       + (c.shade ? ' · high–low shaded' : '') + (c.why ? ` · not drawn: ${c.why}` : ''),
@@ -11004,6 +11290,9 @@ async function cpExport() {
           series: c.label, cond: c.sub,
           src: c.src.plot ? { analysis: 'fc_durability', step: '', plot_type: c.src.plot, points: true }
             : { analysis: c.src.analysis, step: c.src.step },
+          // A curve with a high–low band: whether the chart shades it, so the
+          // workbook carries each bin's low and high, or says it is off.
+          ...(c.banded ? { band: c.shade } : {}),
           pick: c.pick })) }),
     });
     if (!r.ok) {
@@ -12267,6 +12556,7 @@ function cmpLoadView(name) {
 
   if (v.type === CP_TYPE) {
     CMP_TYPE = CP_TYPE;
+    CF.step = '';
     cmpShowFamilyOf(CMP_TYPE);
     const { gone } = cpRestore(v.cp);
     cmpLoadNamesAndSteps(v);
@@ -12284,6 +12574,8 @@ function cmpLoadView(name) {
     return;
   }
   CMP_TYPE = CMP_TYPES[v.type] ? v.type : CMP_TYPE;
+  // A step chosen in Add curves was the list's, not the view's (cmpUseType).
+  CF.step = '';
   cmpShowFamilyOf(CMP_TYPE);
   // A view saved before j @ 0.65 V replaced j @ 0.6 V asks for the panel by
   // its old name; one saved before the RH cycles axis is on hold hours.
@@ -12647,6 +12939,9 @@ async function cmpDownloadPng(name, spec) {
 }
 
 async function exportComparison() {
+  // A redraw waiting for the press on Export (a box's value kept as Export
+  // took the focus) is drawn first: the PNG is the chart as kept.
+  if (CMP_AFTER) cmpRender();
   if (CMP_TYPE === CP_TYPE) { await cpExport(); return; }
   const sels = [];
   const bands = !!(CMP_TYPES[CMP_TYPE] || {}).bands;

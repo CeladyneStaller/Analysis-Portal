@@ -413,6 +413,12 @@ def build_plot_workbook(detail: Dict[str, Any], plot: str) -> bytes:
     return _finish(wb)
 
 
+# The Curves sheet's word on a curve's high–low band (custom_plot_curves' `band`).
+CUSTOM_BAND_NOTE = {'shaded': 'shaded: bin low and high in Data',
+                    'not shaded': 'not shaded on the chart: left out',
+                    'none stored': 'none stored now'}
+
+
 def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) -> bytes:
     """The Comparisons custom plot's curves: what the plot is, a row per curve,
     and every curve's stored points.
@@ -421,13 +427,19 @@ def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) ->
     curve is named as the legend showed it, its stored name beside it; one
     with nothing to export is listed with the reason and has no block. Each
     part of a curve (an FC Durability hold, say) is an x column and a y column
-    of its own, as the other data sheets lay out lines on their own x.
+    of its own, as the other data sheets lay out lines on their own x; a part
+    with a high–low band the chart shades has a bin low and a bin high column
+    beside them. Where any curve has a band, the Curves sheet says of each
+    whether it is in the Data sheet.
     """
     wb = Workbook()
     wb.remove(wb.active)
     used = set()
     xtitle = str(meta.get('xtitle') or 'x')
     drawn = [c for c in curves if c.get('parts')]
+    # A curve with a high–low band: whether its bins' lows and highs are in
+    # the Data sheet (a column only where some curve has a band).
+    banded = any(c.get('band') for c in curves)
     rows = [('Plot', str(meta.get('title') or 'Custom plot')), ('x', xtitle)]
     rows += [(str(a.get('side') or 'Axis'), str(a.get('text') or ''))
              for a in (meta.get('axes') or []) if isinstance(a, dict)]
@@ -437,7 +449,10 @@ def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) ->
     _info_sheet(wb, 'Custom plot', rows,
                 note='Every stored point of each curve, read from the stored analysis '
                      'data. Samples are named as the legend showed them; the Curves '
-                     'sheet gives each one\'s stored name.')
+                     'sheet gives each one\'s stored name.'
+                     + (' A curve whose high–low band the chart shades (Hold OCV) has each '
+                        'bin\'s low and high beside its values.'
+                        if any(c.get('band') == 'shaded' for c in curves) else ''))
 
     def label(i, c):
         return ' · '.join(b for b in (f"{i}. {c.get('name') or c.get('stored') or c.get('key')}",
@@ -446,22 +461,29 @@ def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) ->
     table = [[i, c.get('name'), c.get('stored'), c.get('quantity'), c.get('unit'),
               c.get('axis'), c.get('series'), c.get('cond'),
               sum(len(p) for p in c.get('parts') or []),
+              *([CUSTOM_BAND_NOTE.get(c.get('band') or '')] if banded else []),
               f"not exported: {c['reason']}" if c.get('reason') else None]
              for i, c in enumerate(curves, start=1)]
     _table_sheet(wb, 'Curves', ['Curve', 'Sample', 'Stored name', 'Quantity', 'Unit', 'Axis',
-                                'Series', 'Condition', 'Points', 'Note'], table, used)
+                                'Series', 'Condition', 'Points',
+                                *(['High–low band'] if banded else []), 'Note'], table, used)
 
     blocks = []
     for i, c in enumerate(curves, start=1):
         if not c.get('parts'):
             continue
-        ytitle = f"{c.get('quantity') or 'y'}" + (f" ({c['unit']})" if c.get('unit') else '')
-        cols, n = [], len(c['parts'])
+        unit = f" ({c['unit']})" if c.get('unit') else ''
+        ytitle = f"{c.get('quantity') or 'y'}{unit}"
+        cols, n, bands = [], len(c['parts']), c.get('bands') or []
         # A curve in parts (an FC Durability hold each, say), in x order: each
-        # numbered in its y column's title.
+        # numbered in its y column's title; a part's band beside its values.
         for j, part in enumerate(c['parts'], start=1):
-            cols += [(xtitle, [p[0] for p in part]),
-                     (ytitle + (f', part {j} of {n}' if n > 1 else ''), [p[1] for p in part])]
+            sfx = f', part {j} of {n}' if n > 1 else ''
+            cols += [(xtitle, [p[0] for p in part]), (ytitle + sfx, [p[1] for p in part])]
+            band = bands[j - 1] if j <= len(bands) else None
+            if band:
+                cols += [(f'bin low{unit}{sfx}', [b[0] for b in band]),
+                         (f'bin high{unit}{sfx}', [b[1] for b in band])]
         blocks.append((label(i, c), cols))
     if blocks:
         _block_sheet(wb, 'Data', blocks, used)

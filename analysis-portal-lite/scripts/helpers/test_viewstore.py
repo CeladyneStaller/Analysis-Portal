@@ -462,6 +462,28 @@ OCVQ = {'plot_type': 'fcdur_ocv_vs_time', 'data': {'axes': [
     {'xlabel': 'Hold hours (h)', 'ylabel': 'OCV decay (μV/h)\n10 h windows',
      'lines': [{'x': [5.0, 6.0, 7.0], 'y': [300.0, 320.0, 340.0], 'label': None}],
      'scatters': [{'x': [2.5], 'y': [900.0], 'label': None}]}]}}
+# Holds stored out of x order, each band's edges listed apart from its hold:
+# the middle hold has a gap in its values and in its low edge, the last
+# hold's edges are on an x of their own, so it has no band; a hold listed
+# after them has a low edge and no high, and another edges with no number.
+OCVB = {'plot_type': 'fcdur_ocv_vs_time', 'data': {'axes': [
+    {'ylabel': 'Hold OCV (V)', 'lines': [
+        {'x': [5.0, 6.0, 7.0], 'y': [0.93, None, 0.91], 'label': '30% RH'},
+        {'x': [0.5, 1.0], 'y': [0.95, 0.94], 'label': '30% RH'},
+        {'x': [9.0, 10.0], 'y': [0.9, 0.89], 'label': '30% RH'},
+        {'x': [5.0, 6.0, 7.0], 'y': [0.9, 0.88, None], 'label': 'bin low'},
+        {'x': [0.5, 1.0], 'y': [0.92, 0.93], 'label': 'bin low'},
+        {'x': [0.5, 1.0], 'y': [0.97, 0.96], 'label': 'bin high'},
+        {'x': [5.0, 6.0, 7.0], 'y': [0.95, 0.94, 0.93], 'label': 'bin high'},
+        {'x': [9.0, 10.5], 'y': [0.88, 0.87], 'label': 'bin low'},
+        {'x': [9.0, 10.5], 'y': [0.92, 0.91], 'label': 'bin high'},
+        {'x': [12.0, 13.0], 'y': [0.88, 0.87], 'label': '30% RH'},
+        {'x': [12.0, 13.0], 'y': [0.85, 0.84], 'label': 'bin low'},
+        {'x': [14.0, 15.0], 'y': [0.86, 0.85], 'label': '30% RH'},
+        {'x': [14.0, 15.0], 'y': [None, None], 'label': 'bin low'},
+        {'x': [14.0, 15.0], 'y': [None, None], 'label': 'bin high'}]},
+    {'xlabel': 'Hold hours (h)', 'ylabel': 'OCV decay (μV/h)\n10 h windows',
+     'lines': [{'x': [5.0, 6.0, 7.0], 'y': [300.0, 320.0, 340.0], 'label': None}]}]}}
 _orig = INDEX['runs']
 INDEX['runs'] = _orig + [
     {'job_id': 'job-X', 'sample_name': '261005_XO', 'script': 'FC Durability',
@@ -475,12 +497,16 @@ INDEX['runs'] = _orig + [
      'Data': [{'Analysis': 'polcurve', 'step': 'b4', 'Conditions': {}}]},
     {'job_id': 'job-Q', 'sample_name': '261008_ORDER', 'script': 'FC Durability',
      'timestamp': '2026-10-08T10:00:00Z', 'bin_id': 'BIN-Q',
+     'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]},
+    {'job_id': 'job-B', 'sample_name': '261009_BAND', 'script': 'FC Durability',
+     'timestamp': '2026-10-09T10:00:00Z', 'bin_id': 'BIN-B',
      'Data': [{'Analysis': 'fc_durability', 'step': '', 'Conditions': {}}]}]
 for job, sample, bucket, plots in (
         ('job-X', '261005_XO', 'fc_durability', {'xo': XOVER, 'ocv': OCVD, 'cyc': MAP}),
         ('job-S', '261006_STEADY', 'fc_durability', {'xo': XOVER}),
         ('job-P', '261007_POL', 'polcurve', {'b4': POL}),
-        ('job-Q', '261008_ORDER', 'fc_durability', {'ocv': OCVQ})):
+        ('job-Q', '261008_ORDER', 'fc_durability', {'ocv': OCVQ}),
+        ('job-B', '261009_BAND', 'fc_durability', {'ocv': OCVB})):
     BIN_TO_JOB['BIN-' + job[-1]] = job
     DETAILS[job] = {
         'schema': 2, 'job_id': job, 'sample_name': sample, 'script': 'S',
@@ -598,6 +624,9 @@ try:
     info = {r[0].value: r[1].value for r in wbk['Custom plot'].iter_rows() if r[0].value}
     check('the plot described', (info.get('x'), info.get('Left axis'), info.get('Curves')),
           ('Hold time (h)', 'R_short (Ω·cm²)', '3, 2 with points'))
+    check_true('... its note names no band where no curve has one (review, 16 Oct)',
+               not any('bin' in str(r[0].value) for r in wbk['Custom plot'].iter_rows() if r[0].value),
+               [r[0].value for r in wbk['Custom plot'].iter_rows()])
 
     # Parts in x order: a short hold's decay windows (points) before a long
     # one's (a line), though a pick lists lines first.
@@ -615,6 +644,82 @@ try:
     check('names that begin with = are written as text, not formulas',
           [(c.value, c.data_type) for c in cq[1][1:3]] + [(dq[0][0].value, dq[0][0].data_type)],
           [('=1+1', 's'), ('=HYPERLINK("x")', 's'), ('1. =1+1 · q · s', 's')])
+
+    # A Hold OCV curve whose high–low band the chart shades (16 Oct, 17:36):
+    # each part's bin low and bin high, paired as the chart pairs them.
+    OB = dict(FD, plot_type='fcdur_ocv_vs_time', points=True)
+    holds = {'axis': 0, 'lines': [0, 1, 2], 'lines_labels': ['30% RH'] * 3}
+    bnd = viewstore.custom_plot_curves([
+        curve('BIN-B', OB, holds, band=True),
+        curve('BIN-B', OB, holds, band=False),
+        curve('BIN-B', OB, holds),
+        curve('BIN-Q', OB, {'axis': 0, 'lines': [0], 'lines_labels': ['30% RH']}, band=True),
+        curve('BIN-B', OB, {'axis': 1, 'lines': [0], 'lines_labels': ['']}, band=True)])
+    check('a band shaded: each hold\'s bin low and high paired by its own x, each pair once, in x order '
+          'with its hold; a value with no number left out with its band, and a point with an edge that is '
+          'not a number left blank, as the chart leaves it unshaded; a hold whose edges are on another x has none',
+          (bnd[0]['parts'], bnd[0]['bands'], bnd[0]['band']),
+          ([[[0.5, 0.95], [1.0, 0.94]], [[5.0, 0.93], [7.0, 0.91]], [[9.0, 0.9], [10.0, 0.89]]],
+           [[[0.92, 0.97], [0.93, 0.96]], [[0.9, 0.95], [None, None]], None], 'shaded'))
+    check('... turned off on the chart, or a curve with none, the same parts and no band; '
+          'shaded with none stored, or on a line with no edges, says so',
+          [(c['parts'] == bnd[0]['parts'], c['bands'], c['band']) for c in bnd[1:3]]
+          + [(c['bands'], c['band']) for c in bnd[3:]],
+          [(True, [None, None, None], 'not shaded'), (True, [None, None, None], ''),
+           ([None], 'none stored'), ([None], 'none stored')])
+    twice = viewstore.custom_plot_curves([
+        curve('BIN-B', OB, {'axis': 0, 'lines': [1, 1], 'lines_labels': ['30% RH'] * 2}, band=True)])
+    check('... a pair of edges goes to one trace only (a hold picked twice has its band once)',
+          twice[0]['bands'], [[[0.92, 0.97], [0.93, 0.96]], None])
+    half = viewstore.custom_plot_curves([
+        curve('BIN-B', OB, {'axis': 0, 'lines': [9], 'lines_labels': ['30% RH']}, band=True)])
+    check('... and a low edge with no high is no band', (half[0]['parts'], half[0]['bands'], half[0]['band']),
+          ([[[12.0, 0.88], [13.0, 0.87]]], [None], 'none stored'))
+    blank = viewstore.custom_plot_curves([
+        curve('BIN-B', OB, {'axis': 0, 'lines': [11], 'lines_labels': ['30% RH']}, band=True),
+        curve('BIN-X', OC, {'axis': 0, 'lines': [0], 'lines_labels': ['100↔0% RH cycling'], 'points': [0],
+                            'points_labels': ['settled start and end (30-min medians)']}, band=True)])
+    check('... nor are edges with no number in them (review, 16 Oct)', (blank[0]['bands'], blank[0]['band']),
+          ([None], 'none stored'))
+    check('... and a curve\'s points have no band, its line beside them in x order keeping its own',
+          (blank[1]['parts'], blank[1]['bands'], blank[1]['band']),
+          ([[[0.2, 0.96], [1.9, 0.93]], [[0.5, 0.95], [1.5, 0.94]]], [None, [[0.9, 0.99], [0.9, 0.98]]], 'shaded'))
+    cyb = viewstore.custom_plot_curves([
+        curve('BIN-X', OC, {'axis': 0, 'lines': [0], 'lines_labels': ['100↔0% RH cycling']}, band=True)], 'cyc')
+    check('... against RH cycles, its x read off the map and its band as it was',
+          (cyb[0]['parts'], cyb[0]['bands'], cyb[0]['band']),
+          ([[[25.0, 0.95], [75.0, 0.94]]], [[[0.9, 0.99], [0.9, 0.98]]], 'shaded'))
+    wbb = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'Hold time (h)'},
+        [dict(bnd[0], quantity='Hold OCV', unit='V'), dict(bnd[1], quantity='Hold OCV', unit='V'),
+         got[0], dict(bnd[3], quantity='Hold OCV', unit='V')])))
+    rows_b = [[c.value for c in r] for r in wbb['Curves'].iter_rows()]
+    check('Curves, a curve with a band among them: a High–low band column says of each whether its '
+          'bins\' lows and highs are in Data',
+          [r[8:] for r in rows_b],
+          [['Points', 'High–low band', 'Note'], [6, 'shaded: bin low and high in Data', None],
+           [6, 'not shaded on the chart: left out', None], [2, None, None], [2, 'none stored now', None]])
+    db = [[c.value for c in r] for r in wbb['Data'].iter_rows()]
+    check('Data: beside each banded hold\'s values its bin low and bin high, titled with the unit and the '
+          'part; a hold with no band, x and y alone',
+          (db[1][:10], [r[:10] for r in db[2:4]]),
+          (['Hold time (h)', 'Hold OCV (V), part 1 of 3', 'bin low (V), part 1 of 3', 'bin high (V), part 1 of 3',
+            'Hold time (h)', 'Hold OCV (V), part 2 of 3', 'bin low (V), part 2 of 3', 'bin high (V), part 2 of 3',
+            'Hold time (h)', 'Hold OCV (V), part 3 of 3'],
+           [[0.5, 0.95, 0.92, 0.97, 5, 0.93, 0.9, 0.95, 9, 0.9],
+            [1, 0.94, 0.93, 0.96, 7, 0.91, None, None, 10, 0.89]]))
+    check('... the band turned off: x and y alone', db[1][11:17],
+          ['Hold time (h)', 'Hold OCV (V), part 1 of 3', 'Hold time (h)', 'Hold OCV (V), part 2 of 3',
+           'Hold time (h)', 'Hold OCV (V), part 3 of 3'])
+    info_b = [r[0].value for r in wbb['Custom plot'].iter_rows() if r[0].value]
+    check_true('the note says a shaded band\'s lows and highs are in the data',
+               any('each bin\'s low and high' in str(v) for v in info_b), info_b)
+    wbo = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'Hold time (h)'}, [dict(bnd[1], quantity='Hold OCV', unit='V')])))
+    info_o = [r[0].value for r in wbo['Custom plot'].iter_rows() if r[0].value]
+    check_true('... and says nothing of bands where none is shaded (second review, 16 Oct)',
+               not any('bin' in str(v) for v in info_o)
+               and [c.value for c in wbo['Curves'][1]][8:11] == ['Points', 'High–low band', 'Note'], info_o)
 
     # Reads: a record read and decoded once per batch or export, a plot once
     # per export, and a key that cannot be read failing once.
@@ -656,7 +761,7 @@ try:
         viewstore.decode_sidecars, viewstore.plot_series = _decode, _series
 finally:
     INDEX['runs'] = _orig
-    for b in ('BIN-X', 'BIN-S', 'BIN-P', 'BIN-Q'):
+    for b in ('BIN-X', 'BIN-S', 'BIN-P', 'BIN-Q', 'BIN-B'):
         DETAILS.pop(BIN_TO_JOB.pop(b))
     reset()
 

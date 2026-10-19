@@ -23,7 +23,7 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scripts.helpers import jsonbin, registry
 from scripts.helpers.record import (
@@ -801,6 +801,25 @@ CUSTOM_EXPORT_MAX_SAMPLES = 64
 CUSTOM_CURVE_FIELDS = ('name', 'stored', 'quantity', 'unit', 'axis', 'series', 'cond')
 
 
+def _band_edges(ax: Dict[str, Any], line: Dict[str, Any],
+                taken: Set[int]) -> Optional[Tuple[List[Any], List[Any]]]:
+    """A trace's high–low band among its axis's lines, paired as the custom
+    plot pairs it (cpBandFor): the first bin low, then the first bin high, not
+    yet taken whose x is the trace's own, point for point. Their y values
+    (low, high), or None."""
+    x = line.get('x') or []
+
+    def first(label: str) -> Optional[Dict[str, Any]]:
+        return next((e for e in ax.get('lines') or [] if e.get('label') == label
+                     and id(e) not in taken and (e.get('x') or []) == x), None)
+    lo = first(BAND_EDGE_LABELS[0])
+    hi = first(BAND_EDGE_LABELS[1]) if lo else None
+    if not lo or not hi:
+        return None
+    taken.update((id(lo), id(hi)))
+    return lo.get('y') or [], hi.get('y') or []
+
+
 def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[str, Any]]:
     """The custom plot's curves, read again with every stored point, for its
     workbook.
@@ -811,14 +830,22 @@ def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[s
     by position, each with the label the chart found there. A curve that is
     the power of a polarization curve (`power`) is its current density times
     its voltage, in mW/cm². Against RH cycles (`x` 'cyc'), each test's hold
-    hours are read off its own map, as the chart reads them.
+    hours are read off its own map, as the chart reads them. A curve whose
+    high–low band the chart shades (`band` true; false for one it has with
+    the band turned off) has each line's bin low and bin high paired with it
+    as the chart pairs them (_band_edges).
 
     Returns the curves in order, each with its descriptive fields as sent,
     `parts` (lists of [x, y] with both numbers, in order of their first x, as
-    the chart lists them) and `reason`: why a curve has no parts — its plot
-    not stored, its parts no longer where the chart found them (stored again
-    since), or, against RH cycles, its test counting none. Each record is read
-    once, and each plot once, however many curves come from it.
+    the chart lists them), `bands` (for each part, its points' [low, high] as
+    stored where both are numbers, as the chart shades them, else [None,
+    None]; None for a part with no band, or none shaded), `band` (for a
+    curve with a band: 'shaded', 'none stored' where its plot holds none
+    now, or 'not shaded'; '' for any other) and `reason`: why a curve has no
+    parts — its plot not stored, its parts no longer where the chart found
+    them (stored again since), or, against RH cycles, its test counting none.
+    Each record is read once, and each plot once, however many curves come
+    from it.
     """
     maps: Dict[str, Any] = {}
     memo: Dict[str, Any] = {}
@@ -828,7 +855,7 @@ def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[s
         c = c if isinstance(c, dict) else {}
         key = str(c.get('key') or '')
         row: Dict[str, Any] = {'key': key, **{f: str(c.get(f) or '') for f in CUSTOM_CURVE_FIELDS},
-                               'parts': [], 'reason': ''}
+                               'parts': [], 'bands': [], 'band': '', 'reason': ''}
         out.append(row)
         src = c.get('src') if isinstance(c.get('src'), dict) else {}
         pick = c.get('pick') if isinstance(c.get('pick'), dict) else {}
@@ -851,7 +878,7 @@ def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[s
         if not isinstance(ai, int) or isinstance(ai, bool) or not 0 <= ai < len(axes):
             row['reason'] = 'not found in its stored plot (stored again since?)'
             continue
-        found: List[Dict[str, Any]] = []
+        found: List[Tuple[str, Dict[str, Any]]] = []
         for kind in ('lines', 'points'):
             have = axes[ai].get(kind) or []
             want, labs = pick.get(kind) or [], pick.get(kind + '_labels') or []
@@ -862,21 +889,30 @@ def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[s
                     found = []
                     row['reason'] = 'not found in its stored plot (stored again since?)'
                     break
-                found.append(have[i])
+                found.append((kind, have[i]))
             if row['reason']:
                 break
         if row['reason']:
             continue
+        power, banded, taken = pick.get('power') is True, c.get('band') is True, set()
         parts = []
-        for ln in found:
-            pts = [[a, b] for a, b in zip(ln.get('x') or [], ln.get('y') or [])
-                   if _finite(a) and _finite(b)]
-            if pick.get('power') is True:
-                pts = [[a, a * b * 1000.0] for a, b in pts]
-            parts.append(pts)
+        for kind, ln in found:
+            edges = _band_edges(axes[ai], ln, taken) if banded and kind == 'lines' else None
+            pts, lohi = [], []
+            for i, (a, b) in enumerate(zip(ln.get('x') or [], ln.get('y') or [])):
+                if not (_finite(a) and _finite(b)):
+                    continue
+                pts.append([a, a * b * 1000.0 if power else b])
+                if edges:
+                    lo, hi = (e[i] if i < len(e) else None for e in edges)
+                    lohi.append([lo, hi] if _finite(lo) and _finite(hi) else [None, None])
+            # Shaded where both edges are numbers, as the chart shades it
+            # (cpBandFor): a band with no such point is none.
+            parts.append((pts, lohi if any(lo is not None for lo, _hi in lohi) else None))
         # Lines come before points in a pick: put back in x order (a short
-        # hold's decay windows, stored as points, before a long one's line).
-        parts = sorted((p for p in parts if p), key=lambda p: p[0][0])
+        # hold's decay windows, stored as points, before a long one's line),
+        # each part's band with it.
+        parts = sorted((p for p in parts if p[0]), key=lambda p: p[0][0][0])
         if x == 'cyc':
             if key not in maps:
                 try:
@@ -889,10 +925,15 @@ def custom_plot_curves(curves: List[Dict[str, Any]], x: str = '') -> List[Dict[s
             if maps[key] is None:
                 row['reason'] = 'no RH cycles counted'
                 continue
-            parts = [[[cycles_at(*maps[key], a), b] for a, b in p] for p in parts]
-        row['parts'] = parts
+            parts = [([[cycles_at(*maps[key], a), b] for a, b in p], lohi) for p, lohi in parts]
+        row['parts'] = [p for p, _lohi in parts]
+        row['bands'] = [lohi for _p, lohi in parts]
         if not row['parts']:
             row['reason'] = 'no points stored'
+        elif c.get('band') is False:
+            row['band'] = 'not shaded'
+        elif banded:
+            row['band'] = 'shaded' if any(row['bands']) else 'none stored'
     return out
 
 
