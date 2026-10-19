@@ -26,6 +26,17 @@ from openpyxl.utils import get_column_letter
 from scripts.helpers.plot_compare import (
     find_sidecar, load_sidecar, render_overlay_comparison, is_band_edge
 )
+from scripts.helpers.record import plot_conditions as _index_conditions
+
+
+def _step_of(name, sidecar=None):
+    """A plot's step as the index files it (record.plot_conditions): the step
+    its script declared in the sidecar (the electrolyzer cell id, as a1-rev2;
+    one declared empty means none), else the one in its name, an
+    underscore-delimited token of a letter, digits and an optional letter
+    (b14, f3b), lower-cased; '' for none. Never a gas flow's 'H2' or 'N2',
+    which a looser match took for the step of a name that has none."""
+    return str(_index_conditions(os.path.basename(name or ''), sidecar).get('step') or '')
 
 
 def _declared_signature(sidecar):
@@ -46,7 +57,8 @@ def _parse_condition_signature(filename):
     """Extract a condition signature from a filename for matching.
 
     Captures:
-      - Cell letter prefix (e.g. 'a' from 'a10', 'b' from 'b14')
+      - Cell letter prefix (e.g. 'a' from 'a10', 'b' from 'b14' or 'b17b'),
+        the step read as the index reads it (_step_of)
       - Temperature (e.g. '80C')
       - Relative humidity (e.g. '100RH')
       - Pressure (e.g. '0kPa', '150kPa')
@@ -72,11 +84,10 @@ def _parse_condition_signature(filename):
 
     parts = []
 
-    # Cell letter prefix: pattern like 'b14', 'a10', 'c2' — letter followed by digits
-    # We want the letter only. Use a word-boundary match.
-    cell_match = re.search(r'(?<![A-Za-z])([A-Za-z])(\d+)(?![A-Za-z])', name)
-    if cell_match:
-        parts.append(cell_match.group(1).lower())
+    # Cell letter prefix: the step's letter ('b' from b14 or b17b).
+    step = _step_of(name)
+    if step:
+        parts.append(step[0])
 
     # Temperature: digits followed by C (with optional o/° decimal)
     t_match = re.search(r'(\d+(?:o\d+)?)C(?![A-Za-z])', name)
@@ -96,8 +107,9 @@ def _parse_condition_signature(filename):
     return '_'.join(parts) if parts else ''
 
 
-def _parse_full_conditions(filename):
-    """Extract all parseable conditions from a filename.
+def _parse_full_conditions(filename, sidecar=None):
+    """Extract all parseable conditions from a filename, and the step its
+    sidecar declares, if any (_step_of).
 
     Returns dict with possible keys:
       step (e.g. 'b14'), T (numeric), RH (numeric),
@@ -118,10 +130,10 @@ def _parse_full_conditions(filename):
 
     cond = {}
 
-    # Step (cell letter + digits, e.g. b14, c6)
-    m = re.search(r'(?<![A-Za-z])([A-Za-z])(\d+)(?![A-Za-z])', name)
-    if m:
-        cond['step'] = m.group(0).lower()
+    # Step (cell letter + digits + an optional letter, e.g. b14, c6, f3b)
+    step = _step_of(name, sidecar)
+    if step:
+        cond['step'] = step
 
     # Temperature
     m = re.search(r'(\d+(?:o\d+)?)C(?![A-Za-z])', name)
@@ -246,7 +258,7 @@ def _friendly_plot_type(plot_type):
     return mapping.get(plot_type, plot_type.replace('_', ' ').title())
 
 
-def _build_clean_label(sample_name, filename, grouping_mode):
+def _build_clean_label(sample_name, filename, grouping_mode, sidecar=None):
     """Build a minimal-info legend label.
 
     grouping_mode 'plot_type' (All Together):
@@ -256,7 +268,7 @@ def _build_clean_label(sample_name, filename, grouping_mode):
     """
     if not sample_name:
         sample_name = 'sample'
-    cond = _parse_full_conditions(filename)
+    cond = _parse_full_conditions(filename, sidecar)
     step = cond.get('step', '')
 
     parts = [sample_name]
@@ -541,7 +553,7 @@ def _compare_generic(items, output_dir, params):
         if user_label:
             label_to_use = user_label
         else:
-            label_to_use = _build_clean_label(sample_name, filename, grouping_mode)
+            label_to_use = _build_clean_label(sample_name, filename, grouping_mode, it['sidecar'])
         clean_items.append({
             'label': label_to_use,
             'filename': filename,

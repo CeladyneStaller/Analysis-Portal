@@ -227,6 +227,30 @@ check('no conditions token', parse_step_name('c3_S_OCV_notes.csv'), None)
 check('no sample', parse_step_name('c3_OCV_80Cell-50RH_0.4WH2-0.4WA.csv'), None)
 check('natural sort', sorted(['40H_10', '40H_2', '40H_1'], key=natural_key),
       ['40H_1', '40H_2', '40H_10'])
+# A letter after the step number (f3b, a step added after f3) is part of the
+# step, as the index reads it (19 Oct: f3b was skipped as no step file).
+r = parse_step_name('f3b_Synth-F_OCV_80.3Cell-100RH_0.05WH2-0.05WN2.csv')
+check('a letter after the step number', (r['step'], r['letter'], r['number'], r['trail'], r['sample']),
+      ('f3b', 'f', 3, 'b', 'Synth-F'))
+check('... upper case and a leading zero as for any step; two letters after it is no step',
+      [(lambda r: r and (r['step'], r['trail']))(parse_step_name(n)) for n in (
+          'B17B_S_OCV_80.3Cell-100RH_0.4WH2-0.4WO2.csv', 'f03b_S_OCV_80.3Cell-100RH_0.4WH2-0.4WO2.csv',
+          'f3bc_S_OCV_80.3Cell-100RH_0.4WH2-0.4WO2.csv')], [('b17b', 'b'), ('f3b', 'b'), None])
+for folder, names in (('trail', ('f2', 'f3', 'f3b', 'f4')), ('trail_up', ('F3B', 'F2', 'F3', 'f3a')),
+                      ('trail_lone', ('f2', 'f3b', 'f4'))):
+    for k, step in enumerate(names):
+        write_four(tmp / folder / '261019_Synth-F' / f'{step}_Synth-F_OCV_80.3Cell-100RH_0.05WH2-0.05WN2.csv',
+                   600, 10, v=0.1)
+tl = build_timeline(str(tmp / 'trail'))
+check('a run with f3 and f3b: both read, f3b after f3 and before f4, nothing skipped, '
+      'no step said to repeat or be missing',
+      ([f.step for f in tl.files], tl.skipped, [n for n in tl.notes if 'twice' in n or 'no file for' in n]),
+      (['f2', 'f3', 'f3b', 'f4'], [], []))
+check('... ordered by the step, not the name, whatever the case: F3 before f3a before F3B',
+      [f.step for f in build_timeline(str(tmp / 'trail_up')).files], ['f2', 'f3', 'f3a', 'f3b'])
+tl = build_timeline(str(tmp / 'trail_lone'))
+check('a run with f3b and no f3: f3b stands for step 3, so no step is said to be missing',
+      ([f.step for f in tl.files], [n for n in tl.notes if 'no file for' in n]), (['f2', 'f3b', 'f4'], []))
 
 # ── 2. single-folder run (Scribner shape) ────────────────────────────
 print('2. single-folder run')
@@ -2056,6 +2080,45 @@ check('... whole only for the OCV plot: another type asked for whole is still th
 import scripts.compare_polcurves as compare_mod
 from scripts.helpers import plot_compare
 from scripts.helpers.record import decode_sidecars
+# Its legend and Same Conditions grouping read the step as the index does: a
+# letter after the number kept (b17b read b1 before), and none taken from a
+# gas flow (f3b's grouped as 'h', a zz1 purge's as 'n', from H2 and N2).
+check('the comparison reads the step as the index does', [compare_mod._parse_full_conditions(n).get('step')
+      for n in ('polcurve_b17b_IV_80C-95RH_OCV-0o3V_0o2H2-0o2Air_0kPa.png',
+                'polcurve_f3b_S_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png',
+                'polcurve_b14_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png',
+                'ocv_zz1_Purge_25C-Dry_0o5N2-0o5N2_0kPa.png')], ['b17b', 'f3b', 'b14', None])
+check('... and groups by that step\'s letter', [compare_mod._parse_condition_signature(n) for n in (
+          'polcurve_f3b_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png',
+          'polcurve_b14_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png',
+          'ocv_zz1_Purge_25C-Dry_0o5N2-0o5N2_0kPa.png')],
+      ['f_80C_100RH_0kPa', 'b_80C_100RH_0kPa', '25C_0kPa'])
+# Its label takes the step a script declared, as the index files the plot:
+# the electrolyzer cell id, which a name like polcurve_a1-rev2 does not give
+# the stricter reader; else the name's, lower-cased.
+ELX = {'plot_type': 'polcurve', 'metadata': {'conditions': {'step': 'a1-rev2', 'T_C': 80.0}}}
+HOLD = {'plot_type': 'polcurve', 'metadata': {'conditions': {'j_hold_Acm2': 1.0}}}
+FC_B = 'S2-FullAnalysis-polcurve_F3B_S_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png'
+check('the comparison\'s label takes a declared step, else the name\'s',
+      [compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1-rev2.png', 'plot_type', ELX),
+       compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1-rev2.png', 'plot_type'),
+       compare_mod._build_clean_label('S2', FC_B, 'plot_type_conditions', HOLD),
+       compare_mod._build_clean_label('S2', FC_B, 'plot_type_conditions')],
+      ['S1_a1-rev2', 'S1', 'S2_f3b', 'S2_f3b'])
+lab_seen = []
+real_lab_render, real_lab_xlsx = compare_mod.render_overlay_comparison, compare_mod.export_comparison_excel
+compare_mod.render_overlay_comparison = lambda items, **kw: lab_seen.append([it['label'] for it in items])
+compare_mod.export_comparison_excel = lambda *a, **k: None
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        compare_mod._compare_generic([
+            {'filename': 'S1-ElxPolCurve-polcurve_a1-rev2.png', 'sample_name': 'S1', 'sidecar': ELX},
+            {'filename': FC_B, 'sample_name': 'S2', 'sidecar': HOLD}],
+            str(tmp / 'lab_out'), {'image_format': 'png', 'grouping_mode': 'plot_type_conditions'})
+finally:
+    compare_mod.render_overlay_comparison = real_lab_render
+    compare_mod.export_comparison_excel = real_lab_xlsx
+check('... in the comparison drawn', lab_seen, [['S1_a1-rev2', 'S2_f3b']])
 k1, k2 = (next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == s)
           for s in (SAMPLE, '260603_DUR-NEW'))
 with contextlib.redirect_stdout(io.StringIO()):
@@ -2314,6 +2377,20 @@ r = parse_fcd_step_name('zz2_shut-down_25C-Dry_0o4N2-0o4N2_0kPa.fcd')
 check('a two-letter block; Dry', (r['step'], r['letter'], r['number'], r['RH_pct'], r['anode_humid'],
                                   r['anode_gas'], r['cathode_gas']),
       ('zz2', 'zz', 2, 0.0, 'dry', 'N2', 'N2'))
+for n, want in (('f3b_OCV_80C-100RH_0o1H2-0o1N2_0kPa.fcd', ('f3b', 'f', 3, 'b')),
+                ('ZZ1B_Purge_25C-Dry_0o5N2-0o5N2_0kPa.fcd', ('zz1b', 'zz', 1, 'b'))):
+    r = parse_fcd_step_name(n)
+    check(f'fcd name, a letter after the step number: {want[0]}',
+          (r['step'], r['letter'], r['number'], r['trail']), want)
+check('... two letters after it is no step', parse_fcd_step_name('f3bc_OCV_80C-100RH_0o1H2-0o1N2_0kPa.fcd'),
+      None)
+for k, step in enumerate(('f2', 'F3B', 'f3', 'f3a', 'f4')):
+    write_fcd(tmp / 'trail_fcd' / '261019_SYN-F' / f'{step}_OCV_80C-100RH_0o1H2-0o1N2_0kPa.fcd',
+              1000.0 * (k + 1) + np.arange(10, 601.0, 10), {'E_Stack (V)': 0.1},
+              desc='Open Circuit; 10 Minutes; Fixed 10 Sec/Pt; ')
+tl = build_timeline(str(tmp / 'trail_fcd'))
+check('a .fcd run with f3, f3a and F3B: all read, in step order whatever the case, nothing skipped',
+      ([f.step for f in tl.files], tl.skipped), (['f2', 'f3', 'f3a', 'f3b', 'f4'], []))
 r = parse_fcd_step_name('a0_T-cell-ramp-up_83C_0kPa.fcd')
 check('a temperature alone: no RH, no gases', (r['T_C'], math.isnan(r['RH_pct']), r['anode_gas'],
                                               r['P_kPa']), (83.0, True, None, 0.0))

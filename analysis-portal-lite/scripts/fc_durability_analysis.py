@@ -18,7 +18,8 @@ death is measured on. File names carry everything the timeline needs:
     one hold (Gore-A's 150 h is fifteen 10 h files).
   * The order of every step. No file carries a date and every log restarts
     near 0 s, so folders are ordered by their earliest step letter and then
-    by natural name, and steps by letter and number within a folder.
+    by natural name, and steps by letter, number and any letter after the
+    number (f3, f3b, f4) within a folder.
   * The hold-hour clock. Each hold file adds its last time stamp plus the
     30 s that every station step runs past the end of its log.
 
@@ -123,7 +124,9 @@ OXIDANTS = ('Air', 'O2')
 #  File names
 # ═══════════════════════════════════════════════════════════════════
 
-_STEP_RE = re.compile(r'^(?P<letter>[A-Za-z])(?P<number>\d+)$')
+# The step: a letter, its number, and an optional letter after it (f3b, a
+# step added after f3), as the index reads steps (record._STEP_RE).
+_STEP_RE = re.compile(r'^(?P<letter>[A-Za-z])(?P<number>\d+)(?P<trail>[A-Za-z]?)$')
 _NUM = r'\d+(?:\.\d+)?'
 _TRH_RE = re.compile(rf'^(?P<T>{_NUM})Cell-(?P<RH>{_NUM})RH$', re.IGNORECASE)
 # 'Air' is tried before 'A' so 0.4WAir does not read as A plus a stray 'ir'.
@@ -170,9 +173,10 @@ def parse_step_name(filename: str) -> Optional[Dict[str, Any]]:
     flows = _FLOW_RE.match(tokens[trh_i + 1]) if trh_i + 1 < len(tokens) else None
     rest = tokens[trh_i + 2:] if flows else tokens[trh_i + 1:]
     rec: Dict[str, Any] = {
-        'step': f"{m['letter'].lower()}{int(m['number'])}",
+        'step': f"{m['letter'].lower()}{int(m['number'])}{m['trail'].lower()}",
         'letter': m['letter'].lower(),
         'number': int(m['number']),
+        'trail': m['trail'].lower(),
         'sample': '_'.join(tokens[1:trh_i - 1]),
         'kind': next((k for k, rx in _KINDS if rx.match(kind_token)), 'other'),
         'kind_token': kind_token,
@@ -205,8 +209,9 @@ def natural_key(text: str) -> List[Any]:
 
 # As the KM8-S6 run (October 2026) names them:
 #   b20_CV-2mVs_0o12to0o8V_80C-100RH_0o4H2-0o4N2_0kPa.fcd
-# The block is one or two letters (the shut-down steps are zz1, zz2).
-_FCD_STEP_RE = re.compile(r'^(?P<letter>[A-Za-z]{1,2})(?P<number>\d+)$')
+# The block is one or two letters (the shut-down steps are zz1, zz2), and a
+# letter may follow the number (f3b).
+_FCD_STEP_RE = re.compile(r'^(?P<letter>[A-Za-z]{1,2})(?P<number>\d+)(?P<trail>[A-Za-z]?)$')
 _ONUM = r'\d+(?:[o.]\d+)?'
 # 80C-100RH; 90C-100RH(90C)-0RH, RH cycled between the two; 93C-(90C)RH, a
 # dew point; 25C-Dry; or the temperature alone (a0_T-cell-ramp-up_83C_0kPa).
@@ -330,9 +335,10 @@ def parse_fcd_step_name(filename: str) -> Optional[Dict[str, Any]]:
             extra.append(t)
     kind_token = tokens[1] if kind_i else ''
     rec: Dict[str, Any] = {
-        'step': f"{m['letter'].lower()}{int(m['number'])}",
+        'step': f"{m['letter'].lower()}{int(m['number'])}{m['trail'].lower()}",
         'letter': m['letter'].lower(),
         'number': int(m['number']),
+        'trail': m['trail'].lower(),
         'sample': '',
         'kind': _fcd_kind(kind_token),
         'kind_token': kind_token,
@@ -874,6 +880,7 @@ class StepFile:
     step: str
     letter: str
     number: int
+    trail: str               # a letter after the number ('b' in f3b), '' for none
     sample: str
     kind: str
     kind_token: str
@@ -1326,7 +1333,7 @@ def build_timeline(input_dir: str, hold_min_h: float = HOLD_MIN_H,
         first_letter[f.folder] = min(first_letter.get(f.folder, '~'), f.letter)
     folders, notes = order_folders(first_letter, folder_order)
     rank = {d: i for i, d in enumerate(folders)}
-    files.sort(key=lambda f: (rank[f.folder], f.letter, f.number, f.name))
+    files.sort(key=lambda f: (rank[f.folder], f.letter, f.number, f.trail, f.name))
 
     seen: Dict[Tuple[str, str], str] = {}
     for f in files:

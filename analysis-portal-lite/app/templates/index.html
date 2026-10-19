@@ -14365,9 +14365,11 @@ function updateIdentifyBtn() {
 // 0.1WH2-0.2WA.csv, 'zz' for zz2_shut-down_25C-Dry_0o4N2-0o4N2_0kPa.fcd), or
 // null for anything the script would not read as one. Mirrors build_timeline,
 // parse_step_name and parse_fcd_step_name: a .csv that is not a station
-// _FILTERDATA file, step token first, a {T}Cell-{RH}RH token from the fourth
-// token on; or a .fcd, a step token of one or two letters first, then a
-// temperature token (80C-100RH, 90C-100RH(90C)-0RH, 93C-(90C)RH, 25C-Dry, 83C).
+// _FILTERDATA file, step token first (a letter, its number, and an optional
+// letter after it, as f3b), a {T}Cell-{RH}RH token from the fourth token on;
+// or a .fcd, a step token of one or two letters first (then a number and an
+// optional letter), then a temperature token (80C-100RH, 90C-100RH(90C)-0RH,
+// 93C-(90C)RH, 25C-Dry, 83C).
 const FCD_NUM = String.raw`\d+(?:[o.]\d+)?`;
 const FCD_TRH_RE = new RegExp(String.raw`^${FCD_NUM}C(?:-(?:${FCD_NUM}RH(?:\(${FCD_NUM}C\)-`
   + String.raw`${FCD_NUM}RH)?|\(${FCD_NUM}C\)RH|Dry))?$`, 'i');
@@ -14375,13 +14377,13 @@ function stationStepLetter(path) {
   const base = String(path).split('/').pop();
   if (/\.fcd$/i.test(base)) {
     const tokens = base.replace(/\.fcd$/i, '').split('_');
-    const m = /^([A-Za-z]{1,2})\d+$/.exec(tokens[0]);
+    const m = /^([A-Za-z]{1,2})\d+[A-Za-z]?$/.exec(tokens[0]);
     return m && tokens.slice(1).some(t => FCD_TRH_RE.test(t)) ? m[1].toLowerCase() : null;
   }
   if (!/\.csv$/i.test(base) || /_FILTERDATA\.csv$/i.test(base)) return null;
   const tokens = base.replace(/\.csv$/i, '').split('_');
   if (tokens.length < 4) return null;
-  const m = /^([A-Za-z])\d+$/.exec(tokens[0]);
+  const m = /^([A-Za-z])\d+[A-Za-z]?$/.exec(tokens[0]);
   if (!m) return null;
   const trh = /^\d+(?:\.\d+)?Cell-\d+(?:\.\d+)?RH$/i;
   return tokens.slice(3).some(t => trh.test(t)) ? m[1].toLowerCase() : null;
@@ -15558,10 +15560,10 @@ function openCompareModal() {
         stem = stem.substring(dashIdx + 1);
       }
     }
-    // Try to extract a step indicator (cell letter+digits like b14, c10)
-    // for a more readable placeholder hint.
-    const stepMatch = stem.match(/(?:^|_)([A-Za-z]\d+)(?:_|$)/);
-    const stepHint = stepMatch ? `_${stepMatch[1]}` : '';
+    // The step as the comparison's clean label reads it from the name (b14,
+    // c10, f3b; lower-cased), for a more readable placeholder hint.
+    const step = parseStepOf(stem).toLowerCase();
+    const stepHint = step ? `_${step}` : '';
     const placeholder = `auto: ${s.sample_name}${stepHint}…  (leave blank for clean default)`;
     row.innerHTML = `
       <span class="job-name">${esc(s.filename)}<br><span style="color:#bbb">${esc(s.job_id)}</span></span>
