@@ -2099,12 +2099,12 @@ check('... and groups by that step\'s letter', [compare_mod._parse_condition_sig
 ELX = {'plot_type': 'polcurve', 'metadata': {'conditions': {'step': 'a1-rev2', 'T_C': 80.0}}}
 HOLD = {'plot_type': 'polcurve', 'metadata': {'conditions': {'j_hold_Acm2': 1.0}}}
 FC_B = 'S2-FullAnalysis-polcurve_F3B_S_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png'
-check('the comparison\'s label takes a declared step, else the name\'s',
+check('the comparison\'s label takes a declared step and temperature, else the name\'s',
       [compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1-rev2.png', 'plot_type', ELX),
        compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1-rev2.png', 'plot_type'),
        compare_mod._build_clean_label('S2', FC_B, 'plot_type_conditions', HOLD),
        compare_mod._build_clean_label('S2', FC_B, 'plot_type_conditions')],
-      ['S1_a1-rev2', 'S1', 'S2_f3b', 'S2_f3b'])
+      ['S1_a1-rev2_80C', 'S1', 'S2_f3b', 'S2_f3b'])
 lab_seen = []
 real_lab_render, real_lab_xlsx = compare_mod.render_overlay_comparison, compare_mod.export_comparison_excel
 compare_mod.render_overlay_comparison = lambda items, **kw: lab_seen.append([it['label'] for it in items])
@@ -2119,6 +2119,176 @@ finally:
     compare_mod.render_overlay_comparison = real_lab_render
     compare_mod.export_comparison_excel = real_lab_xlsx
 check('... in the comparison drawn', lab_seen, [['S1_a1-rev2', 'S2_f3b']])
+# Conditions as the index reads them (19 Oct): a station CSV's name in full --
+# 80.3Cell, flows marked W or D, A for air, '.' for the point, a B<n> tail --
+# where the comparison's own patterns read no temperature and no flow; and
+# Scribner names as before.
+from scripts.helpers.record import parse_conditions as index_conditions
+ST_B4 = 'S-FullAnalysis-polcurve_b4_S_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png'
+ST_C5 = 'S-FullAnalysis-ocv_c5_S_OCV_90Cell-0RH_0.1WH2-0.1DA.png'
+ST_E6 = 'S-FullAnalysis-ocv_e6_S_OCV_80.3Cell-100RH_0.05WN2-0.5WN2B3.png'
+SC_B14 = 'polcurve_b14_IV_80o5C-95RH_OCV-0o3V_0o2H2-0o2Air_150kPa.png'
+check('the comparison reads conditions as the index does: a station CSV\'s name in full, a Scribner one as before',
+      [compare_mod._parse_full_conditions(n) for n in (ST_B4, ST_C5, ST_E6, SC_B14)],
+      [{'step': 'b4', 'T': 80.3, 'RH': 95.0, 'H2': 0.75, 'Air': 1.0},
+       {'step': 'c5', 'T': 90.0, 'RH': 0.0, 'H2': 0.1, 'Air': 0.1},
+       {'step': 'e6', 'T': 80.3, 'RH': 100.0},
+       {'step': 'b14', 'T': 80.5, 'RH': 95.0, 'P_value': 150.0, 'P_unit': 'kPa', 'H2': 0.2, 'Air': 0.2, 'V': 0.3}])
+MIRROR = (ST_B4, ST_C5, SC_B14, 'polcurve_b14_IV_80C-95RH_0o2h2-0o2air_0kPa.png',
+          'polcurve_a2_S_PolarizationCurve_95Cell-30RH_0.1WH2-0.2WO2.png',
+          'polcurve_c1_IV_60C-40RH_0o5H2-0o5O2_30psi.png', 'eis_b3_GEIS_80C-100RH_0o4H2-0o4N2_1o5barg.png',
+          'ocv_zz1_Purge_25C-Dry_0o5N2-0o5N2_0kPa.png', 'ocv_c4_OCV-RHC-1000cyc_90C-100RH(90C)-0RH_0o1H2-0o1Air_0kPa.png',
+          'ocv_a3_T-ramp_93C-(90C)RH_0o1H2-0o1N2_0kPa.png', 'crossover_b20_CV-2mVs_0o12to0o8V_80C-100RH_0o4H2-0o4N2_0kPa.png')
+OURS = {'step': 'step', 'T_C': 'T', 'RH_pct': 'RH', 'P_value': 'P_value', 'P_unit': 'P_unit', 'H2_slpm': 'H2',
+        'Air_slpm': 'Air', 'N2_slpm': 'N2', 'O2_slpm': 'O2', 'V_setpoint': 'V'}
+check('... the same as the index on every form of name (a lower-case gas name unread, as there)',
+      [compare_mod._parse_full_conditions(n) for n in MIRROR],
+      [{OURS[k]: v for k, v in index_conditions(n).items() if k in OURS} for n in MIRROR])
+check('... but for a gas the name gives at two flows (an N2/N2 step): no one number, so left out, '
+      'unless the sidecar declares it',
+      [compare_mod._parse_full_conditions(n, sc).get('N2') for n, sc in (
+          (ST_E6, None), ('ocv_zz2_Purge_25C-Dry_0o4N2-0o8N2_0kPa.png', None),
+          ('ocv_zz1_Purge_25C-Dry_0o5N2-0o5N2_0kPa.png', None),
+          (ST_E6, {'metadata': {'conditions': {'N2_slpm': 0.05}}}),
+          ('ocv_zz3_Purge_25C-Dry_0o5N2-0o50N2_0kPa.png', None))],
+      [None, None, 0.5, 0.05, 0.5])
+check('... and groups by temperature too, 80.3 and 95 degrees apart, the point written o (a part of file names)',
+      [compare_mod._parse_condition_signature(n) for n in (
+          ST_B4, 'S-FullAnalysis-polcurve_b6_S_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png', ST_C5, SC_B14)],
+      ['b_80o3C_95RH', 'b_95C_95RH', 'c_90C_0RH', 'b_80o5C_95RH_150kPa'])
+ELX_A1 = {'metadata': {'conditions': {'step': 'a1', 'T_C': 80.0, 'P_value': 0.0, 'P_unit': 'barg',
+                                      'P_anode_barg': 0.0}}}
+ELX_B1 = {'metadata': {'conditions': {'step': 'b1', 'T_C': 80.0, 'P_value': 0.0, 'P_unit': 'barg',
+                                      'P_anode_barg': 0.0}}}
+ELX_A1_DIFF = {'metadata': {'conditions': {'step': 'a1', 'T_C': 80.0, 'P_value': 30.0, 'P_unit': 'barg',
+                                           'P_anode_barg': 0.0}}}
+ELX_B1_DIFF = {'metadata': {'conditions': {'step': 'b1', 'T_C': 80.0, 'P_value': 30.0, 'P_unit': 'barg',
+                                           'P_anode_barg': 0.0}}}
+check('... in its labels: temperature, RH and pressure, declared ones first',
+      [compare_mod._build_clean_label('S', ST_B4, 'plot_type'), compare_mod._build_clean_label('S', SC_B14, 'plot_type'),
+       compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1.png', 'plot_type', ELX_A1),
+       compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1.png', 'plot_type', ELX_A1_DIFF),
+       compare_mod._build_clean_label('S1', 'S1-ElxPolCurve-polcurve_a1.png', 'plot_type', {'metadata': {
+           'conditions': {'step': 'a1', 'P_value': 0.0, 'P_unit': 'psi', 'P_anode_barg': 0.0}}})],
+      ['S_b4_80.3C_95RH', 'S_b14_80.5C_95RH_150kPa', 'S1_a1_80C_0barg', 'S1_a1_80C_30barg_anode0barg',
+       'S1_a1_0psi_anode0barg'])
+JUNK = {'metadata': {'conditions': {'T_C': 'hot', 'RH_pct': float('nan'), 'P_value': 2.0, 'P_unit': 5,
+                                    'H2_slpm': True, 'O2_slpm': float('inf'), 'N2_slpm': 10 ** 400}}}
+JUNK2 = {'metadata': {'conditions': {'P_value': 2.0, 'P_unit': ' '}}}
+JUNK3 = {'metadata': {'conditions': {'P_value': 2.0, 'P_unit': ' barg '}}}
+check('... a declared value that is no finite number left out, and so is a pressure without a unit',
+      [compare_mod._parse_full_conditions(ST_B4, j) for j in (JUNK, JUNK2, JUNK3)],
+      [{'step': 'b4', 'Air': 1.0}, {'step': 'b4', 'T': 80.3, 'RH': 95.0, 'H2': 0.75, 'Air': 1.0},
+       {'step': 'b4', 'T': 80.3, 'RH': 95.0, 'H2': 0.75, 'Air': 1.0, 'P_value': 2.0, 'P_unit': 'barg'}])
+check('... a subtitle\'s shared pressure needs its unit shared too',
+      compare_mod._shared_conditions([{'T': 80.0, 'P_value': 0.0, 'P_unit': 'kPa'},
+                                      {'T': 80.0, 'P_value': 0.0, 'P_unit': 'barg'}]), {'T': 80.0})
+sub_seen = []
+real_sub_render, real_sub_xlsx = compare_mod.render_overlay_comparison, compare_mod.export_comparison_excel
+compare_mod.render_overlay_comparison = lambda items, **kw: sub_seen.append(kw.get('subtitle'))
+compare_mod.export_comparison_excel = lambda *a, **k: None
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        for group in ([(ST_B4, None), ('S2-FullAnalysis-polcurve_b4_S2_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png', None)],
+                      [(ST_B4, None), ('S2-FullAnalysis-polcurve_b5_S2_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png', None)],
+                      [('S1-ElxPolCurve-polcurve_a1.png', ELX_A1), ('S2-ElxPolCurve-polcurve_b1.png', ELX_B1)],
+                      [('S-FullAnalysis-ocv_b3_S_OCV_95Cell-30RH.png', None),
+                       ('S-FullAnalysis-ocv_b5_S_OCV_95Cell-30RH_0.1WH2-0.2WA.png', None)],
+                      [('S1-ElxPolCurve-polcurve_a1.png', ELX_A1_DIFF), ('S2-ElxPolCurve-polcurve_b1.png', ELX_B1_DIFF)]):
+            compare_mod._compare_generic([{'filename': f, 'sample_name': 'S', 'sidecar': sc or {'plot_type': 'polcurve'}}
+                                          for f, sc in group],
+                                         str(tmp / 'sub_out'), {'image_format': 'png', 'grouping_mode': 'plot_type_conditions'})
+finally:
+    compare_mod.render_overlay_comparison = real_sub_render
+    compare_mod.export_comparison_excel = real_sub_xlsx
+check('... and in a Same Conditions subtitle, what every plot of the group shares, declared conditions included',
+      sub_seen, ['80.3°C | 95% RH | H₂: 0.75 / Air: 1 slpm', '80.3°C | 95% RH', '80°C | 0 barg', '95°C | 30% RH',
+                 '80°C | 30 barg, anode 0 barg'])
+# End to end: station-CSV plots at 80.3 and 95 degrees, one group each.
+import matplotlib.pyplot as plt
+grp = tmp / 'grp_src'
+grp_names = ['polcurve_b4_S1_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png',
+             'polcurve_b4_S2_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png',
+             'polcurve_b6_S1_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png',
+             'polcurve_b6_S2_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png']
+for k, nm in enumerate(grp_names):
+    fig, ax = plt.subplots()
+    ax.plot([0.0, 0.5, 1.0], [0.95, 0.75 - 0.01 * k, 0.6 - 0.01 * k], label='V')
+    ax.set_xlabel('Current density (A/cm²)')
+    ax.set_ylabel('Voltage (V)')
+    grp.mkdir(parents=True, exist_ok=True)
+    plot_compare.save_with_sidecar(fig, str(grp / nm), plot_type='polcurve')
+    plt.close(fig)
+grp_seen = []
+real_grp_render = compare_mod.render_overlay_comparison
+
+
+def spy_grp(items, **kw):
+    grp_seen.append(([it['label'] for it in items], kw.get('subtitle')))
+    return real_grp_render(items, **kw)
+
+
+compare_mod.render_overlay_comparison = spy_grp
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        got = compare_mod.run(str(tmp / 'grp_in'), str(tmp / 'grp_out'), {
+            'sources': json.dumps([{'label': '', 'filename': nm, 'output_dir': str(grp), 'sample_name': nm.split('_')[2]}
+                                   for nm in grp_names]),
+            'grouping_mode': 'plot_type_conditions', 'image_format': 'png'})
+finally:
+    compare_mod.render_overlay_comparison = real_grp_render
+check('Same Conditions end to end: station-CSV plots at 80.3 and 95 degrees in a group each, each subtitled',
+      (sorted(Path(f).name for f in got['files_produced'] if f.endswith('.png')), grp_seen),
+      (['polcurve_b_80o3C_95RH.png', 'polcurve_b_95C_95RH.png'],
+       [(['S1_b4', 'S2_b4'], '80.3°C | 95% RH'), (['S1_b6', 'S2_b6'], '95°C | 95% RH | H₂: 0.75 / Air: 1 slpm')]))
+# Same Conditions over plots that share no conditions: no group of two to
+# draw, and the job says so instead of blaming the sidecars.
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        compare_mod.run(str(tmp / 'grp_in'), str(tmp / 'grp_out1'), {
+            'sources': json.dumps([{'label': '', 'filename': nm, 'output_dir': str(grp), 'sample_name': 'S1'}
+                                   for nm in (grp_names[0], grp_names[2])]),
+            'grouping_mode': 'plot_type_conditions', 'image_format': 'png'})
+    lone = None
+except RuntimeError as e:
+    lone = str(e)
+check('Same Conditions with no two plots sharing conditions: says so, naming the groups', lone,
+      'Nothing to compare under Same Conditions: no two plots of one type share their conditions (step letter, '
+      'temperature, RH and pressure, or what their scripts declared). Groups: polcurve [b_80o3C_95RH], '
+      'polcurve [b_95C_95RH]. Compare All Together overlays them anyway.')
+GRP_OCV = 'ocv_b4_S1_OCV_80.3Cell-95RH_0.75WH2-1WA.png'
+fig, ax = plt.subplots()
+ax.plot([0.0, 1.0], [0.9, 0.8], label='V')
+plot_compare.save_with_sidecar(fig, str(grp / GRP_OCV), plot_type='ocv')
+plt.close(fig)
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        compare_mod.run(str(tmp / 'grp_in'), str(tmp / 'grp_out2'), {
+            'sources': json.dumps([{'label': '', 'filename': nm, 'output_dir': str(grp), 'sample_name': 'S1'}
+                                   for nm in (grp_names[0], GRP_OCV)]),
+            'grouping_mode': 'plot_type_conditions', 'image_format': 'png'})
+    mixed = None
+except RuntimeError as e:
+    mixed = str(e)
+check('... but one plot of each type is not that case: the usual message', mixed,
+      'No comparison outputs generated. Check that ≥2 plots of the same type were selected and their sidecars '
+      'are valid.')
+real_gen = compare_mod._compare_generic
+compare_mod._compare_generic = lambda items, output_dir, params: []
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        compare_mod.run(str(tmp / 'grp_in'), str(tmp / 'grp_out3'), {
+            'sources': json.dumps([{'label': '', 'filename': nm, 'output_dir': str(grp), 'sample_name': 'S1'}
+                                   for nm in grp_names[:2]]),
+            'grouping_mode': 'plot_type_conditions', 'image_format': 'png'})
+    drew_none = None
+except RuntimeError as e:
+    drew_none = str(e)
+finally:
+    compare_mod._compare_generic = real_gen
+check('... nor is a group of two that draws nothing: the usual message', drew_none,
+      'No comparison outputs generated. Check that ≥2 plots of the same type were selected and their sidecars '
+      'are valid.')
 k1, k2 = (next(e['bin_id'] for e in store.index['runs'] if e['sample_name'] == s)
           for s in (SAMPLE, '260603_DUR-NEW'))
 with contextlib.redirect_stdout(io.StringIO()):

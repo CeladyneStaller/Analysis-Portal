@@ -13,6 +13,7 @@ unknown types fall back to the generic overlay renderer.
 
 import os
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -27,16 +28,47 @@ from scripts.helpers.plot_compare import (
     find_sidecar, load_sidecar, render_overlay_comparison, is_band_edge
 )
 from scripts.helpers.record import plot_conditions as _index_conditions
+from scripts.helpers.record import _GAS_PATTERNS, _strip_extension
 
 
-def _step_of(name, sidecar=None):
-    """A plot's step as the index files it (record.plot_conditions): the step
-    its script declared in the sidecar (the electrolyzer cell id, as a1-rev2;
-    one declared empty means none), else the one in its name, an
-    underscore-delimited token of a letter, digits and an optional letter
-    (b14, f3b), lower-cased; '' for none. Never a gas flow's 'H2' or 'N2',
-    which a looser match took for the step of a name that has none."""
-    return str(_index_conditions(os.path.basename(name or ''), sidecar).get('step') or '')
+# The conditions the index reads (record.parse_conditions, and what a sidecar
+# declares), under this script's names for them.
+_INDEX_KEYS = (('T_C', 'T'), ('RH_pct', 'RH'), ('P_value', 'P_value'), ('H2_slpm', 'H2'),
+               ('Air_slpm', 'Air'), ('N2_slpm', 'N2'), ('O2_slpm', 'O2'), ('V_setpoint', 'V'))
+_OURS = dict(_INDEX_KEYS)
+
+
+def _number(value):
+    """A condition as a finite number, or None: what a sidecar declares can
+    be any JSON value."""
+    if isinstance(value, bool):
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _declared(sidecar):
+    """The conditions a plot's script declared in its sidecar, or {}."""
+    cond = ((sidecar or {}).get('metadata') or {}).get('conditions')
+    return cond if isinstance(cond, dict) else {}
+
+
+def _anode_shown(cond):
+    """Whether a declared anode pressure is worth naming. An electrolyzer's
+    P_value is its cathode (H2) side, so a differential run (30/0 barg) reads
+    apart from a balanced one (30/30) only by its anode's."""
+    return 'P_anode' in cond and not (cond.get('P_unit') == 'barg'
+                                      and cond.get('P_value') == cond['P_anode'])
+
+
+def _sig_number(value):
+    """A number as a signature writes it: 80, or 80o3 for 80.3, 'o' standing
+    for the point as in Scribner names, so the signature stays a safe part of
+    the output file names."""
+    return f'{value:g}'.replace('.', 'o')
 
 
 def _declared_signature(sidecar):
@@ -54,12 +86,14 @@ def _declared_signature(sidecar):
 
 
 def _parse_condition_signature(filename):
-    """Extract a condition signature from a filename for matching.
+    """Extract a condition signature from a filename for matching, read as
+    the index reads the name (_parse_full_conditions). It is used for plots
+    whose sidecar declares no conditions.
 
     Captures:
-      - Cell letter prefix (e.g. 'a' from 'a10', 'b' from 'b14' or 'b17b'),
-        the step read as the index reads it (_step_of)
-      - Temperature (e.g. '80C')
+      - Cell letter prefix: the step's letter (e.g. 'a' from 'a10', 'b' from
+        'b14' or 'b17b')
+      - Temperature (e.g. '80C'; '80o3C' from a station CSV's 80.3Cell)
       - Relative humidity (e.g. '100RH')
       - Pressure (e.g. '0kPa', '150kPa')
 
@@ -73,110 +107,85 @@ def _parse_condition_signature(filename):
       → 'b_80C_100RH_0kPa'  (same: only number differs)
       'polcurve_a10_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png'
       → 'a_80C_100RH_0kPa'  (different: letter differs)
+      'polcurve_b4_S_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png'
+      → 'b_80o3C_95RH'  (a station CSV's name, which gives no pressure)
     """
-    import re
     if not filename:
         return ''
-
-    # Strip path and extension
-    name = os.path.basename(filename)
-    name = os.path.splitext(name)[0]
-
+    cond = _parse_full_conditions(filename)
     parts = []
-
-    # Cell letter prefix: the step's letter ('b' from b14 or b17b).
-    step = _step_of(name)
-    if step:
-        parts.append(step[0])
-
-    # Temperature: digits followed by C (with optional o/° decimal)
-    t_match = re.search(r'(\d+(?:o\d+)?)C(?![A-Za-z])', name)
-    if t_match:
-        parts.append(f'{t_match.group(1)}C')
-
-    # Relative humidity: digits followed by RH
-    rh_match = re.search(r'(\d+(?:o\d+)?)RH', name, re.IGNORECASE)
-    if rh_match:
-        parts.append(f'{rh_match.group(1)}RH')
-
-    # Pressure: digits followed by kPa, barg, or psi
-    p_match = re.search(r'(\d+(?:o\d+)?)\s*(kPa|barg|psi|bar)', name, re.IGNORECASE)
-    if p_match:
-        parts.append(f'{p_match.group(1)}{p_match.group(2)}')
-
-    return '_'.join(parts) if parts else ''
+    if cond.get('step'):
+        parts.append(cond['step'][0])
+    if 'T' in cond:
+        parts.append(f"{_sig_number(cond['T'])}C")
+    if 'RH' in cond:
+        parts.append(f"{_sig_number(cond['RH'])}RH")
+    if 'P_value' in cond:
+        parts.append(f"{_sig_number(cond['P_value'])}{cond['P_unit']}")
+    return '_'.join(parts)
 
 
 def _parse_full_conditions(filename, sidecar=None):
-    """Extract all parseable conditions from a filename, and the step its
-    sidecar declares, if any (_step_of).
+    """A plot's conditions as the index files them (record.plot_conditions),
+    under this script's names.
+
+    The name is read in either convention: 80C or 80.3Cell; 0o2H2-0o2Air or
+    0.2WH2-0.2WA ('o' or '.' for the point, a W or D wet/dry mark, A for
+    air); 0kPa, barg, psi or bar. The step is an underscore-delimited token of
+    a letter, digits and an optional letter (b14, f3b), lower-cased, never a
+    gas flow's 'H2' or 'N2'. What the sidecar declares wins: the electrolyzer
+    cell id as the step, and its temperature and pressure, cathode and anode.
+
+    One departure from the index: a gas the name gives at two flows (an N2/N2
+    step's 0.05WN2-0.5WN2) is no one number. The index keeps the first, the
+    anode's; a subtitle would state it for both sides, so it is left out.
 
     Returns dict with possible keys:
       step (e.g. 'b14'), T (numeric), RH (numeric),
-      P_value (numeric), P_unit (str like 'kPa'),
-      H2 (numeric), Air, N2, O2, V (numeric), V_unit
+      P_value (numeric), P_unit (str like 'kPa'), P_anode (numeric, barg),
+      H2 (numeric), Air, N2, O2, V (numeric)
     """
-    import re
     if not filename:
         return {}
-
-    name = os.path.splitext(os.path.basename(filename))[0]
-
-    def parse_num(s):
-        try:
-            return float(s.replace('o', '.'))
-        except (ValueError, TypeError):
-            return None
-
+    got = _index_conditions(os.path.basename(filename), sidecar)
     cond = {}
-
-    # Step (cell letter + digits + an optional letter, e.g. b14, c6, f3b)
-    step = _step_of(name, sidecar)
+    step = str(got.get('step') or '')
     if step:
         cond['step'] = step
-
-    # Temperature
-    m = re.search(r'(\d+(?:o\d+)?)C(?![A-Za-z])', name)
-    if m:
-        v = parse_num(m.group(1))
-        if v is not None:
-            cond['T'] = v
-
-    # Relative humidity
-    m = re.search(r'(\d+(?:o\d+)?)RH', name, re.IGNORECASE)
-    if m:
-        v = parse_num(m.group(1))
-        if v is not None:
-            cond['RH'] = v
-
-    # Pressure
-    m = re.search(r'(\d+(?:o\d+)?)\s*(kPa|barg|psi|bar)', name, re.IGNORECASE)
-    if m:
-        v = parse_num(m.group(1))
-        if v is not None:
-            cond['P_value'] = v
-            cond['P_unit'] = m.group(2)
-
-    # Gas flows
-    for key, pat in (('H2', r'(\d+(?:o\d+)?)H2(?![A-Za-z])'),
-                      ('Air', r'(\d+(?:o\d+)?)Air'),
-                      ('N2', r'(\d+(?:o\d+)?)N2(?![A-Za-z])'),
-                      ('O2', r'(\d+(?:o\d+)?)O2(?![A-Za-z])')):
-        m = re.search(pat, name, re.IGNORECASE)
-        if m:
-            v = parse_num(m.group(1))
-            if v is not None:
-                cond[key] = v
-
-    # Voltage setpoint (digits followed by V, not preceded by alpha,
-    # not part of a unit like 'kV')
-    m = re.search(r'(?<![A-Za-z])(\d+(?:o\d+)?)V(?![A-Za-z])', name)
-    if m:
-        v = parse_num(m.group(1))
-        if v is not None:
-            cond['V'] = v
-
+    for key, ours in _INDEX_KEYS:
+        value = _number(got.get(key))
+        if value is not None:
+            cond[ours] = value
+    declared = _declared(sidecar)
+    name = _strip_extension(os.path.basename(filename))
+    for key, pattern in _GAS_PATTERNS:
+        flows = {_number(m.group(1).replace('o', '.')) for m in pattern.finditer(name)}
+        if len(flows) > 1 and key not in declared:
+            cond.pop(_OURS[key], None)
+    unit = got.get('P_unit')
+    if 'P_value' in cond:
+        if isinstance(unit, str) and unit.strip():
+            cond['P_unit'] = unit.strip()
+        else:
+            del cond['P_value']
+    anode = _number(got.get('P_anode_barg'))
+    if anode is not None:
+        cond['P_anode'] = anode
     return cond
+
+
+def _shared_conditions(conds):
+    """The conditions every plot of a group shares. Same Conditions groups
+    by step letter, temperature, RH and pressure (or by what the scripts
+    declared), so the plots in a group can still differ in gas flows; its
+    subtitle names only what they all share."""
+    if not conds:
+        return {}
+    shared = {k: v for k, v in conds[0].items() if all(c.get(k) == v for c in conds[1:])}
+    if 'P_value' not in shared or 'P_unit' not in shared:
+        shared.pop('P_value', None)
+        shared.pop('P_unit', None)
+    return shared
 
 
 def _format_conditions_subtitle(cond):
@@ -202,8 +211,13 @@ def _format_conditions_subtitle(cond):
     if gas_parts:
         parts.append(' / '.join(gas_parts) + ' slpm')
 
+    pressure = []
     if 'P_value' in cond:
-        parts.append(f"{cond['P_value']:g} {cond['P_unit']}")
+        pressure.append(f"{cond['P_value']:g} {cond['P_unit']}")
+    if _anode_shown(cond):
+        pressure.append(f"anode {cond['P_anode']:g} barg")
+    if pressure:
+        parts.append(', '.join(pressure))
 
     return ' | '.join(parts)
 
@@ -262,7 +276,8 @@ def _build_clean_label(sample_name, filename, grouping_mode, sidecar=None):
     """Build a minimal-info legend label.
 
     grouping_mode 'plot_type' (All Together):
-        {sample_name}_{step}_{T}C_{RH}RH_{P}{P_unit}
+        {sample_name}_{step}_{T}C_{RH}RH_{P}{P_unit}, then anode{P}barg
+        where a declared anode pressure differs (_anode_shown)
     grouping_mode 'plot_type_conditions' (Same Conditions):
         {sample_name}_{step}
     """
@@ -283,6 +298,8 @@ def _build_clean_label(sample_name, filename, grouping_mode, sidecar=None):
             cond_parts.append(f"{cond['RH']:g}RH")
         if 'P_value' in cond:
             cond_parts.append(f"{cond['P_value']:g}{cond['P_unit']}")
+        if _anode_shown(cond):
+            cond_parts.append(f"anode{cond['P_anode']:g}barg")
         if cond_parts:
             parts.append('_'.join(cond_parts))
 
@@ -530,13 +547,13 @@ def _compare_generic(items, output_dir, params):
     else:
         title = f'{friendly} Comparison'
 
-    # Subtitle: only for "Same Conditions" mode — describes the shared
-    # conditions of the group. Parsed from the first item's filename
-    # (all items in the group share the same condition signature).
+    # Subtitle: only for "Same Conditions" mode — the conditions every item
+    # of the group shares, read as the index reads them (the items share a
+    # condition signature, but not necessarily their gas flows).
     subtitle = None
     if grouping_mode == 'plot_type_conditions':
-        first_filename = items[0].get('filename', '')
-        cond = _parse_full_conditions(first_filename)
+        cond = _shared_conditions([_parse_full_conditions(it.get('filename', ''), it.get('sidecar'))
+                                   for it in items])
         subtitle = _format_conditions_subtitle(cond)
 
     # Build per-row labels:
@@ -747,6 +764,19 @@ def run(input_dir, output_dir, params=None):
             import traceback; traceback.print_exc()
 
     if not all_output_files:
+        # Same Conditions can leave every group a single plot (two curves at
+        # 80.3 and 95 degrees): say so, not that the sidecars may be bad.
+        if grouping_mode == 'plot_type_conditions' and all(len(v) < 2 for v in by_group.values()):
+            per_type = {}
+            for (ptype, _sig), group in by_group.items():
+                per_type[ptype] = per_type.get(ptype, 0) + len(group)
+            if any(n >= 2 for n in per_type.values()):
+                groups = ', '.join(f'{ptype} [{csig}]' if csig else ptype for ptype, csig in by_group)
+                raise RuntimeError(
+                    "Nothing to compare under Same Conditions: no two plots of one type share "
+                    "their conditions (step letter, temperature, RH and pressure, or what their "
+                    f"scripts declared). Groups: {groups}. Compare All Together overlays them "
+                    "anyway.")
         raise RuntimeError(
             "No comparison outputs generated. Check that ≥2 plots of the "
             "same type were selected and their sidecars are valid."
