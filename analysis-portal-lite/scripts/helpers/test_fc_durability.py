@@ -2092,7 +2092,7 @@ check('... and groups by that step\'s letter', [compare_mod._parse_condition_sig
           'polcurve_f3b_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png',
           'polcurve_b14_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png',
           'ocv_zz1_Purge_25C-Dry_0o5N2-0o5N2_0kPa.png')],
-      ['f_80C_100RH_0kPa', 'b_80C_100RH_0kPa', '25C_0kPa'])
+      ['f_80C_100RH_0kPa_0o2H2-0o2Air', 'b_80C_100RH_0kPa_0o2H2-0o2Air', '25C_0kPa_0o5N2-0o5N2'])
 # Its label takes the step a script declared, as the index files the plot:
 # the electrolyzer cell id, which a name like polcurve_a1-rev2 does not give
 # the stricter reader; else the name's, lower-cased.
@@ -2155,7 +2155,46 @@ check('... but for a gas the name gives at two flows (an N2/N2 step): no one num
 check('... and groups by temperature too, 80.3 and 95 degrees apart, the point written o (a part of file names)',
       [compare_mod._parse_condition_signature(n) for n in (
           ST_B4, 'S-FullAnalysis-polcurve_b6_S_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png', ST_C5, SC_B14)],
-      ['b_80o3C_95RH', 'b_95C_95RH', 'c_90C_0RH', 'b_80o5C_95RH_150kPa'])
+      ['b_80o3C_95RH_0o75H2-1Air', 'b_95C_95RH_0o75H2-1Air', 'c_90C_0RH_0o1H2-0o1DAir',
+       'b_80o5C_95RH_150kPa_0o2H2-0o2Air'])
+# ... and by gas flows (Corey, 19 Oct: "Add flows as well"): pol curves at
+# 0.2/0.2 and 0.75/1 slpm apart; the flows in the name's order, anode first
+# (a swapped or descending pair kept so), a dry feed marked D (a wet one, W,
+# is a humidified feed, as an unmarked one is); equal flows alike however
+# written.
+check('... and groups by gas flows too: 0.2/0.2 and 0.75/1 slpm apart, in the name\'s order, anode first, a dry '
+      'feed marked D, equal flows alike however written',
+      [compare_mod._parse_condition_signature(n) for n in (
+          'polcurve_b3_IV_80C-95RH_OCV-0o3V_0o2H2-0o2Air_0kPa.png', 'polcurve_b5_IV_80C-95RH_OCV-0o3V_0o75H2-1Air_0kPa.png',
+          ST_E6, 'ocv_e7_S_OCV_80.3Cell-100RH_0.05WN2-0.8WN2B3.png', 'ocv_e5_S_OCV_80.3Cell-100RH_0.05WN2-0.5DN2B3.png',
+          'ocv_e8_S_OCV_80.3Cell-100RH_0.5WN2-0.05WN2.png', 'ocv_zz1_Purge_25C-Dry_0o4N2-0o4N2_0kPa.png',
+          'ocv_zz3_Purge_25C-Dry_0o4N2-0o40N2_0kPa.png', 'eis_b3_GEIS_80C-100RH_0o4H2-0o4N2_0kPa.png',
+          'eis_b3_GEIS_80C-100RH_0o4N2-0o4H2_0kPa.png', 'polcurve_a2_S_PolarizationCurve_95Cell-30RH_0.1WH2-0.2WO2.png',
+          'S-FullAnalysis-polcurve_b4_S_PolarizationCurve_80.3Cell-95RH_0.75WH2-1.0WA.png')],
+      ['b_80C_95RH_0kPa_0o2H2-0o2Air', 'b_80C_95RH_0kPa_0o75H2-1Air', 'e_80o3C_100RH_0o05N2-0o5N2',
+       'e_80o3C_100RH_0o05N2-0o8N2', 'e_80o3C_100RH_0o05N2-0o5DN2', 'e_80o3C_100RH_0o5N2-0o05N2',
+       '25C_0kPa_0o4N2-0o4N2', '25C_0kPa_0o4N2-0o4N2', 'b_80C_100RH_0kPa_0o4H2-0o4N2', 'b_80C_100RH_0kPa_0o4N2-0o4H2',
+       'a_95C_30RH_0o1H2-0o2O2', 'b_80o3C_95RH_0o75H2-1Air'])
+STRAY = ('260601_Rev2A-FCAnalysis-polcurve_b4_260601_Rev2A_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png',
+         'crossover_F3A_S_H2X_80.3Cell-100RH_0.4WH2-0.4WN2.png', 'polcurve_b2_Hold-1A_80C-100RH_0o2H2-0o2N2_0kPa.png',
+         'polcurve_b2_80C-100RH_0o2H2-0o2Air_2Ah_0kPa.png', 'eis_b3_GEIS_1A_80C-100RH_0o4H2-0o4N2_0kPa.png',
+         'polcurve_b3_Kolon_2A_PolarizationCurve_80.3Cell-95RH_0.1WH2-0.2WA.png',
+         'eis_b3_GEIS_0o5A-1A_80C-100RH_0o4H2-0o4N2_0kPa.png', 'polcurve_b2_Rev2Air_80C-100RH_0o2H2-0o2N2_0kPa.png',
+         'polcurve_b2_80C-100RH_0o2H2-0o2N2_0o5Airflow_0kPa.png')
+check('... a flow read only apart from letters and digits: a sample\'s Rev2A, _2A or Rev2Air, a step\'s F3A, '
+      'a hold\'s 1A, a 2Ah, a 0o5Airflow, a lone 1A and a 0o5A-1A range (A is air only on a pair\'s cathode side) '
+      'no air',
+      [(compare_mod._parse_condition_signature(n), compare_mod._parse_full_conditions(n).get('Air')) for n in STRAY],
+      [('b_80o3C_95RH_0o75H2-1Air', 1.0), ('f_80o3C_100RH_0o4H2-0o4N2', None), ('b_80C_100RH_0kPa_0o2H2-0o2N2', None),
+       ('b_80C_100RH_0kPa_0o2H2-0o2Air', 0.2), ('b_80C_100RH_0kPa_0o4H2-0o4N2', None),
+       ('b_80o3C_95RH_0o1H2-0o2Air', 0.2), ('b_80C_100RH_0kPa_0o4H2-0o4N2', None),
+       ('b_80C_100RH_0kPa_0o2H2-0o2N2', None), ('b_80C_100RH_0kPa_0o2H2-0o2N2', None)])
+check('... while flows followed by a download\'s (1), joined to the RH token by -, or with a B tail on the anode '
+      'are read',
+      [compare_mod._parse_condition_signature(n) for n in (
+          'polcurve_b3_S_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA(1).png',
+          'polcurve_b3_IV_80C-95RH-0o2H2-0o2Air_0kPa.png', 'ocv_e6_S_OCV_80.3Cell-100RH_0.05WN2B3-0.5WN2B3.png')],
+      ['b_80o3C_95RH_0o2H2-0o2Air', 'b_80C_95RH_0kPa_0o2H2-0o2Air', 'e_80o3C_100RH_0o05N2-0o5N2'])
 ELX_A1 = {'metadata': {'conditions': {'step': 'a1', 'T_C': 80.0, 'P_value': 0.0, 'P_unit': 'barg',
                                       'P_anode_barg': 0.0}}}
 ELX_B1 = {'metadata': {'conditions': {'step': 'b1', 'T_C': 80.0, 'P_value': 0.0, 'P_unit': 'barg',
@@ -2183,6 +2222,7 @@ check('... a declared value that is no finite number left out, and so is a press
 check('... a subtitle\'s shared pressure needs its unit shared too',
       compare_mod._shared_conditions([{'T': 80.0, 'P_value': 0.0, 'P_unit': 'kPa'},
                                       {'T': 80.0, 'P_value': 0.0, 'P_unit': 'barg'}]), {'T': 80.0})
+DECL_H2 = {'plot_type': 'polcurve', 'metadata': {'conditions': {'H2_slpm': 0.3}}}
 sub_seen = []
 real_sub_render, real_sub_xlsx = compare_mod.render_overlay_comparison, compare_mod.export_comparison_excel
 compare_mod.render_overlay_comparison = lambda items, **kw: sub_seen.append(kw.get('subtitle'))
@@ -2194,7 +2234,14 @@ try:
                       [('S1-ElxPolCurve-polcurve_a1.png', ELX_A1), ('S2-ElxPolCurve-polcurve_b1.png', ELX_B1)],
                       [('S-FullAnalysis-ocv_b3_S_OCV_95Cell-30RH.png', None),
                        ('S-FullAnalysis-ocv_b5_S_OCV_95Cell-30RH_0.1WH2-0.2WA.png', None)],
-                      [('S1-ElxPolCurve-polcurve_a1.png', ELX_A1_DIFF), ('S2-ElxPolCurve-polcurve_b1.png', ELX_B1_DIFF)]):
+                      [('S1-ElxPolCurve-polcurve_a1.png', ELX_A1_DIFF), ('S2-ElxPolCurve-polcurve_b1.png', ELX_B1_DIFF)],
+                      [(ST_E6, None), ('S2-FullAnalysis-ocv_e6_S2_OCV_80.3Cell-100RH_0.05WN2-0.5WN2B3.png', None)],
+                      [(ST_E6, None), ('S2-FullAnalysis-ocv_e7_S2_OCV_80.3Cell-100RH_0.05WN2-0.8WN2B3.png', None)],
+                      [('S-FullAnalysis-ocv_e5_S_OCV_80.3Cell-100RH_0.05WN2-0.5DN2B3.png', None),
+                       ('S2-FullAnalysis-ocv_e5_S2_OCV_80.3Cell-100RH_0.05WN2-0.5DN2B3.png', None)],
+                      [(ST_C5, None), ('S2-FullAnalysis-ocv_c5_S2_OCV_90Cell-0RH_0.1WH2-0.1DA.png', None)],
+                      [('polcurve_b14_IV_80C-95RH_OCV-0o3V_0o2H2-0o2Air_0kPa.png', DECL_H2),
+                       ('polcurve_b15_IV_80C-95RH_OCV-0o3V_0o2H2-0o2Air_0kPa.png', DECL_H2)]):
             compare_mod._compare_generic([{'filename': f, 'sample_name': 'S', 'sidecar': sc or {'plot_type': 'polcurve'}}
                                           for f, sc in group],
                                          str(tmp / 'sub_out'), {'image_format': 'png', 'grouping_mode': 'plot_type_conditions'})
@@ -2203,21 +2250,27 @@ finally:
     compare_mod.export_comparison_excel = real_sub_xlsx
 check('... and in a Same Conditions subtitle, what every plot of the group shares, declared conditions included',
       sub_seen, ['80.3°C | 95% RH | H₂: 0.75 / Air: 1 slpm', '80.3°C | 95% RH', '80°C | 0 barg', '95°C | 30% RH',
-                 '80°C | 30 barg, anode 0 barg'])
-# End to end: station-CSV plots at 80.3 and 95 degrees, one group each.
+                 '80°C | 30 barg, anode 0 barg', '80.3°C | 100% RH | N₂: 0.05 / N₂: 0.5 slpm', '80.3°C | 100% RH',
+                 '80.3°C | 100% RH | N₂: 0.05 / dry N₂: 0.5 slpm', '90°C | 0% RH | H₂: 0.1 / dry Air: 0.1 slpm',
+                 '80°C | 95% RH | H₂: 0.3 / Air: 0.2 slpm | 0 kPa'])
+# End to end: station-CSV plots at 80.3 and 95 degrees, and at two flows,
+# one group each.
 import matplotlib.pyplot as plt
 grp = tmp / 'grp_src'
 grp_names = ['polcurve_b4_S1_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png',
-             'polcurve_b4_S2_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png',
+             'polcurve_b4_S2_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png',
              'polcurve_b6_S1_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png',
-             'polcurve_b6_S2_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png']
+             'polcurve_b6_S2_PolarizationCurve_95Cell-95RH_0.75WH2-1WA.png',
+             'polcurve_b5_S1_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png',
+             'polcurve_b5_S2_PolarizationCurve_80.3Cell-95RH_0.2WH2-0.2WA.png',
+             'ocv_e5_S1_OCV_80.3Cell-100RH_0.05WN2-0.5DN2B3.png', 'ocv_e5_S2_OCV_80.3Cell-100RH_0.05WN2-0.5DN2B3.png']
 for k, nm in enumerate(grp_names):
     fig, ax = plt.subplots()
     ax.plot([0.0, 0.5, 1.0], [0.95, 0.75 - 0.01 * k, 0.6 - 0.01 * k], label='V')
     ax.set_xlabel('Current density (A/cm²)')
     ax.set_ylabel('Voltage (V)')
     grp.mkdir(parents=True, exist_ok=True)
-    plot_compare.save_with_sidecar(fig, str(grp / nm), plot_type='polcurve')
+    plot_compare.save_with_sidecar(fig, str(grp / nm), plot_type=nm.split('_')[0])
     plt.close(fig)
 grp_seen = []
 real_grp_render = compare_mod.render_overlay_comparison
@@ -2237,10 +2290,15 @@ try:
             'grouping_mode': 'plot_type_conditions', 'image_format': 'png'})
 finally:
     compare_mod.render_overlay_comparison = real_grp_render
-check('Same Conditions end to end: station-CSV plots at 80.3 and 95 degrees in a group each, each subtitled',
+check('Same Conditions end to end: station-CSV plots at 80.3 and 95 degrees, and at two flows, in a group each, '
+      'each subtitled',
       (sorted(Path(f).name for f in got['files_produced'] if f.endswith('.png')), grp_seen),
-      (['polcurve_b_80o3C_95RH.png', 'polcurve_b_95C_95RH.png'],
-       [(['S1_b4', 'S2_b4'], '80.3°C | 95% RH'), (['S1_b6', 'S2_b6'], '95°C | 95% RH | H₂: 0.75 / Air: 1 slpm')]))
+      (['ocv_e_80o3C_100RH_0o05N2-0o5DN2.png', 'polcurve_b_80o3C_95RH_0o2H2-0o2Air.png',
+        'polcurve_b_80o3C_95RH_0o75H2-1Air.png', 'polcurve_b_95C_95RH_0o75H2-1Air.png'],
+       [(['S1_b4', 'S2_b4'], '80.3°C | 95% RH | H₂: 0.75 / Air: 1 slpm'),
+        (['S1_b6', 'S2_b6'], '95°C | 95% RH | H₂: 0.75 / Air: 1 slpm'),
+        (['S1_b5', 'S2_b5'], '80.3°C | 95% RH | H₂: 0.2 / Air: 0.2 slpm'),
+        (['S1_e5', 'S2_e5'], '80.3°C | 100% RH | N₂: 0.05 / dry N₂: 0.5 slpm')]))
 # Same Conditions over plots that share no conditions: no group of two to
 # draw, and the job says so instead of blaming the sidecars.
 try:
@@ -2254,8 +2312,9 @@ except RuntimeError as e:
     lone = str(e)
 check('Same Conditions with no two plots sharing conditions: says so, naming the groups', lone,
       'Nothing to compare under Same Conditions: no two plots of one type share their conditions (step letter, '
-      'temperature, RH and pressure, or what their scripts declared). Groups: polcurve [b_80o3C_95RH], '
-      'polcurve [b_95C_95RH]. Compare All Together overlays them anyway.')
+      'temperature, RH, pressure and gas flows, or what their scripts declared). Groups: '
+      'polcurve [b_80o3C_95RH_0o75H2-1Air], polcurve [b_95C_95RH_0o75H2-1Air]. Compare All Together overlays them '
+      'anyway.')
 GRP_OCV = 'ocv_b4_S1_OCV_80.3Cell-95RH_0.75WH2-1WA.png'
 fig, ax = plt.subplots()
 ax.plot([0.0, 1.0], [0.9, 0.8], label='V')

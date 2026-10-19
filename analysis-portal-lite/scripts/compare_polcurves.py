@@ -12,6 +12,7 @@ unknown types fall back to the generic overlay renderer.
 """
 
 import os
+import re
 import json
 import math
 from pathlib import Path
@@ -28,14 +29,28 @@ from scripts.helpers.plot_compare import (
     find_sidecar, load_sidecar, render_overlay_comparison, is_band_edge
 )
 from scripts.helpers.record import plot_conditions as _index_conditions
-from scripts.helpers.record import _GAS_PATTERNS, _strip_extension
+from scripts.helpers.record import _strip_extension
 
 
 # The conditions the index reads (record.parse_conditions, and what a sidecar
 # declares), under this script's names for them.
 _INDEX_KEYS = (('T_C', 'T'), ('RH_pct', 'RH'), ('P_value', 'P_value'), ('H2_slpm', 'H2'),
                ('Air_slpm', 'Air'), ('N2_slpm', 'N2'), ('O2_slpm', 'O2'), ('V_setpoint', 'V'))
-_OURS = dict(_INDEX_KEYS)
+_INDEX_OF = {ours: key for key, ours in _INDEX_KEYS}
+# The gases, in the order a subtitle names them where no flows are shared.
+_GAS_ORDER = ('H2', 'Air', 'N2', 'O2')
+_GAS_LABEL = {'H2': 'H₂', 'Air': 'Air', 'N2': 'N₂', 'O2': 'O₂'}
+# Gas flows as both conventions write them: an anode-cathode pair
+# (0o2H2-0o2Air, 0.2WH2-0.2WA, 0.05WN2-0.5DN2B3) or one flow (0o2H2, 0o2Air),
+# W or D marking a wet or dry feed, A for air on a pair's cathode side
+# (elsewhere air is spelt Air: a lone 1A, or 0o5A-1A, is more likely a
+# current), and a meaningless B<n> tail, standing apart from letters and
+# digits on either side. So a sample named Rev2A or Kolon_2A, or a step F3A,
+# is no air flow (the index reads a gas anywhere), while flows joined to the
+# RH token by '-', or followed by a download's (1), are still read.
+_FLOW = r'(\d+(?:[.o]\d+)?)([WD]?)(H2|N2|O2|Air|A)'
+_ONE_FLOW = r'(\d+(?:[.o]\d+)?)([WD]?)(H2|N2|O2|Air)'
+_FLOWS_RE = re.compile(rf'(?<![A-Za-z0-9.])(?:{_ONE_FLOW}-{_FLOW}|{_ONE_FLOW})(?:B\d+)?(?![A-Za-z0-9])')
 
 
 def _number(value):
@@ -62,6 +77,28 @@ def _anode_shown(cond):
     apart from a balanced one (30/30) only by its anode's."""
     return 'P_anode' in cond and not (cond.get('P_unit') == 'barg'
                                       and cond.get('P_value') == cond['P_anode'])
+
+
+def _flows_of(filename):
+    """The gas flows a plot's name gives (_FLOWS_RE), in the order it
+    gives them (anode first), as (gas, slpm, dry): [('H2', 0.2, False),
+    ('Air', 0.2, False)] from 0o2H2-0o2Air, or [('N2', 0.05, False),
+    ('N2', 0.5, True)] from 0.05WN2-0.5DN2B3. A wet mark (W) counts as none:
+    a humidified feed, its humidity the RH token's."""
+    name = _strip_extension(os.path.basename(filename or ''))
+    flows = []
+    for m in _FLOWS_RE.finditer(name):
+        for i in (1, 4, 7):
+            value = _number((m.group(i) or '').replace('o', '.'))
+            if value is not None:
+                gas = 'Air' if m.group(i + 2) == 'A' else m.group(i + 2)
+                flows.append((gas, value, m.group(i + 1) == 'D'))
+    return flows
+
+
+def _shared_flows(flows):
+    """The flows every plot of a group gives alike (_flows_of), else []."""
+    return flows[0] if flows and all(f == flows[0] for f in flows[1:]) else []
 
 
 def _sig_number(value):
@@ -96,19 +133,26 @@ def _parse_condition_signature(filename):
       - Temperature (e.g. '80C'; '80o3C' from a station CSV's 80.3Cell)
       - Relative humidity (e.g. '100RH')
       - Pressure (e.g. '0kPa', '150kPa')
+      - Gas flows, in the name's order (anode first), a dry feed marked D
+        (e.g. '0o2H2-0o2Air'; '0o05N2-0o5DN2' for an N2/N2 step fed dry N2
+        on its cathode)
 
-    Returns a string like 'b_80C_100RH_0kPa', or '' if no conditions found.
-    Two filenames with the same signature are considered "same conditions".
+    Returns a string like 'b_80C_100RH_0kPa_0o2H2-0o2Air', or '' if no
+    conditions found. Two filenames with the same signature are considered
+    "same conditions".
 
     Example:
       'polcurve_b14_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png'
-      → 'b_80C_100RH_0kPa'
+      → 'b_80C_100RH_0kPa_0o2H2-0o2Air'
       'polcurve_b8_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png'
-      → 'b_80C_100RH_0kPa'  (same: only number differs)
+      → 'b_80C_100RH_0kPa_0o2H2-0o2Air'  (same: only number differs)
       'polcurve_a10_IV_80C_100RH_OCV_0o3V_0o2H2_0o2Air_0kPa.png'
-      → 'a_80C_100RH_0kPa'  (different: letter differs)
+      → 'a_80C_100RH_0kPa_0o2H2-0o2Air'  (different: letter differs)
+      'polcurve_b9_IV_80C_100RH_OCV_0o3V_0o75H2_1Air_0kPa.png'
+      → 'b_80C_100RH_0kPa_0o75H2-1Air'  (different: flows differ)
       'polcurve_b4_S_PolarizationCurve_80.3Cell-95RH_0.75WH2-1WA.png'
-      → 'b_80o3C_95RH'  (a station CSV's name, which gives no pressure)
+      → 'b_80o3C_95RH_0o75H2-1Air'  (a station CSV's name, which gives no
+        pressure)
     """
     if not filename:
         return ''
@@ -122,6 +166,9 @@ def _parse_condition_signature(filename):
         parts.append(f"{_sig_number(cond['RH'])}RH")
     if 'P_value' in cond:
         parts.append(f"{_sig_number(cond['P_value'])}{cond['P_unit']}")
+    flows = _flows_of(filename)
+    if flows:
+        parts.append('-'.join(f"{_sig_number(v)}{'D' if dry else ''}{gas}" for gas, v, dry in flows))
     return '_'.join(parts)
 
 
@@ -136,9 +183,12 @@ def _parse_full_conditions(filename, sidecar=None):
     gas flow's 'H2' or 'N2'. What the sidecar declares wins: the electrolyzer
     cell id as the step, and its temperature and pressure, cathode and anode.
 
-    One departure from the index: a gas the name gives at two flows (an N2/N2
-    step's 0.05WN2-0.5WN2) is no one number. The index keeps the first, the
-    anode's; a subtitle would state it for both sides, so it is left out.
+    Two departures from the index, both in gas flows. They are read only
+    where they stand apart from letters and digits (_flows_of), where the
+    index reads a gas anywhere, so a sample named Rev2A is no air flow. And a gas the name gives
+    at two flows (an N2/N2 step's 0.05WN2-0.5WN2) is no one number: the index
+    keeps the first, the anode's; a subtitle would state it for both sides, so
+    it is left out. A flow the sidecar declares stands.
 
     Returns dict with possible keys:
       step (e.g. 'b14'), T (numeric), RH (numeric),
@@ -157,11 +207,14 @@ def _parse_full_conditions(filename, sidecar=None):
         if value is not None:
             cond[ours] = value
     declared = _declared(sidecar)
-    name = _strip_extension(os.path.basename(filename))
-    for key, pattern in _GAS_PATTERNS:
-        flows = {_number(m.group(1).replace('o', '.')) for m in pattern.finditer(name)}
-        if len(flows) > 1 and key not in declared:
-            cond.pop(_OURS[key], None)
+    flows = _flows_of(filename)
+    for gas in _GAS_ORDER:
+        if _INDEX_OF[gas] in declared:
+            continue
+        cond.pop(gas, None)
+        values = {v for g, v, _dry in flows if g == gas}
+        if len(values) == 1:
+            cond[gas] = values.pop()
     unit = got.get('P_unit')
     if 'P_value' in cond:
         if isinstance(unit, str) and unit.strip():
@@ -176,9 +229,9 @@ def _parse_full_conditions(filename, sidecar=None):
 
 def _shared_conditions(conds):
     """The conditions every plot of a group shares. Same Conditions groups
-    by step letter, temperature, RH and pressure (or by what the scripts
-    declared), so the plots in a group can still differ in gas flows; its
-    subtitle names only what they all share."""
+    by step letter, temperature, RH, pressure and gas flows, or by what the
+    scripts declared, so the plots of a group can still differ in what that
+    leaves out; its subtitle names only what they all share."""
     if not conds:
         return {}
     shared = {k: v for k, v in conds[0].items() if all(c.get(k) == v for c in conds[1:])}
@@ -188,8 +241,10 @@ def _shared_conditions(conds):
     return shared
 
 
-def _format_conditions_subtitle(cond):
-    """Format conditions dict as a human-readable subtitle.
+def _format_conditions_subtitle(cond, flows=None):
+    """Format conditions dict as a human-readable subtitle. The gases are
+    the flows every plot of the group gives alike (`flows`, _shared_flows),
+    in the name's order, anode first, a dry feed marked; else the conditions'.
 
     Example: '80°C | 100% RH | H₂: 0.2 / Air: 0.2 slpm | 0kPa'
     """
@@ -199,15 +254,10 @@ def _format_conditions_subtitle(cond):
     if 'RH' in cond:
         parts.append(f"{cond['RH']:g}% RH")
 
-    gas_parts = []
-    if 'H2' in cond:
-        gas_parts.append(f"H₂: {cond['H2']:g}")
-    if 'Air' in cond:
-        gas_parts.append(f"Air: {cond['Air']:g}")
-    if 'N2' in cond:
-        gas_parts.append(f"N₂: {cond['N2']:g}")
-    if 'O2' in cond:
-        gas_parts.append(f"O₂: {cond['O2']:g}")
+    if flows:
+        gas_parts = [f"{'dry ' if dry else ''}{_GAS_LABEL[gas]}: {v:g}" for gas, v, dry in flows]
+    else:
+        gas_parts = [f"{_GAS_LABEL[gas]}: {cond[gas]:g}" for gas in _GAS_ORDER if gas in cond]
     if gas_parts:
         parts.append(' / '.join(gas_parts) + ' slpm')
 
@@ -548,13 +598,16 @@ def _compare_generic(items, output_dir, params):
         title = f'{friendly} Comparison'
 
     # Subtitle: only for "Same Conditions" mode — the conditions every item
-    # of the group shares, read as the index reads them (the items share a
-    # condition signature, but not necessarily their gas flows).
+    # of the group shares, read as the index reads them, and the flows they
+    # all give alike.
     subtitle = None
     if grouping_mode == 'plot_type_conditions':
         cond = _shared_conditions([_parse_full_conditions(it.get('filename', ''), it.get('sidecar'))
                                    for it in items])
-        subtitle = _format_conditions_subtitle(cond)
+        flows = _shared_flows([_flows_of(it.get('filename', '')) for it in items])
+        if any(_INDEX_OF[gas] in _declared(it.get('sidecar')) for it in items for gas in _GAS_ORDER):
+            flows = []   # a declared flow wins over the name's: the conditions name the gases
+        subtitle = _format_conditions_subtitle(cond, flows)
 
     # Build per-row labels:
     #   - If the source dict carries a non-empty 'label' (user typed an
@@ -774,9 +827,9 @@ def run(input_dir, output_dir, params=None):
                 groups = ', '.join(f'{ptype} [{csig}]' if csig else ptype for ptype, csig in by_group)
                 raise RuntimeError(
                     "Nothing to compare under Same Conditions: no two plots of one type share "
-                    "their conditions (step letter, temperature, RH and pressure, or what their "
-                    f"scripts declared). Groups: {groups}. Compare All Together overlays them "
-                    "anyway.")
+                    "their conditions (step letter, temperature, RH, pressure and gas flows, or "
+                    f"what their scripts declared). Groups: {groups}. Compare All Together "
+                    "overlays them anyway.")
         raise RuntimeError(
             "No comparison outputs generated. Check that ≥2 plots of the "
             "same type were selected and their sidecars are valid."
