@@ -737,6 +737,10 @@ def run(input_dir, output_dir, params=None):
     #   'plot_type'             — group by plot_type only (default — all data combined)
     #   'plot_type_conditions'  — also split by parsed condition signature
     grouping_mode = p.get('grouping_mode', 'plot_type')
+    # A Comparisons chart's Export compares one plot as well (min_group 1),
+    # and so every type it holds; otherwise a type needs two plots to be
+    # drawn.
+    min_group = 1 if str(p.get('min_group', '')) == '1' else 2
 
     print(f"\n{'='*60}")
     print(f"  Plot Comparison")
@@ -797,7 +801,7 @@ def run(input_dir, output_dir, params=None):
 
     all_output_files = []
     for (plot_type, cond_sig), items in by_group.items():
-        if len(items) < 2:
+        if len(items) < min_group:
             sig_part = f" [{cond_sig}]" if cond_sig else ""
             print(f"\n  Skipping '{plot_type}{sig_part}': only {len(items)} item")
             continue
@@ -818,8 +822,11 @@ def run(input_dir, output_dir, params=None):
 
     if not all_output_files:
         # Same Conditions can leave every group a single plot (two curves at
-        # 80.3 and 95 degrees): say so, not that the sidecars may be bad.
-        if grouping_mode == 'plot_type_conditions' and all(len(v) < 2 for v in by_group.values()):
+        # 80.3 and 95 degrees): say so, not that the sidecars may be bad. Not
+        # where lone plots are drawn too (min_group 1): each was, and drew
+        # nothing.
+        if (min_group == 2 and grouping_mode == 'plot_type_conditions'
+                and all(len(v) < 2 for v in by_group.values())):
             per_type = {}
             for (ptype, _sig), group in by_group.items():
                 per_type[ptype] = per_type.get(ptype, 0) + len(group)
@@ -831,9 +838,9 @@ def run(input_dir, output_dir, params=None):
                     f"what their scripts declared). Groups: {groups}. Compare All Together "
                     "overlays them anyway.")
         raise RuntimeError(
-            "No comparison outputs generated. Check that ≥2 plots of the "
-            "same type were selected and their sidecars are valid."
-        )
+            "No comparison outputs generated. Check that "
+            + ("≥2 plots of the same type were selected and their sidecars are valid."
+               if min_group == 2 else "the selected plots' sidecars are valid."))
 
     # Collect all output files (recursively, since each plot type now goes
     # into its own subfolder for the portal UI grouping).

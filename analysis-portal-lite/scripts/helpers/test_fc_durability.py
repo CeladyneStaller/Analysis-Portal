@@ -2389,6 +2389,176 @@ wl = trace_labels(next((tmp / 'cmp_out').rglob('*.xlsx')))
 check('... and the workbook: the band\'s edges for those two only',
       {k: len(edge(v)) for k, v in wl.items()}, {'with band': 2 * holds, 'without': 0, 'unsaid': 2 * holds})
 true('... the figure written', any(f.endswith('.png') for f in got['files_produced']), got)
+
+# A Comparisons chart's Export with one curve (Corey, 4 Nov: "The Export PNG
+# + xlsx button does not work on the Durability - performance tab when only 1
+# curve is plotted"). The chart's Export says so (from_chart), and the
+# comparison then draws a lone plot, its figure and workbook; the compare
+# modal, which says nothing, still needs two; and compare_polcurves.run draws
+# a lone plot only when told (min_group 1).
+class NowPool:
+    """The job pool, run in place: the job is done when submit returns."""
+
+    def submit(self, fn, *a, **kw):
+        fut = Future()
+        try:
+            fut.set_result(fn(*a, **kw))
+        except Exception as e:                       # noqa: BLE001
+            fut.set_exception(e)
+        return fut
+
+
+titles = []
+real_render_one = compare_mod.render_overlay_comparison
+
+
+def spy_title(items, **kw):
+    titles.append(([it['label'] for it in items], kw.get('title')))
+    return real_render_one(items, **kw)
+
+
+def compare_now(payload):
+    """POST /api/view/compare through the job's lifecycle, in place: (the
+    job's status, sources, output suffixes, error, workbook labels and figure
+    titles), or the refusal's (status code, detail)."""
+    del titles[:]
+    real_pool = portal.executor
+    portal.executor = NowPool()
+    compare_mod.render_overlay_comparison = spy_title
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            r = asyncio.run(portal.view_compare(payload))
+    except portal.HTTPException as e:
+        return (e.status_code, e.detail)
+    finally:
+        portal.executor = real_pool
+        compare_mod.render_overlay_comparison = real_render_one
+    job = portal.jobs[r['job_id']]
+    books = sorted((portal.JOBS_DIR / r['job_id'] / 'output').rglob('*.xlsx'))
+    return (job.get('status'), r['n_sources'], sorted(Path(f).suffix for f in job.get('output_files') or []),
+            job.get('error'), [sorted(trace_labels(x)) for x in books], list(titles))
+
+
+one_ocv = [{'key': k1, 'plot': ocv[k1], 'label': 'only one'}]
+check('a chart\'s Export with one curve: that plot compared alone, its figure and workbook written, the figure '
+      'titled for one plot', compare_now({'selections': one_ocv, 'from_chart': True}),
+      ('complete', 1, ['.png', '.xlsx'], None, [['only one']], [(['only one'], 'Historical Comparison (1 plot)')]))
+two_ocv = one_ocv + [{'key': k2, 'plot': ocv[k2], 'label': 'and another'}]
+check('... two curves as before, from the chart or the modal, titled for two plots',
+      [compare_now({'selections': two_ocv, 'from_chart': True}), compare_now({'selections': two_ocv})],
+      [('complete', 2, ['.png', '.xlsx'], None, [['and another', 'only one']],
+        [(['only one', 'and another'], 'Historical Comparison (2 plots)')])] * 2)
+check('... the modal (no flag, or one that is not a literal true) still needs two',
+      [compare_now({'selections': one_ocv}), compare_now({'selections': one_ocv, 'from_chart': 'true'}),
+       compare_now({'selections': one_ocv, 'from_chart': 1})],
+      [(400, 'at least two selections are required')] * 3)
+vcmp_dirs = len(list(portal.JOBS_DIR.glob('*-vcmp-*')))
+check('... and a chart\'s Export of nothing, or of a plot not stored, is refused, saying which',
+      [compare_now({'selections': [], 'from_chart': True}),
+       compare_now({'selections': [{'key': k1, 'plot': 'not-a-stored-plot', 'label': 'gone'}], 'from_chart': True}),
+       compare_now({'selections': [{'key': k1, 'plot': 'not-a-stored-plot'}] * 2})],
+      [(400, 'a selection is required'),
+       (409, 'The curve on the chart (gone) is no longer stored: the store has changed since the chart was drawn.'),
+       (400, 'fewer than two selections had stored sidecars — cleaning plots cannot be compared from history')])
+check('... leaving no job folder behind', len(list(portal.JOBS_DIR.glob('*-vcmp-*'))), vcmp_dirs)
+with contextlib.redirect_stdout(io.StringIO()):
+    lone = viewstore.materialize_for_compare([dict(one_ocv[0], label='solo')], tmp / 'one_in')
+
+
+def run_one(out, **extra):
+    """compare_polcurves.run over the one staged plot: its outputs' suffixes, or its error."""
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            got_ = compare_mod.run(str(tmp / 'one_in'), str(tmp / out),
+                                   dict({'sources': json.dumps(lone), 'image_format': 'png'}, **extra))
+        return sorted(Path(f).suffix for f in got_['files_produced'])
+    except RuntimeError as e:
+        return str(e)
+
+
+TWO_NEEDED = ('No comparison outputs generated. Check that ≥2 plots of the same type were selected and their '
+              'sidecars are valid.')
+check('the comparison script: a lone plot drawn only when told (min_group 1, as number or text), else the usual '
+      'message', [run_one('one_a'), run_one('one_b', min_group=1), run_one('one_c', min_group='1'),
+                  run_one('one_d', min_group=2), run_one('one_e', min_group=0), run_one('one_f', min_group='all')],
+      [TWO_NEEDED, ['.png', '.xlsx'], ['.png', '.xlsx'], TWO_NEEDED, TWO_NEEDED, TWO_NEEDED])
+real_gen = compare_mod._compare_generic
+compare_mod._compare_generic = lambda items, output_dir, params: []
+try:
+    drew_none = [run_one('one_g', min_group=1), run_one('one_h')]
+finally:
+    compare_mod._compare_generic = real_gen
+check('... and a lone plot that draws nothing says so without asking for two',
+      drew_none, ["No comparison outputs generated. Check that the selected plots' sidecars are valid.", TWO_NEEDED])
+# The review (4 Nov). One Durability — performance plot, the type the
+# report was about.
+with contextlib.redirect_stdout(io.StringIO()):
+    perf = {s_['key']: s_['plot'] for s_ in viewstore.plot_series_batch(
+        [{'key': k, 'analysis': 'fc_durability', 'step': '', 'plot_type': 'fcdur_perf_vs_time'}
+         for k in (k1, k2)])['series']}
+perf_one = [{'key': k1, 'plot': perf[k1], 'label': 'performance'}]
+check("a chart's Export of one Durability — performance curve, as reported: compared alone",
+      compare_now({'selections': perf_one, 'from_chart': True}),
+      ('complete', 1, ['.png', '.xlsx'], None, [['performance']], [(['performance'], 'Historical Comparison (1 plot)')]))
+# A curve the chart draws but the store no longer holds: said by name, as a
+# conflict, not left out quietly. The modal compares what is stored, as before.
+gone = {'key': k1, 'plot': 'not-a-stored-plot', 'label': 'gone'}
+NO_LONGER = ' no longer stored: the store has changed since the chart was drawn.'
+check("... a chart's curve no longer stored is said by name, as a conflict, one or several, not left out",
+      [compare_now({'selections': one_ocv + [gone], 'from_chart': True}),
+       compare_now({'selections': [gone] + one_ocv + [dict(gone, label='gone too')], 'from_chart': True}),
+       compare_now({'selections': [gone, dict(gone, label='gone too')], 'from_chart': True}),
+       compare_now({'selections': [dict(gone, label=f'g{i}') for i in range(5)] + one_ocv, 'from_chart': True})],
+      [(409, '1 of the 2 curves on the chart (gone) is' + NO_LONGER),
+       (409, '2 of the 3 curves on the chart (gone, gone too) are' + NO_LONGER),
+       (409, 'The 2 curves on the chart (gone, gone too) are' + NO_LONGER),
+       (409, '5 of the 6 curves on the chart (g0, g1, g2 and 2 more) are' + NO_LONGER)])
+check('... where the modal compares what is stored, needing two of them',
+      [compare_now({'selections': one_ocv + [gone]}), compare_now({'selections': two_ocv + [gone]})[:4]],
+      [(400, 'fewer than two selections had stored sidecars — cleaning plots cannot be compared from history'),
+       ('complete', 2, ['.png', '.xlsx'], None)])
+mixed = compare_now({'selections': one_ocv + perf_one})
+check('... and refuses a plot of each of two types, as before',
+      (mixed[0], str(mixed[1]).startswith('Nothing to compare: a comparison overlays plots of the same type, and no '
+                                          'type has two or more here. Selected: fcdur_ocv_vs_time ×1, '
+                                          'fcdur_perf_vs_time ×1.')), (400, True))
+OCV_TWO = (['only one', 'and another'], 'Historical Comparison (3 plots)')
+check("... a lone type beside a pair: the modal draws the pair alone, a chart's Export each, as the chart draws them",
+      [compare_now({'selections': two_ocv + perf_one})[2:], compare_now({'selections': two_ocv + perf_one,
+                                                                         'from_chart': True})[2:],
+       compare_now({'selections': one_ocv + perf_one, 'from_chart': True})[2:]],
+      [(['.png', '.xlsx'], None, [['and another', 'only one']], [OCV_TWO]),
+       (['.png', '.png', '.xlsx', '.xlsx'], None, [['and another', 'only one'], ['performance']],
+        [OCV_TWO, (['performance'], 'Historical Comparison (3 plots)')]),
+       (['.png', '.png', '.xlsx', '.xlsx'], None, [['only one'], ['performance']],
+        [(['only one'], 'Historical Comparison (2 plots)'), (['performance'], 'Historical Comparison (2 plots)')])])
+
+
+def run_grp(out, **extra):
+    """Same Conditions over two plots that share no conditions: the
+    outputs' suffixes, or the start of the error."""
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            got_ = compare_mod.run(str(tmp / 'grp_in'), str(tmp / out), dict({
+                'sources': json.dumps([{'label': '', 'filename': nm, 'output_dir': str(grp), 'sample_name': 'S1'}
+                                       for nm in (grp_names[0], grp_names[2])]),
+                'grouping_mode': 'plot_type_conditions', 'image_format': 'png'}, **extra))
+        return sorted(Path(f).suffix for f in got_['files_produced'])
+    except RuntimeError as e:
+        return str(e)[:60]
+
+
+real_gen = compare_mod._compare_generic
+compare_mod._compare_generic = lambda items, output_dir, params: []
+try:
+    grp_none = [run_grp('grp_one_b', min_group=1), run_grp('grp_one_c')]
+finally:
+    compare_mod._compare_generic = real_gen
+check('Same Conditions told to draw a lone plot: each group alone; and when they draw nothing, the generic message, '
+      'not the conditions one', [run_grp('grp_one_a', min_group=1)] + grp_none,
+      [['.png', '.png', '.xlsx', '.xlsx'],
+       "No comparison outputs generated. Check that the selected plots' sidecars are valid."[:60],
+       'Nothing to compare under Same Conditions: no two plots of one type share their conditions'[:60]])
 # Recall's run detail redraws one stored plot through the same renderer.
 redraws = []
 real_overlay = plot_compare.render_overlay_comparison

@@ -8452,9 +8452,10 @@ function cmpRenderNow() {
            saves; its server-side comparison and workbook use the stored points.`
         : 'Export renders the same comparison server-side, with its readouts and workbook.'));
 
-  // Off while an export is still saving, this type's or the custom plot's.
+  // Off with nothing drawn, and while an export is still saving, this type's
+  // or the custom plot's. One curve is enough: it is exported alone.
   document.getElementById('cmpExport').disabled =
-    (series.length < 2 && !stats.length) || CP_EXPORTING || CMP_EXPORTING;
+    (!series.length && !stats.length) || CP_EXPORTING || CMP_EXPORTING;
   cmpFocusRename();
   cmpWireChart();
   cmpObserveSize();
@@ -12952,6 +12953,10 @@ async function exportComparison() {
     if (CMP_HIDDEN.has(cmpKey(u.key, u.step))) return;
     if (cyc && !CMP_CYC.get(u.key)) return;
     const sr = CMP_SERIES.get(cmpKey(u.key, CMP_TYPE + '::' + u.step));
+    // A whole test the chart draws nothing of (one stored before j @ 0.65 V,
+    // or whose plot holds no V @ 1 A/cm²) is left out, as it is off the
+    // chart: the comparison would take its panels for the others'.
+    if (sr && cmpWholeType(CMP_TYPE) && (cmpUndrawn(u.key, sr) || !cmpPickSeries(sr).length)) return;
     // An electrolyzer curve the chart does not draw is left out, as it is
     // off the chart; one drawn iR-free is compared from the plot it is from.
     const pick = sr && cmpElxType(CMP_TYPE) ? cmpElxPick(sr) : null;
@@ -12984,9 +12989,10 @@ async function exportComparison() {
   btn.textContent = 'Saving chart…';
   const savedPng = await cmpDownloadPng(`comparison-${stamp}.png`);
 
-  // The server-side comparison needs two plotted curves; a chart that is only
-  // statistical curves still exports its PNG.
-  if (sels.length < 2) {
+  // The server-side comparison needs a plotted curve (one is drawn and
+  // tabulated alone); a chart that is only statistical curves still exports
+  // its PNG.
+  if (!sels.length) {
     CMP_EXPORTING = false;
     btn.textContent = label;
     // The same type: its button back on, as it was (a redraw here could land
@@ -12994,9 +13000,9 @@ async function exportComparison() {
     if (CMP_TYPE === type0) btn.disabled = false; else cmpRender();
     // Said under this chart, if it is still the one shown.
     if (CMP_TYPE === type0) document.getElementById('cmpNote').innerHTML = savedPng
-      ? `Chart saved as <b>comparison-${stamp}.png</b>. The workbook needs at
-         least two plotted curves — a statistical curve alone has nothing to
-         tabulate against.`
+      ? `Chart saved as <b>comparison-${stamp}.png</b>. The workbook needs a
+         plotted curve — a statistical curve alone has nothing to tabulate
+         against.`
       : 'Could not save the chart image.';
     return;
   }
@@ -13004,10 +13010,24 @@ async function exportComparison() {
   try {
     const r = await fetch('/api/view/compare', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selections: sels }),
+      // A chart's Export: the server compares one plot as well.
+      body: JSON.stringify({ selections: sels, from_chart: true }),
     });
     const d = await r.json().catch(() => null);
-    if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+    if (!r.ok) {
+      const err = new Error((d && d.detail) || ('HTTP ' + r.status));
+      // A curve on the chart no longer stored (stored again since it was
+      // read): the history is read again, and the curves of the samples sent
+      // are dropped, to be read again with it (a re-read drops only those
+      // whose stamp moved). Until they are back nothing of theirs is drawn,
+      // so Export is off.
+      if (r.status === 409) {
+        err.stale = true;
+        viewForgetRuns([...new Set(sels.map(x => x.key))]);
+        viewIndexChanged();
+      }
+      throw err;
+    }
     // The comparison runs as an ordinary job, so it appears in the Jobs list
     // with its outputs, exactly as one started from the View tab does.
     switchTab('analysis');
@@ -13015,8 +13035,11 @@ async function exportComparison() {
     renderJob(d.job_id, d);
     polling[d.job_id] = setInterval(() => poll(d.job_id), 2000);
   } catch (e) {
-    alert('The comparison job failed: ' + e.message
-          + (savedPng ? '\n\nThe chart image was still saved.' : ''));
+    alert(e.stale
+      ? 'Not compared: ' + e.message + ' The chart will be drawn again from the store: export again once it is.'
+        + (savedPng ? '\n\nThe chart image saved is of the chart as it was.' : '')
+      : 'The comparison job failed: ' + e.message
+        + (savedPng ? '\n\nThe chart image was still saved.' : ''));
   } finally {
     CMP_EXPORTING = false;
     btn.textContent = label;

@@ -941,9 +941,10 @@ def comparable_groups(sources: List[Dict[str, str]]) -> Dict[str, int]:
     """{plot_type: count} for a staged selection.
 
     The comparison script overlays plots of the same type and skips any type
-    with fewer than two, so a selection spanning four analyses with one plot
-    each produces nothing. Knowing that up front turns a failed job into an
-    immediate, explicable rejection.
+    with fewer than two (unless a Comparisons chart's Export, which draws a
+    lone plot too, says otherwise), so a selection spanning four analyses with
+    one plot each produces nothing. Knowing that up front turns a failed job
+    into an immediate, explicable rejection.
     """
     counts: Dict[str, int] = {}
     for s in sources:

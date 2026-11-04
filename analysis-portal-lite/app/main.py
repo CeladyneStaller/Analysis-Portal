@@ -499,8 +499,13 @@ async def view_compare(payload: dict):
     from scripts.helpers import viewstore
 
     selections = payload.get('selections') or []
-    if len(selections) < 2:
-        raise HTTPException(400, "at least two selections are required")
+    # A Comparisons chart's Export (from_chart) compares what the chart draws:
+    # one plot as well, and every type it holds however few its plots. The
+    # compare modal needs two plots of a type.
+    least = 1 if payload.get('from_chart') is True else 2
+    if len(selections) < least:
+        raise HTTPException(400, "at least two selections are required" if least == 2
+                            else "a selection is required")
     grouping_mode = payload.get('grouping_mode', 'plot_type')
     title = payload.get('title', '')
     image_format = payload.get('image_format', 'png')
@@ -517,18 +522,37 @@ async def view_compare(payload: dict):
     except Exception as e:
         shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
         raise HTTPException(502, f"could not stage historical sidecars: {e}")
-    if len(sources) < 2:
+    # A chart's curve no longer stored (its record stored again since the
+    # chart read it) is said by name, not left out of the comparison quietly:
+    # a conflict, on which the page reads the history again.
+    missing = len(selections) - len(sources)
+    if least == 1 and missing > 0:
+        shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
+        from collections import Counter
+        gone = list((Counter(str(s.get('label', '')) for s in selections)
+                     - Counter(str(s.get('label', '')) for s in sources)).elements())
+        names = ', '.join(gone[:3]) + (f" and {len(gone) - 3} more" if len(gone) > 3 else "")
+        n = len(selections)
+        which = (f"The curve on the chart ({names}) is" if n == 1 else
+                 f"The {n} curves on the chart ({names}) are" if missing == n else
+                 f"{missing} of the {n} curves on the chart ({names}) "
+                 + ("is" if missing == 1 else "are"))
+        raise HTTPException(
+            409, which + " no longer stored: the store has changed since the chart was drawn.")
+    if len(sources) < least:
         shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
         raise HTTPException(
             400, "fewer than two selections had stored sidecars — cleaning "
                  "plots cannot be compared from history")
 
-    # The comparison overlays plots of the same type and skips any type with
-    # fewer than two. A selection spanning several analyses with one plot each
-    # therefore produces nothing — which used to surface as a failed job with a
-    # generic message, minutes later. Reject it here instead.
+    # The comparison overlays plots of the same type and, for the modal, skips
+    # any type with fewer than two. A selection spanning several analyses with
+    # one plot each therefore produces nothing — which used to surface as a
+    # failed job with a generic message, minutes later. Reject it here
+    # instead. (A chart's Export draws a lone plot too, so is never rejected
+    # here.)
     counts = viewstore.comparable_groups(sources)
-    if not any(n >= 2 for n in counts.values()):
+    if not any(n >= least for n in counts.values()):
         shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
         breakdown = ', '.join(f'{k} ×{v}' for k, v in sorted(counts.items()))
         raise HTTPException(
@@ -549,9 +573,12 @@ async def view_compare(payload: dict):
     user_params = {
         'sources': _json.dumps(sources),
         'image_format': image_format,
-        'title': title or f"Historical Comparison ({len(sources)} plots)",
+        'title': title or f"Historical Comparison ({len(sources)} plot{'' if len(sources) == 1 else 's'})",
         'sample_name': sanitized,
         'grouping_mode': grouping_mode,
+        # The fewest plots of a type the comparison draws: one for a chart's
+        # Export.
+        'min_group': least,
     }
 
     with jobs_lock:
