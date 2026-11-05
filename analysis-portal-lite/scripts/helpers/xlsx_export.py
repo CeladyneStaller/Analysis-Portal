@@ -423,6 +423,11 @@ def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) ->
     """The Comparisons custom plot's curves: what the plot is, a row per curve,
     and every curve's stored points.
 
+    `meta` says what the plot is: its x as the chart names it (`xaxis`, with
+    its scale: "Hold time (h, log)") beside `xtitle`, which heads the Data
+    sheet's x columns (the values as stored, whatever the scale), its axes,
+    layout and when it was exported.
+
     `curves` are viewstore.custom_plot_curves rows, in the legend's order. A
     curve is named as the legend showed it, its stored name beside it; one
     with nothing to export is listed with the reason and has no block. Each
@@ -440,7 +445,7 @@ def build_custom_workbook(meta: Dict[str, Any], curves: List[Dict[str, Any]]) ->
     # A curve with a high–low band: whether its bins' lows and highs are in
     # the Data sheet (a column only where some curve has a band).
     banded = any(c.get('band') for c in curves)
-    rows = [('Plot', str(meta.get('title') or 'Custom plot')), ('x', xtitle)]
+    rows = [('Plot', str(meta.get('title') or 'Custom plot')), ('x', str(meta.get('xaxis') or xtitle))]
     rows += [(str(a.get('side') or 'Axis'), str(a.get('text') or ''))
              for a in (meta.get('axes') or []) if isinstance(a, dict)]
     rows += [('Layout', str(meta.get('layout') or '')),

@@ -627,6 +627,20 @@ try:
     check_true('... its note names no band where no curve has one (review, 16 Oct)',
                not any('bin' in str(r[0].value) for r in wbk['Custom plot'].iter_rows() if r[0].value),
                [r[0].value for r in wbk['Custom plot'].iter_rows()])
+    # Log x (5 Nov): the Custom plot sheet names x as the chart does, with its
+    # scale; the Data sheet's x columns keep the quantity's title, the values
+    # being the stored ones whatever the scale.
+    wbx = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'Hold time (h)', 'xaxis': 'Hold time (h, log)'}, got[1:2])))
+    infox = {r[0].value: r[1].value for r in wbx['Custom plot'].iter_rows() if r[0].value}
+    datax = [[c.value for c in r] for r in wbx['Data'].iter_rows()]
+    check('a log x: the Custom plot sheet names x as the chart does; the Data sheet\'s x columns as stored, '
+          'its point at 0 h among them (review, 5 Nov)',
+          (infox.get('x'), datax[1][0], [r[0] for r in datax[2:]]), ('Hold time (h, log)', 'Hold time (h)', [0, 2]))
+    wbn = load_workbook(_io.BytesIO(xlsx_export.build_custom_workbook(
+        {'xtitle': 'RH cycles', 'xaxis': ''}, got[:1])))
+    check('... with no such name sent, x as titled',
+          {r[0].value: r[1].value for r in wbn['Custom plot'].iter_rows() if r[0].value}.get('x'), 'RH cycles')
 
     # Parts in x order: a short hold's decay windows (points) before a long
     # one's (a line), though a pick lists lines first.

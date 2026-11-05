@@ -863,7 +863,9 @@
   .cmp-range:focus { outline: none; border-color: var(--accent); }
   .cmp-range.set { border-color: var(--accent-strong); color: var(--accent); }
   .cmp-range::placeholder { color: var(--text-dim); opacity: .55; }
-  /* A tick spacing; amber when it is too fine for the range and set aside. */
+  /* A tick spacing; amber when the axis set it aside (too fine for the range,
+     or no spacing a log axis takes), as a bound is that a log axis has no
+     place for (at or under 0). */
   .cmp-range.cmp-step { width: 56px; }
   .cmp-range.bad, .cmp-range.bad:focus { border-color: var(--amber); }
   .cmp-rlab.dim { font-size: 10px; margin-left: 2px; opacity: .8; }
@@ -7701,6 +7703,13 @@ function cmpFmtTick(v, step, log) {
 }
 // The spacing an axis is drawn at, as its box shows it.
 const cmpStepText = s => s.log ? s.step + ' dec' : String(+s.step.toPrecision(6));
+// What the custom plot's boxes say of what a scale set aside (cmpScale): a
+// spacing (stepBad), or a bound a log axis has no place for (loBad, hiBad).
+const cmpStepBadText = s => (s && s.log
+  ? 'A log axis takes a spacing of whole decades that leaves at least two ticks in its range: '
+    + 'the spacing is picked automatically'
+  : 'Too fine for this range: the spacing is picked automatically');
+const CMP_LOG_BOUND = 'A log axis has no 0 or below: this bound is set aside';
 // An axis's range and ticks, from its data's extent [lo, hi] (null with none)
 // and what is typed: a minimum, a maximum and a spacing, each null when blank.
 // A minimum at or over the maximum leaves both to the data; one bound typed
@@ -7709,21 +7718,40 @@ const cmpStepText = s => s.log ? s.step + ' dec' : String(+s.step.toPrecision(6)
 // axis of a count (`whole`, cycles) picks a whole spacing, never under 1,
 // for the range as settled.
 function cmpScale(ext, uLo, uHi, uStep, log, n, whole) {
-  if (uLo != null && uHi != null && !(uHi > uLo)) { uLo = null; uHi = null; }
+  // A log axis has no 0: a bound typed at or under it is set aside for the
+  // data's (before a minimum at or over the maximum is, so the other bound
+  // stands), and the scale says so (loBad, hiBad), so its box can.
+  const loBad = !!log && uLo != null && !(uLo > 0), hiBad = !!log && uHi != null && !(uHi > 0);
+  if (loBad) uLo = null;
+  if (hiBad) uHi = null;
+  // A minimum at or over the maximum leaves both to the data, and says so.
+  const crossed = uLo != null && uHi != null && !(uHi > uLo);
+  if (crossed) { uLo = null; uHi = null; }
   if (log) {
-    if (uLo != null && !(uLo > 0)) uLo = null;
-    if (uHi != null && !(uHi > 0)) uHi = null;
     const dLo = ext ? ext[0] : 1, dHi = ext ? ext[1] : 10;
     let lo = uLo != null ? uLo : Math.pow(10, Math.floor(Math.log10(dLo) + 1e-9));
     let hi = uHi != null ? uHi : Math.pow(10, Math.ceil(Math.log10(dHi) - 1e-9));
     // A decade on from a typed bound the data lie beyond, or from data at one value.
     if (!(hi > lo)) { if (uHi != null && uLo == null) lo = hi / 10; else hi = lo * 10; }
-    const L0 = Math.log10(lo), L1 = Math.log10(hi), ticks = [];
-    const dec = uStep != null && uStep >= 1 ? Math.round(uStep) : 0;
-    for (let k = Math.ceil(L0 - 1e-9); k <= Math.floor(L1 + 1e-9) && ticks.length <= CMP_MAX_TICKS;
-         k += dec || 1) ticks.push(Math.pow(10, k));
+    const L0 = Math.log10(lo), L1 = Math.log10(hi);
+    // The powers of ten in the range, every `by` decades from the first.
+    const every = by => {
+      const t = [];
+      for (let k = Math.ceil(L0 - 1e-9); k <= Math.floor(L1 + 1e-9) && t.length <= CMP_MAX_TICKS; k += by) {
+        t.push(Math.pow(10, k));
+      }
+      return t;
+    };
+    // A spacing is in whole decades (rounded). Under a decade is set aside;
+    // so is one over a decade that leaves fewer than two ticks in the range.
+    // A decade a tick typed is the decades alone where that leaves two ticks
+    // (1 and 10 over a decade); fewer, and it is never set aside, as nothing
+    // is finer: it takes the 2s and 5s, as a blank spacing does under three.
+    let dec = uStep != null && uStep >= 1 ? Math.round(uStep) : 0;
+    let ticks = every(dec || 1);
+    if (dec > 1 && ticks.length < 2) { dec = 0; ticks = every(1); }
     // Within a decade or two, the 2s and 5s as well.
-    if (!dec && ticks.length < 3) {
+    if (dec <= 1 && ticks.length < (dec ? 2 : 3)) {
       for (let k = Math.floor(L0) - 1; k <= Math.ceil(L1); k++) {
         for (const m of [2, 5]) {
           const v = m * Math.pow(10, k);
@@ -7732,7 +7760,7 @@ function cmpScale(ext, uLo, uHi, uStep, log, n, whole) {
       }
       ticks.sort((p, q) => p - q);
     }
-    return { lo, hi, log: true, step: dec || 1, stepBad: uStep != null && !dec, ticks };
+    return { lo, hi, log: true, step: dec || 1, stepBad: uStep != null && !dec, loBad, hiBad, crossed, ticks };
   }
   // Values a part in a billion apart are one value: float noise, not a span
   // a scale can be made of.
@@ -7763,7 +7791,7 @@ function cmpScale(ext, uLo, uHi, uStep, log, n, whole) {
   const ticks = [];
   for (let k = Math.ceil(lo / step - 1e-9); k <= Math.floor(hi / step + 1e-9)
        && ticks.length <= CMP_MAX_TICKS; k++) ticks.push(clean(k * step));
-  return { lo, hi, log: false, step, stepBad, ticks };
+  return { lo, hi, log: false, step, stepBad, crossed, ticks };
 }
 // A scale placed on the page, a at its low end and b at its high one: px
 // takes a value to pixels and inv a pixel back.
@@ -9852,10 +9880,13 @@ const CP_STD = {
 };
 
 // The plot, as it stands; saved views keep it whole (cpSnapshot). Curves are
-// ids [sample key, quantity, series] as JSON. Ranges are kept as typed, per x.
+// ids [sample key, quantity, series] as JSON. Ranges are kept as typed, per x,
+// and so is x's scale ('lin' or 'log', cpXLog). Each axis keeps a tick spacing
+// per scale (`perScale`; a view saved before kept one, cpRestore).
 function cpFresh() {
   return { x: 'time', assign: { dur: {}, j: {}, pot: {} }, curves: { dur: [], j: [], pot: [] },
-           scale: { dur: {}, j: {}, pot: {} }, rng: {}, hidden: {}, noband: {}, layout: 'dual',
+           scale: { dur: {}, j: {}, pot: {} }, xscale: {}, perScale: true, rng: {}, hidden: {}, noband: {},
+           layout: 'dual',
            has: 'any', order: [] };
 }
 let CP = cpFresh();
@@ -9875,6 +9906,11 @@ const cpOn = (part, fn) => { CP_ACT[part].push(fn); return `cpDo('${part}',${CP_
 function cpDo(part, i, v) { const f = CP_ACT[part][i]; if (f) f(v); }
 
 const cpX = () => CP_X.find(x => x.key === CP.x) || CP_X[0];
+// x on a log scale: kept per x, as hours and cycles are scales of their own.
+const cpXLog = X => (CP.xscale || {})[X.key] === 'log';
+// x's title as the chart and the workbook give it, saying so when it is log.
+const cpXTitle = (X, log) => (!log ? X.title
+  : X.title.endsWith(')') ? X.title.slice(0, -1) + ', log)' : X.title + ' (log)');
 const cpQ = (fam, id) => (CP_Q[fam] || []).find(q => q.id === id);
 const cpBare = q => !!q && q.marker === false;
 const cpId = (key, qid, sid) => JSON.stringify([key, qid, sid]);
@@ -9894,6 +9930,13 @@ function cpFmt(v) {
     : v.toPrecision(3);
   return s.replace(/^-/, '−');
 }
+// A value read off a log axis: four significant figures however small (a
+// decade's worth of current density under 0.01 A/cm² is its point).
+const cpFmtLog = v => {
+  if (v == null || !isFinite(v)) return '—';
+  const r = +v.toPrecision(4);
+  return Math.abs(r) >= 1000 ? Math.round(v).toLocaleString('en-US') : String(r).replace(/^-/, '−');
+};
 // A marker's outline, centred on (x, y): one path holds every marker of a curve.
 function cpShapePath(shape, x, y, r) {
   const f = n => (Math.round(n * 10) / 10).toString();
@@ -10441,13 +10484,24 @@ function cpToggleHidden(id) {
   cpChanged();
   cmpRender();
 }
+// A y axis's scale. Its tick spacing is kept per scale (`st` in its unit,
+// `stl` in decades), as x's is (cpSetXScale).
 function cpSetScale(fam, axKey, v) {
   CP.scale = { ...CP.scale, [fam]: { ...(CP.scale[fam] || {}), [axKey]: v } };
   cpChanged();
   cmpRender();
 }
+// Linear or log on the x shown. Its range is kept as typed, a bound at or
+// under 0 set aside while it is log; its tick step is kept per scale (`xs`
+// in its units, `xsl` in decades), so a spacing typed on one is not read on
+// the other. A box says what its axis set aside (cmpScale).
+function cpSetXScale(v) {
+  CP.xscale = { ...(CP.xscale || {}), [CP.x]: v === 'log' ? 'log' : 'lin' };
+  cpChanged();
+  cmpRender();
+}
 // Ranges and spacings are kept as typed, per x: hours and cycles, say, are
-// different scales.
+// different scales. x's spacing is kept per scale too (cpSetXScale).
 function cpSetRange(k, v, left) {
   CP.rng = { ...CP.rng, [CP.x]: { ...(CP.rng[CP.x] || {}), [k]: String(v == null ? '' : v).trim() } };
   cpChanged();
@@ -10765,6 +10819,9 @@ function cpChart(X, A, all) {
     axes.forEach((ax, k) => { const y0 = MT + k * (ph + GAP); panels.push({ axes: [ax], y0, y1: y0 + ph }); });
   } else panels.push({ axes, y0: MT, y1: H - MB });
   const top = panels[0].y0, bot = panels[panels.length - 1].y1;
+  // On a log x a point at or under 0 is not drawn (below), so the y axes'
+  // ranges are taken from the points it can draw.
+  const xlog = cpXLog(X);
   const ext = (curves, k, log) => {
     let lo = Infinity, hi = -Infinity;
     const see = v => {
@@ -10772,27 +10829,31 @@ function cpChart(X, A, all) {
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     };
+    const off = p => k === 1 && xlog && !(p[0] > 0);
     curves.forEach(c => {
-      c.segs.forEach(pts => pts.forEach(p => see(p[k])));
+      c.segs.forEach(pts => pts.forEach(p => { if (!off(p)) see(p[k]); }));
       // A shaded high–low band reaches past its trace.
-      if (k === 1 && c.shade) c.bands.forEach(b => (b || []).forEach(p => { see(p[1]); see(p[2]); }));
+      if (k === 1 && c.shade) {
+        c.bands.forEach(b => (b || []).forEach(p => { if (!off(p)) { see(p[1]); see(p[2]); } }));
+      }
     });
     return lo <= hi ? [lo, hi] : null;
   };
   // Against RH cycles, a hold before the cycling starts sits at 0: kept clear
-  // of the axis line.
-  const xPad = X.key === 'cyc' ? 8 : 0;
-  const xExt = ext(drawn, 0, false), x0 = cmpNum(rng.x0), x1 = cmpNum(rng.x1);
-  const xs = cmpPlace(cmpScale(xExt, x0, x1, cmpNum(rng.xs), false, 7), px0 + xPad, px1);
-  // An axis with nothing drawn on it, and no bounds typed, shows no ticks.
-  xs.bare = !xExt && x0 == null && x1 == null;
+  // of the axis line (a log axis has no 0, and does not draw it).
+  const xPad = X.key === 'cyc' && !xlog ? 8 : 0;
+  const xExt = ext(drawn, 0, xlog), x0 = cmpNum(rng.x0), x1 = cmpNum(rng.x1);
+  const xs = cmpPlace(cmpScale(xExt, x0, x1, cmpNum(xlog ? rng.xsl : rng.xs), xlog, 7), px0 + xPad, px1);
+  // An axis with nothing drawn on it, and no bounds typed (none it can take),
+  // shows no ticks.
+  xs.bare = !xExt && (x0 == null || !!xs.loBad) && (x1 == null || !!xs.hiBad);
   if (xs.bare) xs.ticks = [];
   const ys = {};
   panels.forEach(pn => pn.axes.forEach(ax => {
     const on = drawn.filter(c => c.axKey === ax.key), log = sc[ax.key] === 'log';
     const ur = rax[ax.key] || {}, lo = cmpNum(ur.lo), hi = cmpNum(ur.hi), e = ext(on, 1, log);
-    const s = cmpPlace(cmpScale(e, lo, hi, cmpNum(ur.st), log, stacked ? 4 : 5), pn.y1, pn.y0);
-    s.bare = !e && lo == null && hi == null;
+    const s = cmpPlace(cmpScale(e, lo, hi, cmpNum(log ? ur.stl : ur.st), log, stacked ? 4 : 5), pn.y1, pn.y0);
+    s.bare = !e && (lo == null || !!s.loBad) && (hi == null || !!s.hiBad);
     if (s.bare) s.ticks = [];
     s.panel = pn;
     s.sx = ax.side === 'L' ? px0 - (stacked ? 0 : ax.i * CP_OFF) : px1 + (stacked ? 0 : ax.i * CP_OFF);
@@ -10829,7 +10890,7 @@ function cpChart(X, A, all) {
     });
     if (pn === lastPanel) {
       xs.ticks.forEach(v => { ticks += `<text class="tick" x="${r1(xs.px(v))}" y="${pn.y1 + 17}"`
-        + ` text-anchor="middle">${cmpFmtTick(v, xs.step, false)}</text>`; });
+        + ` text-anchor="middle">${cmpFmtTick(v, xs.step, xs.log)}</text>`; });
     }
   });
   // High–low bands first, under every line, each clipped to its panel: along
@@ -10842,7 +10903,7 @@ function cpChart(X, A, all) {
       const s = ys[c.axKey];
       if (!c.shade || !s || s.panel !== pn) return;
       c.bands.forEach(band => {
-        const pts = (band || []).filter(p => !s.log || (p[1] > 0 && p[2] > 0));
+        const pts = (band || []).filter(p => (!s.log || (p[1] > 0 && p[2] > 0)) && (!xs.log || p[0] > 0));
         if (!pts.length) return;
         g += `<path class="band hl" d="${cpBandPath(pts, xs.px, s.px)}" fill="${c.color}"><title>${escapeHtml(
           `${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label} · high–low of each bin`)}</title></path>`;
@@ -10853,12 +10914,35 @@ function cpChart(X, A, all) {
         + ` height="${pn.y1 - pn.y0}"/></clipPath></defs><g clip-path="url(#cpBandClip${i})">${g}</g>`;
     }
   });
-  let lines = '', marks = '';
+  // A log axis has no 0: a point at or under it is not drawn (its line breaks
+  // there), and is counted by axis for the note under the chart (`lost`,
+  // cpLostText). `seen` counts the points that can be drawn; `blank` holds the
+  // curves with none (their legend rows say so, cpRenderLegend).
+  let lines = '', marks = '', seen = 0;
+  const lost = new Map(), blank = new Set();
+  // A point a log axis can draw: over 0 on each log axis it is on.
+  const can = (c, p) => { const s = ys[c.axKey]; return !!s && (!xs.log || p[0] > 0) && (!s.log || p[1] > 0); };
+  all.forEach(c => {
+    if (!c.why && !c.loading && c.segs.length && !c.segs.some(pts => pts.some(p => can(c, p)))) blank.add(c.id);
+  });
+  const lose = (k, c) => {
+    const l = lost.get(k) || { n: 0, curves: new Set() };
+    l.n += 1;
+    l.curves.add(c.id);
+    lost.set(k, l);
+  };
   drawn.forEach(c => {
     const s = ys[c.axKey];
     if (!s) return;
     const b = { x0: px0, x1: px1, y0: s.panel.y0, y1: s.panel.y1 };
-    const parts = c.segs.map(pts => pts.map(p => (s.log && !(p[1] > 0) ? null : [xs.px(p[0]), s.px(p[1])])));
+    let mine = 0;
+    const parts = c.segs.map(pts => pts.map(p => {
+      if (xs.log && !(p[0] > 0)) { lose('x', c); return null; }
+      if (s.log && !(p[1] > 0)) { lose(c.axKey, c); return null; }
+      mine += 1;
+      return [xs.px(p[0]), s.px(p[1])];
+    }));
+    seen += mine;
     const d = cpPath(parts.flatMap(pts => cpClip(pts, b)));
     const title = `<title>${escapeHtml(`${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label}`)}</title>`;
     if (d) {
@@ -10872,9 +10956,10 @@ function cpChart(X, A, all) {
     }
   });
   const names = list => list.map(ax => ax.qs.map(q => q.name).join(', ') + ' (' + ax.unit + ')').join('; ');
-  const aria = 'Custom plot against ' + X.title + (nL ? '; left: ' + names(AX.L) : '')
+  const aria = 'Custom plot against ' + cpXTitle(X, xs.log) + (nL ? '; left: ' + names(AX.L) : '')
     + (nR ? '; right: ' + names(AX.R) : '');
   const emptyMsg = !axes.length ? 'Send a quantity to the left or right axis to start.'
+    : drawn.length ? 'Nothing here can be drawn on a log axis: every point is at or under 0.'
     : all.some(c => c.loading) ? 'Loading curves…'
     : all.length ? 'Nothing here can be drawn against ' + X.lower + '.'
     : 'Add curves from the list below.';
@@ -10882,12 +10967,16 @@ function cpChart(X, A, all) {
     + ` aria-label="${escapeAttr(aria)}">${grid}${axl}${bands}${lines}${marks}`
     + `<line id="cpCross" class="cp-cross" x1="0" y1="${top}" x2="0" y2="${bot}" visibility="hidden"/>`
     + (head ? head.svg : '') + titles + ticks
-    + `<text class="alab" x="${(px0 + px1) / 2}" y="${H - 8}" text-anchor="middle">${escapeHtml(X.title)}</text>`
-    + (drawn.length ? '' : `<text class="cp-empty" x="${(px0 + px1) / 2}" y="${(top + bot) / 2}"`
-      + ` text-anchor="middle">${escapeHtml(emptyMsg)}</text>`)
+    + `<text class="alab" x="${(px0 + px1) / 2}" y="${H - 8}" text-anchor="middle">${
+      escapeHtml(cpXTitle(X, xs.log))}</text>`
+    + (seen ? '' : `<text class="cp-empty" x="${(px0 + px1) / 2}" y="${(top + bot) / 2}"`
+      + ` text-anchor="middle">${escapeHtml(emptyMsg)}</text>`
+      // Curves there, a log axis drawing none: what to do, Export being off.
+      + (axes.length && drawn.length ? `<text class="cp-empty" x="${(px0 + px1) / 2}" y="${(top + bot) / 2 + 18}"`
+        + ` text-anchor="middle">${escapeHtml(cpSwitchHint(lost))}</text>` : ''))
     + '</svg>';
-  CP_CH = { W, H, px0, px1, top, bot, xs, ys, axes, stacked, X, empty: !drawn.length };
-  return { svg, W, H, drawn, AX, axes, xs, ys, stacked };
+  CP_CH = { W, H, px0, px1, top, bot, xs, ys, axes, stacked, X, empty: !seen, lost, blank, can };
+  return { svg, W, H, drawn, AX, axes, xs, ys, stacked, lost, blank, can };
 }
 // The box the chart sits in is the size the user gave it, unless the chart
 // needs more (offset axes, stacked panels): then it is sized to the chart,
@@ -10921,11 +11010,11 @@ function cpShowReadout(ev) {
   if (!r.width || !r.height) return;
   const px = (ev.clientX - r.left) * (ch.W / r.width), py = (ev.clientY - r.top) * (ch.H / r.height);
   if (px < ch.px0 || px > ch.px1 || py < ch.top || py > ch.bot) { cpHideReadout(); return; }
-  const items = [['x', cpFmt(ch.xs.inv(px)), ch.X.unit]];
+  const items = [['x', (ch.xs.log ? cpFmtLog : cpFmt)(ch.xs.inv(px)), ch.X.unit]];
   ch.axes.forEach(ax => {
     const s = ch.ys[ax.key];
     if (!s || s.bare || (ch.stacked && (py < s.panel.y0 || py > s.panel.y1))) return;
-    items.push([ax.side, cpFmt(s.inv(py)), ax.unit]);
+    items.push([ax.side, (s.log ? cpFmtLog : cpFmt)(s.inv(py)), ax.unit]);
   });
   el.innerHTML = items.map(([k, v, u]) => `<span class="it"><span class="k">${k}</span>`
     + `<span class="v">${escapeHtml(v)}</span>${u ? `<span class="u">${escapeHtml(u)}</span>` : ''}</span>`).join('');
@@ -10961,12 +11050,14 @@ function cpRender() {
   document.getElementById('cmpChart').innerHTML = ch.svg;
   document.getElementById('cpAxes').innerHTML = cpAxesHtml(X, A, ch);
   document.getElementById('cmpOpts').innerHTML = cpOptsHtml(X, ch);
-  cpRenderLegend(X, A, all);
-  cpRenderNotes(X, A, all);
+  cpRenderLegend(X, A, all, ch);
+  cpRenderNotes(X, A, all, ch);
   document.getElementById('cmpCount').textContent =
     `${all.length} curve${all.length === 1 ? '' : 's'}`;
-  document.getElementById('cmpCurveCount').textContent = String(ch.drawn.length);
-  document.getElementById('cmpExport').disabled = !ch.drawn.length || CP_EXPORTING || CMP_EXPORTING;
+  // A curve a log axis can draw nothing of is not drawn (ch.blank).
+  const shown = ch.drawn.filter(c => !ch.blank.has(c.id)).length;
+  document.getElementById('cmpCurveCount').textContent = String(shown);
+  document.getElementById('cmpExport').disabled = !shown || CP_EXPORTING || CMP_EXPORTING;
   cmpFocusRename();
   cmpWireChart();
   cmpObserveSize();
@@ -11057,10 +11148,12 @@ function cpAxesHtml(X, A, ch) {
             aria-label="${escapeAttr(`Take ${q.name} off the ${word}`)}"
             onclick="cpSetSide('${fam}','${q.id}','${sd}')">×</button></div>`).join('')}
           <div class="cp-rgrid"><span class="h">min</span><span class="h">max</span><span class="h">tick step</span>
-            ${box('lo', s && !s.bare ? cmpFmtTick(s.lo, s.step, s.log) : 'min', `Minimum of the ${word} axis in ${ax.unit}`, 'Blank follows the data')}
-            ${box('hi', s && !s.bare ? cmpFmtTick(s.hi, s.step, s.log) : 'max', `Maximum of the ${word} axis in ${ax.unit}`, 'Blank follows the data')}
-            ${box('st', s && !s.bare ? cmpStepText(s) : 'auto', `Tick spacing of the ${word} axis in ${ax.unit}`,
-              bad ? 'Too fine for this range: the spacing is picked automatically'
+            ${box('lo', s && !s.bare ? cmpFmtTick(s.lo, s.step, s.log) : 'min', `Minimum of the ${word} axis in ${ax.unit}`,
+              s && s.loBad ? CMP_LOG_BOUND : 'Blank follows the data', s && s.loBad ? ' bad' : '')}
+            ${box('hi', s && !s.bare ? cmpFmtTick(s.hi, s.step, s.log) : 'max', `Maximum of the ${word} axis in ${ax.unit}`,
+              s && s.hiBad ? CMP_LOG_BOUND : 'Blank follows the data', s && s.hiBad ? ' bad' : '')}
+            ${box(log ? 'stl' : 'st', s && !s.bare ? cmpStepText(s) : 'auto', `Tick spacing of the ${word} axis in ${ax.unit}`,
+              bad ? cmpStepBadText(s)
                 : s && s.log ? 'Ticks every so many decades. Blank picks one.'
                 : `Tick spacing, in ${ax.unit}. Blank picks one.`, ' cmp-step' + (bad ? ' bad' : ''))}
           </div></div>`;
@@ -11083,14 +11176,16 @@ function cpAxesHtml(X, A, ch) {
             <div class="cp-qs">${g.items.join('')}</div></div>`).join('')}</div>
         ${zone('R')}</div></div>`;
 }
-// Over the chart: the layout, and x's range and tick spacing.
+// Over the chart: the layout, and x's scale, range and tick spacing.
 function cpOptsHtml(X, ch) {
   const rg = CP.rng[X.key] || {};
   const seg = (v, l) => `<button type="button" class="${CP.layout === v ? 'on' : ''}" aria-pressed="${
     CP.layout === v}" onclick="cpSetLayout('${v}')">${l}</button>`;
-  const any = ['x0', 'x1', 'xs'].some(k => String(rg[k] || '').trim())
-    || Object.values(rg.ax || {}).some(a => ['lo', 'hi', 'st'].some(f => String((a || {})[f] || '').trim()));
-  const xs = ch.xs, bad = !!xs.stepBad;
+  const any = ['x0', 'x1', 'xs', 'xsl'].some(k => String(rg[k] || '').trim())
+    || Object.values(rg.ax || {}).some(a => ['lo', 'hi', 'st', 'stl'].some(f => String((a || {})[f] || '').trim()));
+  const xs = ch.xs, bad = !!xs.stepBad, log = cpXLog(X);
+  const xseg = v => `<button type="button" class="${(v === 'log') === log ? 'on' : ''}" aria-pressed="${
+    (v === 'log') === log}" onclick="cpSetXScale('${v}')">${v === 'log' ? 'Log' : 'Linear'}</button>`;
   const box = (k, ph, aria, title, extra) => `<input type="text" class="cmp-range${
     String(rg[k] || '') ? ' set' : ''}${extra || ''}" value="${escapeAttr(rg[k] || '')}" placeholder="${
     escapeAttr(ph)}" aria-label="${aria}" title="${escapeAttr(title)}"
@@ -11098,11 +11193,14 @@ function cpOptsHtml(X, ch) {
   return `<span class="cp-lay">Layout <span class="cp-seg" role="group" aria-label="Layout">${seg('dual', 'Overlaid')}${
       seg('stack', 'Stacked panels')}</span></span>
     <span class="cmp-ranges"><span class="cmp-rlab">x</span>
-      ${box('x0', xs.bare ? 'min' : cmpFmtTick(xs.lo, xs.step), 'x minimum', 'Blank follows the data')}
-      ${box('x1', xs.bare ? 'max' : cmpFmtTick(xs.hi, xs.step), 'x maximum', 'Blank follows the data')}
+      <span class="cp-seg" role="group" aria-label="Scale of the x axis">${xseg('lin')}${xseg('log')}</span>
+      ${box('x0', xs.bare ? 'min' : cmpFmtTick(xs.lo, xs.step, xs.log), 'x minimum',
+        xs.loBad ? CMP_LOG_BOUND : 'Blank follows the data', xs.loBad ? ' bad' : '')}
+      ${box('x1', xs.bare ? 'max' : cmpFmtTick(xs.hi, xs.step, xs.log), 'x maximum',
+        xs.hiBad ? CMP_LOG_BOUND : 'Blank follows the data', xs.hiBad ? ' bad' : '')}
       <span class="cmp-rlab dim">tick step</span>
-      ${box('xs', xs.bare ? 'auto' : cmpStepText(xs), 'x tick spacing',
-        bad ? 'Too fine for this range: the spacing is picked automatically'
+      ${box(log ? 'xsl' : 'xs', xs.bare ? 'auto' : cmpStepText(xs), 'x tick spacing',
+        bad ? cmpStepBadText(xs) : log ? 'Ticks every so many decades. Blank picks one.'
           : `Tick spacing, in ${X.unit}. Blank picks one.`, ' cmp-step' + (bad ? ' bad' : ''))}
       <button class="btn btn-sm" onclick="cpResetRange()" ${any ? '' : 'disabled'}
         title="Clear the x range and tick step, and every axis’s">Reset</button></span>
@@ -11111,7 +11209,7 @@ function cpOptsHtml(X, ch) {
 }
 // The legend: a group per sample, in colour order (drag to reorder, click the
 // name to rename it for the plots), a row per curve.
-function cpRenderLegend(X, A, all) {
+function cpRenderLegend(X, A, all, ch) {
   const fam = X.fam, colours = cpColours(fam);
   const html = [...colours.keys()].map(k => {
     const rows = all.filter(c => c.key === k).sort((p, q) =>
@@ -11132,10 +11230,13 @@ function cpRenderLegend(X, A, all) {
           onclick="${cpOn('legend', () => cpDropCurves(fam, ids))})">×</span>
       </div>
       <div class="cmp-steps">${rows.map(c => {
-        const off = !!CP.hidden[c.id] || !!c.why || c.loading;
-        const ser = c.why ? 'not drawn' : c.loading ? 'reading…' : c.label;
-        const cond = c.why ? 'Not drawn: ' + c.why : c.label + (c.sub ? ' — ' + c.sub : '');
-        const kv = c.why || c.loading ? [] : cpKv(c, X);
+        // Nothing of it a log axis can draw (cpChart): not drawn, and why.
+        const blank = !c.why && !c.loading && !!(ch && ch.blank && ch.blank.has(c.id));
+        const off = !!CP.hidden[c.id] || !!c.why || c.loading || blank;
+        const ser = c.why || blank ? 'not drawn' : c.loading ? 'reading…' : c.label;
+        const cond = c.why ? 'Not drawn: ' + c.why : blank ? 'Not drawn: ' + CP_BLANK
+          : c.label + (c.sub ? ' — ' + c.sub : '');
+        const kv = c.why || c.loading || blank ? [] : cpKv(c, X, ch && ch.can);
         const what = `${c.q.name}, ${c.label}`;
         return `<div class="cmp-strow cp-row${off ? ' off' : ''}" title="${escapeAttr(cond)}">
           <span class="cmp-scol1">${cpKey(c.color, c.dash, c.shape, c.side)}
@@ -11143,7 +11244,7 @@ function cpRenderLegend(X, A, all) {
           <span class="cmp-scol2"><span class="cp-tag">${escapeHtml(c.side + ' · ' + c.q.unit)}</span>${
             kv.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.k)}</span><span class="v">${
               escapeHtml(m.v)}</span></span>`).join('')}</span>
-          <span class="cmp-sacts">${c.q.band && !c.why && !c.loading ? cpBandAct(c) : ''}
+          <span class="cmp-sacts">${c.q.band && !c.why && !c.loading && !blank ? cpBandAct(c) : ''}
             <span class="cmp-act" role="button" title="${escapeAttr((CP.hidden[c.id] ? 'Show ' : 'Hide ') + what)}"
               onclick="${cpOn('legend', () => cpToggleHidden(c.id))})">${CP.hidden[c.id] ? '○' : '●'}</span>
             <span class="cmp-act" role="button" title="${escapeAttr('Remove ' + what)}"
@@ -11164,10 +11265,15 @@ function cpBandAct(c) {
     title="${escapeAttr(`${c.shade ? 'Hide' : 'Shade'} the high–low of each bin, its lowest to its highest sample`)}"
     onclick="${cpOn('legend', () => cpToggleBand(c.id))})">${cmpBandSvg(c.color, c.shade)}</span>`;
 }
-// What a curve measured, beside it in the legend. Start and end are its
-// earliest and latest points in x, whichever of its parts holds them.
-function cpKv(c, X) {
-  const parts = c.segs, first = parts[0] || [];
+// What a curve measured, beside it in the legend. Start and end (a
+// characterization's points, a trace's) are its earliest and latest points
+// in x, whichever of its parts holds them, of what is drawn of it (`can`,
+// cpChart): not a point a log axis leaves out. A curve's min, max, peak and
+// values at a point are of all its points, whatever the scale.
+function cpKv(c, X, can) {
+  const at = c.q.kind === 'pts' || c.q.kind === 'trace';
+  const parts = can && at ? c.segs.map(pts => pts.filter(p => can(c, p))).filter(pts => pts.length) : c.segs;
+  const first = parts[0] || [];
   const xl = x => (X.key === 'cyc' ? Math.round(x).toLocaleString('en-US') + ' cyc' : (Math.round(x * 10) / 10) + ' h');
   if (!first.length) return [];
   let a = first[0], z = first[0], n = 0;
@@ -11193,7 +11299,7 @@ function cpKv(c, X) {
   return [{ k: 'min', v: cpFmt(Math.min(...ys)) }, { k: 'max', v: cpFmt(Math.max(...ys)) }];
 }
 // Under the chart: what is not drawn, and why; a quantity with nothing added.
-function cpRenderNotes(X, A, all) {
+function cpRenderNotes(X, A, all, ch) {
   const notes = [], undrawn = new Map();
   all.forEach(c => {
     if (!c.why) return;
@@ -11203,6 +11309,9 @@ function cpRenderNotes(X, A, all) {
   });
   undrawn.forEach((whys, n) => notes.push(`<span class="warn">Not drawn against ${escapeHtml(X.lower)}: ${
     escapeHtml(n)} — ${escapeHtml([...whys].join('; '))}.</span>`));
+  // What each log axis leaves out (cpChart): points at or under 0, which it
+  // has no place for; x's first.
+  cpLostSorted(ch && ch.lost).forEach(([k, l]) => notes.push(escapeHtml(cpLostText(X, k, l))));
   const qa = CP_Q[X.fam].filter(q => A[q.id] && (!q.only || q.only === X.key));
   const bare = qa.filter(q => !all.some(c => c.q.id === q.id));
   if (bare.length && all.length) {
@@ -11212,6 +11321,37 @@ function cpRenderNotes(X, A, all) {
   const el = document.getElementById('cpChartNote');
   el.innerHTML = notes.map(n => `<span>${n}</span>`).join('');
   el.classList.toggle('show', notes.length > 0);
+}
+// What a log axis leaves out of the chart (cpChart's `lost`, by axis, x's
+// first): its points at or under 0, as plotted (a line is read thinned), and
+// the curves they are of. Said under the chart (cpRenderNotes) and in the
+// PNG's header line, shortly (cpExport). A curve with nothing drawn says
+// CP_BLANK.
+const cpLostSorted = lost => [...(lost || new Map())].sort(([a], [b]) => (b === 'x') - (a === 'x'));
+function cpLostText(X, k, l, short) {
+  const n = l.n, m = l.curves.size, side = k[0] === 'L' ? 'left' : 'right';
+  const pts = `${n.toLocaleString('en-US')} plotted point${n === 1 ? '' : 's'} at or under 0${
+    k === 'x' ? ' ' + X.unit : ''}`;
+  if (short) return `${k === 'x' ? 'log x' : `${side} log axis in ${k.slice(2)}`}: ${pts} left out`;
+  return `${k === 'x' ? 'The log x axis' : `The ${side} log axis in ${k.slice(2)}`} leaves out ${pts}, `
+    + `from ${m} curve${m === 1 ? '' : 's'}.`;
+}
+const CP_BLANK = 'every point is at or under 0, which a log axis has no place for';
+// An empty log chart's second line: the axis that left the points out, or
+// the log axes, to switch to Linear.
+function cpSwitchHint(lost) {
+  const ks = [...(lost || new Map()).keys()];
+  const name = k => (k === 'x' ? 'x' : `the ${k[0] === 'L' ? 'left' : 'right'} axis in ${k.slice(2)}`);
+  return `Switch ${ks.length === 1 ? name(ks[0]) : 'the log axes'} to Linear to draw them, or to export.`;
+}
+// The PNG's header bit for what the log axes left out: one axis's, named,
+// or all of them in one, so the line stays short.
+function cpLostBit(X, lost) {
+  const all = [...(lost || new Map())];
+  if (!all.length) return [];
+  if (all.length === 1) return [cpLostText(X, all[0][0], all[0][1], true)];
+  const n = all.reduce((m, [, l]) => m + l.n, 0);
+  return [`log axes: ${n.toLocaleString('en-US')} plotted point${n === 1 ? '' : 's'} at or under 0 left out`];
 }
 // ③ Add curves: the samples that store the quantities on the axes, against
 // this x, a chip for each series (dashed where a sample stores none of a
@@ -11391,6 +11531,10 @@ async function cpExport() {
   const all = cpCurves(X, A).filter(c => !CP.hidden[c.id]).sort((p, q) => p.sample - q.sample
     || (p.side === q.side ? 0 : p.side === 'L' ? -1 : 1) || p.shapeIx - q.shapeIx || p.si - q.si);
   const drawn = all.filter(c => !c.why && !c.loading && c.segs.length);
+  // As the chart was drawn (CP_CH): the curves it drew nothing of, and what
+  // each log axis left out.
+  const ch = CP_CH || {}, blank = ch.blank || new Set();
+  const shown = drawn.filter(c => !blank.has(c.id)).length;
   const AX = cpAxesOf(X.fam, X, A), sc = CP.scale[X.fam] || {};
   const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff';
   const rows = all.filter(c => !c.loading).map(c => ({
@@ -11398,14 +11542,22 @@ async function cpExport() {
     glyph: c.shape ? { shape: c.shape, fill: c.side === 'L' ? c.color : surface } : null,
     name: cmpNameOf(c.key, c.stored),
     note: `${c.q.name} · ${c.label}${c.sub ? ' — ' + c.sub : ''} · ${c.side === 'L' ? 'left' : 'right'}, ${c.q.unit}`
-      + (c.shade ? ' · high–low shaded' : '') + (c.why ? ` · not drawn: ${c.why}` : ''),
+      + (c.shade && !blank.has(c.id) ? ' · high–low shaded' : '') + (c.why ? ` · not drawn: ${c.why}`
+        : blank.has(c.id) ? ' · not drawn: at or under 0 on a log axis' : ''),
     kv: {} }));
   const axisText = side => AX[side].map((ax, i) => ({
     side: `${side === 'L' ? 'Left' : 'Right'} axis${AX[side].length > 1 ? ' ' + (i + 1) : ''}`,
     text: ax.qs.map(q => q.name).join(', ') + ` (${ax.unit}${sc[ax.key] === 'log' ? ', log' : ''})` }));
   const rng = CP.rng[X.key] || {};
-  const ranged = ['x0', 'x1'].some(k => String(rng[k] || '').trim())
-    || Object.values(rng.ax || {}).some(a => ['lo', 'hi'].some(f => String((a || {})[f] || '').trim()));
+  // A bound typed that the chart used: not one a log axis set aside, nor a
+  // minimum and maximum that crossed.
+  const used = (v, bad) => !!String(v || '').trim() && !bad;
+  const xs0 = ch.xs || {};
+  const ranged = used(rng.x0, xs0.loBad || xs0.crossed) || used(rng.x1, xs0.hiBad || xs0.crossed)
+    || Object.entries(rng.ax || {}).some(([k, a]) => {
+      const s = (ch.ys || {})[k] || {};
+      return used((a || {}).lo, s.loBad || s.crossed) || used((a || {}).hi, s.hiBad || s.crossed);
+    });
   const btn = document.getElementById('cmpExport');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   // The button's own label: what it says mid-export is not it.
@@ -11420,9 +11572,10 @@ async function cpExport() {
     try {
       savedPng = await cmpDownloadPng(png, {
         sel: '#cmpChart svg', title: `Custom plot — against ${X.lower}`, rows, nameCol: 'Sample',
-        bits: [`${drawn.length} curve${drawn.length === 1 ? '' : 's'}`,
+        bits: [`${shown} curve${shown === 1 ? '' : 's'}`,
                CP.layout === 'stack' && AX.L.length + AX.R.length > 1 ? 'stacked panels' : 'overlaid']
-          .concat(ranged ? ['ranges set'] : []) });
+          .concat(ranged ? ['ranges set'] : [])
+          .concat(cpLostBit(X, ch.lost)) });
     } catch (e) {
       console.error('custom plot PNG:', e);
     }
@@ -11430,7 +11583,7 @@ async function cpExport() {
     const r = await fetch('/api/view/custom-export', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        x: X.key, xtitle: X.title, title: `Custom plot against ${X.lower}`,
+        x: X.key, xtitle: X.title, xaxis: cpXTitle(X, cpXLog(X)), title: `Custom plot against ${X.lower}`,
         layout: CP.layout === 'stack' ? 'stacked panels' : 'overlaid',
         exported: new Date().toLocaleString(), axes: axisText('L').concat(axisText('R')),
         curves: drawn.map(c => ({
@@ -11465,7 +11618,8 @@ async function cpExport() {
   // Said under Add curves until the plot is changed (cpChanged), redraws and all.
   CP_SAVED = '<span>' + [
     savedPng ? `Chart saved as <b>${escapeHtml(png)}</b>.` : 'Could not save the chart image.',
-    savedXlsx ? `Every stored point of its ${drawn.length} curve${drawn.length === 1 ? '' : 's'} saved as <b>${escapeHtml(xlsx)}</b>.`
+    savedXlsx ? `Every stored point of its ${drawn.length} curve${drawn.length === 1 ? '' : 's'}${
+      drawn.length > shown ? ` (${drawn.length - shown} not drawn on a log axis)` : ''} saved as <b>${escapeHtml(xlsx)}</b>.`
       : `<span class="warn">Could not save its data: ${escapeHtml(why)}.</span>`].join(' ') + '</span> ';
   // Whichever type is shown now sets the button as it should be.
   cmpRender();
@@ -11515,16 +11669,27 @@ function cpRestore(s) {
   Object.entries(s.rng || {}).forEach(([xk, r]) => {
     if (!CP_X.some(x => x.key === xk) || !r || typeof r !== 'object') return;
     const o = {};
-    ['x0', 'x1', 'xs'].forEach(k => { if (str(r[k])) o[k] = r[k]; });
+    ['x0', 'x1', 'xs', 'xsl'].forEach(k => { if (str(r[k])) o[k] = r[k]; });
     if (r.ax && typeof r.ax === 'object') {
       o.ax = {};
       Object.entries(r.ax).forEach(([ak, v]) => {
         if (!v || typeof v !== 'object') return;
         o.ax[ak] = {};
-        ['lo', 'hi', 'st'].forEach(k => { if (str(v[k])) o.ax[ak][k] = v[k]; });
+        ['lo', 'hi', 'st', 'stl'].forEach(k => { if (str(v[k])) o.ax[ak][k] = v[k]; });
+        // Saved before an axis kept a spacing per scale: its one spacing was
+        // read on the scale the view has, in decades on a log axis.
+        const fam = (CP_X.find(x => x.key === xk) || {}).fam;
+        if (s.perScale !== true && !str(v.stl) && str(v.st) && (c.scale[fam] || {})[ak] === 'log') {
+          o.ax[ak].stl = v.st;
+          delete o.ax[ak].st;
+        }
       });
     }
     c.rng[xk] = o;
+  });
+  // x's scale, per x: 'lin' or 'log' (a view saved before it has none: linear).
+  Object.entries((s.xscale && typeof s.xscale === 'object') ? s.xscale : {}).forEach(([xk, v]) => {
+    if (CP_X.some(x => x.key === xk) && (v === 'log' || v === 'lin')) c.xscale[xk] = v;
   });
   const live = new Set(Object.values(c.curves).flat());
   Object.keys(s.hidden || {}).forEach(id => { if (live.has(id) && s.hidden[id]) c.hidden[id] = true; });
@@ -12924,6 +13089,14 @@ function cmpExportRows() {
 // the selector was not enough: the Trends export rendered the right chart and
 // then captioned it with the Comparisons legend, because the rows were read
 // straight from that tab's state.
+// A text's width in a CSS font (a canvas measures it), for laying out the PNG.
+let CMP_MEASURE = null;
+function cmpMeasure(t, font) {
+  if (!CMP_MEASURE) CMP_MEASURE = document.createElement('canvas').getContext('2d');
+  if (!CMP_MEASURE) return String(t).length * 6.5;
+  CMP_MEASURE.font = font;
+  return CMP_MEASURE.measureText(String(t)).width;
+}
 function cmpSvgToPng(scale, spec) {
   const sp = spec || {};
   const live = document.querySelector(sp.sel || '#cmpChart svg');
@@ -13008,24 +13181,6 @@ function cmpSvgToPng(scale, spec) {
     return kv[k] + (stood(c) !== c ? ' (stored)' : twin[c] && !twin[k] ? ' h' : '');
   };
 
-  const TOP = 34, ROW = 26, HEAD = rows.length ? 20 : 0;
-  const legH = rows.length ? HEAD + rows.length * ROW + 18 : 0;
-  const total = TOP + h + legH;
-  clone.setAttribute('height', total);
-  clone.setAttribute('viewBox', `0 0 ${w} ${total}`);
-  const shift = mk('g', { transform: `translate(0,${TOP})` });
-  while (clone.firstChild) shift.appendChild(clone.firstChild);
-  clone.appendChild(shift);
-  // Repaint the background over the taller canvas. The rect is a direct child
-  // of the root, so it is in untransformed coordinates — giving it y = -TOP
-  // to match the shifted group left the bottom TOP pixels unpainted, which
-  // came out as a white band across the last legend row.
-  const bgRect = shift.querySelector('rect');
-  if (bgRect) {
-    clone.insertBefore(mk('rect', { x: 0, y: 0, width: w, height: total,
-      fill: bgRect.getAttribute('fill') }), shift);
-  }
-
   const t = CMP_TYPES[CMP_TYPE] || {};
   let bits, heading;
   if (sp.title) {
@@ -13046,10 +13201,40 @@ function cmpSvgToPng(scale, spec) {
   }
   bits.push(new Date().toLocaleDateString(undefined,
     { day: 'numeric', month: 'short', year: 'numeric' }));
+  // The header's bits in as many lines as the image needs to hold them (a
+  // chart box made narrow, or many bits), the plot moved down under the last.
+  // The image has none of the page's web fonts: its text is drawn in Outfit
+  // only where that is installed, else in the generic sans, so a line is
+  // measured in both and the wider taken.
+  const wide = t => Math.max(cmpMeasure(t, "10.5px 'Outfit', sans-serif"), cmpMeasure(t, '10.5px sans-serif'));
+  const lines = [];
+  bits.forEach(b => {
+    const at = lines.length - 1;
+    if (at >= 0 && wide(lines[at] + ' · ' + b) <= w - 28) lines[at] += ' · ' + b;
+    else lines.push(b);
+  });
+  const TOP = 34 + 13 * Math.max(0, lines.length - 1), ROW = 26, HEAD = rows.length ? 20 : 0;
+  const legH = rows.length ? HEAD + rows.length * ROW + 18 : 0;
+  const total = TOP + h + legH;
+  clone.setAttribute('height', total);
+  clone.setAttribute('viewBox', `0 0 ${w} ${total}`);
+  const shift = mk('g', { transform: `translate(0,${TOP})` });
+  while (clone.firstChild) shift.appendChild(clone.firstChild);
+  clone.appendChild(shift);
+  // Repaint the background over the taller canvas. The rect is a direct child
+  // of the root, so it is in untransformed coordinates — giving it y = -TOP
+  // to match the shifted group left the bottom TOP pixels unpainted, which
+  // came out as a white band across the last legend row.
+  const bgRect = shift.querySelector('rect');
+  if (bgRect) {
+    clone.insertBefore(mk('rect', { x: 0, y: 0, width: w, height: total,
+      fill: bgRect.getAttribute('fill') }), shift);
+  }
+
   clone.appendChild(mk('text', { x: 14, y: 20, fill: ink,
     'font-family': sans, 'font-size': 13, 'font-weight': 500 }, heading));
-  clone.appendChild(mk('text', { x: 14, y: 33, fill: dim,
-    'font-family': sans, 'font-size': 10.5 }, bits.join(' · ')));
+  lines.forEach((l, i) => clone.appendChild(mk('text', { x: 14, y: 33 + 13 * i, fill: dim,
+    'font-family': sans, 'font-size': 10.5 }, l)));
 
   if (rows.length) {
     let y = TOP + h + 4;
