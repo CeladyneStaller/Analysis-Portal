@@ -1171,6 +1171,8 @@
   .cmp-chartwrap svg .cp-spine { font-size: 10px; }
   .cmp-chartwrap svg .cp-empty { fill: var(--text-dim); font-size: 13px; font-family: var(--font); }
   .cmp-chartwrap svg .cp-cross { stroke: var(--text-dim); stroke-width: 1; stroke-dasharray: 3 3; }
+  /* The custom plot's break in a log x axis, between its 0 column and its decades. */
+  .cmp-chartwrap svg .cp-brk { fill: var(--surface); stroke: none; }
   .cmp-readout .it { display: inline-flex; align-items: baseline; gap: 4px; }
   .cmp-readout .it + .it { margin-left: 10px; }
   .cmp-readout .k { color: var(--text-dim); font-size: 9.5px; }
@@ -9792,6 +9794,9 @@ const CP_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'tridown', 'plus']
 // at least CP_FLOOR_PLOT: with more axes than the box has room for, the box
 // widens to the chart (cpChart, cpFit).
 const CP_OFF = 58, CP_MAX_AX = 3, CP_MIN_PLOT = 600, CP_FLOOR_PLOT = 360;
+// A log hold time or RH cycles axis draws its points at 0 in a column this
+// wide, left of a break in the axis (cpChart).
+const CP_ZERO = 36;
 // The width the chart can take before the page scrolls sideways: the chart
 // panel's, less its padding (unknown while it is hidden).
 function cpRoom() {
@@ -10691,14 +10696,17 @@ function cpBandPath(pts, px, py) {
 // trace stored as many short parts (a hold each) is marked as one would be.
 // A quantity drawn as a bare line (cpBare, Hold OCV) has no markers; a
 // stretch of it of one point (a hold shorter than its plot bin), which draws
-// no line, is a dot, as on the Durability — OCV chart.
-function cpMarks(c, parts, b) {
+// no line, is a dot, as on the Durability — OCV chart. A stretch in a log x's
+// 0 column (at `zx`, cpChart) has no width to space markers along: it is
+// marked once, at its middle (a lone point there draws no line).
+function cpMarks(c, parts, b, zx) {
   if (!c.shape) {
     return parts.flatMap(pts => cpClip(pts, b)).filter(s => s.length === 1)
       .map(s => cpShapePath('circle', s[0][0], s[0][1], 2.8)).join('');
   }
-  const r = 4.2, out = [];
+  const r = 4.2, out = [], col = [];
   const inside = p => p && p[0] >= b.x0 - 0.5 && p[0] <= b.x1 + 0.5 && p[1] >= b.y0 - 0.5 && p[1] <= b.y1 + 0.5;
+  const inCol = st => zx != null && st.every(q => q[0] === zx);
   let rem = 14 + 28 * (c.sample % 3) + 9 * (c.si % 3);
   parts.forEach(pts => {
     if (c.q.kind === 'pts' || pts.filter(Boolean).length < 4) {
@@ -10706,6 +10714,7 @@ function cpMarks(c, parts, b) {
       return;
     }
     cpClip(pts, b).forEach(s => {
+      if (inCol(s)) { col.push(s[s.length >> 1]); return; }
       for (let i = 1; i < s.length; i++) {
         const dx = s[i][0] - s[i - 1][0], dy = s[i][1] - s[i - 1][1];
         const d = c.q.kind === 'trace' ? Math.abs(dx) : Math.hypot(dx, dy);
@@ -10723,9 +10732,10 @@ function cpMarks(c, parts, b) {
   // its own, or a hold at one x against RH cycles) would carry no marker, and
   // so no sign of its quantity: it is marked once, at its middle.
   if (!out.length && c.q.kind === 'trace') {
-    const held = parts.flatMap(pts => cpClip(pts, b)).flat();
+    const held = parts.flatMap(pts => cpClip(pts, b)).filter(st => !inCol(st)).flat();
     if (held.length) { const p = held[held.length >> 1]; out.push(cpShapePath(c.shape, p[0], p[1], r)); }
   }
+  col.forEach(p => out.push(cpShapePath(c.shape, p[0], p[1], r)));
   return out.join('');
 }
 // Text widths, for laying out the quantity names over the plot.
@@ -10822,6 +10832,16 @@ function cpChart(X, A, all) {
   // On a log x a point at or under 0 is not drawn (below), so the y axes'
   // ranges are taken from the points it can draw.
   const xlog = cpXLog(X);
+  // But on a log hold time or RH cycles axis, a point at 0 (a test's beginning
+  // of life, a hold before its RH cycling) is drawn in a column of its own,
+  // left of a break in the axis, under a 0 (`zero`, xs.zero, set below), where
+  // a curve drawn has one its y axis can draw. A minimum over 0 that the axis
+  // takes leaves the column out, as the axis then starts after it; one it sets
+  // aside (crossed with the maximum) does not. `colOk`: the column could be
+  // drawn, which a hidden curve's point at 0 is judged by. Current density and
+  // potential keep none: 0 there is a curve's OCV point, which a log axis is
+  // drawn to leave out.
+  let zero = false;
   const ext = (curves, k, log) => {
     let lo = Infinity, hi = -Infinity;
     const see = v => {
@@ -10829,7 +10849,7 @@ function cpChart(X, A, all) {
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     };
-    const off = p => k === 1 && xlog && !(p[0] > 0);
+    const off = p => k === 1 && xlog && !(p[0] > 0) && !(zero && p[0] === 0);
     curves.forEach(c => {
       c.segs.forEach(pts => pts.forEach(p => { if (!off(p)) see(p[k]); }));
       // A shaded high–low band reaches past its trace.
@@ -10840,10 +10860,19 @@ function cpChart(X, A, all) {
     return lo <= hi ? [lo, hi] : null;
   };
   // Against RH cycles, a hold before the cycling starts sits at 0: kept clear
-  // of the axis line (a log axis has no 0, and does not draw it).
+  // of the axis line (on a log axis, in the 0 column, or not drawn).
   const xPad = X.key === 'cyc' && !xlog ? 8 : 0;
   const xExt = ext(drawn, 0, xlog), x0 = cmpNum(rng.x0), x1 = cmpNum(rng.x1);
-  const xs = cmpPlace(cmpScale(xExt, x0, x1, cmpNum(xlog ? rng.xsl : rng.xs), xlog, 7), px0 + xPad, px1);
+  const xsc = cmpScale(xExt, x0, x1, cmpNum(xlog ? rng.xsl : rng.xs), xlog, 7);
+  const colOk = xlog && X.fam === 'dur' && !(x0 != null && x0 > 0 && !xsc.crossed);
+  zero = colOk && drawn.some(c => c.segs.some(pts => pts.some(p => p[0] === 0
+    && (sc[c.axKey] !== 'log' || p[1] > 0))));
+  const xStart = px0 + xPad + (zero ? CP_ZERO : 0);
+  const xs = cmpPlace(xsc, xStart, px1);
+  // Where the 0 column draws 0 (null with none), and where the axis starts.
+  xs.zero = zero ? px0 + 10 : null;
+  xs.start = xStart;
+  const xpx = v => (xs.zero != null && v === 0 ? xs.zero : xs.px(v));
   // An axis with nothing drawn on it, and no bounds typed (none it can take),
   // shows no ticks.
   xs.bare = !xExt && (x0 == null || !!xs.loBad) && (x1 == null || !!xs.hiBad);
@@ -10869,6 +10898,15 @@ function cpChart(X, A, all) {
     if (g) g.ticks.forEach(v => { const y = r1(g.px(v));
       grid += `<line class="grid" x1="${px0}" y1="${y}" x2="${px1}" y2="${y}"/>`; });
     axl += `<line class="axis" x1="${px0}" y1="${pn.y1}" x2="${px1}" y2="${pn.y1}"/>`;
+    // The 0 column: its grid line, and the axis broken between it and the
+    // decades.
+    if (xs.zero != null) {
+      const bx = (xs.zero + xs.start) / 2, y = pn.y1;
+      grid += `<line class="grid" x1="${r1(xs.zero)}" y1="${pn.y0}" x2="${r1(xs.zero)}" y2="${pn.y1}"/>`;
+      axl += `<rect class="cp-brk" x="${bx - 4}" y="${y - 3}" width="8" height="6"/>`
+        + `<path class="axis cp-brkmark" fill="none" d="M${bx - 5} ${y + 4}L${bx - 1} ${y - 4}M${bx + 1} ${y + 4}`
+        + `L${bx + 5} ${y - 4}"/>`;
+    }
     if (!pn.axes.length) axl += `<line class="axis" x1="${px0}" y1="${pn.y0}" x2="${px0}" y2="${pn.y1}"/>`;
     pn.axes.forEach(ax => {
       const s = ys[ax.key], left = ax.side === 'L';
@@ -10889,6 +10927,9 @@ function cpChart(X, A, all) {
       }
     });
     if (pn === lastPanel) {
+      if (xs.zero != null) {
+        ticks += `<text class="tick" x="${r1(xs.zero)}" y="${pn.y1 + 17}" text-anchor="middle">0</text>`;
+      }
       xs.ticks.forEach(v => { ticks += `<text class="tick" x="${r1(xs.px(v))}" y="${pn.y1 + 17}"`
         + ` text-anchor="middle">${cmpFmtTick(v, xs.step, xs.log)}</text>`; });
     }
@@ -10903,10 +10944,15 @@ function cpChart(X, A, all) {
       const s = ys[c.axKey];
       if (!c.shade || !s || s.panel !== pn) return;
       c.bands.forEach(band => {
-        const pts = (band || []).filter(p => (!s.log || (p[1] > 0 && p[2] > 0)) && (!xs.log || p[0] > 0));
-        if (!pts.length) return;
-        g += `<path class="band hl" d="${cpBandPath(pts, xs.px, s.px)}" fill="${c.color}"><title>${escapeHtml(
-          `${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label} · high–low of each bin`)}</title></path>`;
+        const ok = p => !s.log || (p[1] > 0 && p[2] > 0);
+        // A band's bins at 0 go in the 0 column, apart from the rest of it.
+        const at0 = xs.zero != null ? (band || []).filter(p => p[0] === 0 && ok(p)) : [];
+        const rest = (band || []).filter(p => ok(p) && (!xs.log || p[0] > 0));
+        [at0, rest].forEach(pts => {
+          if (!pts.length) return;
+          g += `<path class="band hl" d="${cpBandPath(pts, xpx, s.px)}" fill="${c.color}"><title>${escapeHtml(
+            `${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label} · high–low of each bin`)}</title></path>`;
+        });
       });
     });
     if (g) {
@@ -10920,8 +10966,12 @@ function cpChart(X, A, all) {
   // curves with none (their legend rows say so, cpRenderLegend).
   let lines = '', marks = '', seen = 0;
   const lost = new Map(), blank = new Set();
-  // A point a log axis can draw: over 0 on each log axis it is on.
-  const can = (c, p) => { const s = ys[c.axKey]; return !!s && (!xs.log || p[0] > 0) && (!s.log || p[1] > 0); };
+  // A point a log axis can draw: over 0 on each log axis it is on, or at 0
+  // where x has a 0 column, or could (a hidden curve's: shown, it brings one).
+  const can = (c, p) => {
+    const s = ys[c.axKey];
+    return !!s && (!xs.log || p[0] > 0 || (colOk && p[0] === 0)) && (!s.log || p[1] > 0);
+  };
   all.forEach(c => {
     if (!c.why && !c.loading && c.segs.length && !c.segs.some(pts => pts.some(p => can(c, p)))) blank.add(c.id);
   });
@@ -10936,12 +10986,21 @@ function cpChart(X, A, all) {
     if (!s) return;
     const b = { x0: px0, x1: px1, y0: s.panel.y0, y1: s.panel.y1 };
     let mine = 0;
-    const parts = c.segs.map(pts => pts.map(p => {
-      if (xs.log && !(p[0] > 0)) { lose('x', c); return null; }
-      if (s.log && !(p[1] > 0)) { lose(c.axKey, c); return null; }
-      mine += 1;
-      return [xs.px(p[0]), s.px(p[1])];
-    }));
+    const parts = c.segs.map(pts => {
+      const out = [];
+      let was = null;           // whether the last point drawn was in the 0 column
+      pts.forEach(p => {
+        const z = xs.zero != null && p[0] === 0;
+        if (!z && xs.log && !(p[0] > 0)) { lose('x', c); out.push(null); return; }
+        if (s.log && !(p[1] > 0)) { lose(c.axKey, c); out.push(null); return; }
+        // The 0 column is not joined to the decades: the line breaks there.
+        if (was !== null && was !== z) out.push(null);
+        was = z;
+        mine += 1;
+        out.push([z ? xs.zero : xs.px(p[0]), s.px(p[1])]);
+      });
+      return out;
+    });
     seen += mine;
     const d = cpPath(parts.flatMap(pts => cpClip(pts, b)));
     const title = `<title>${escapeHtml(`${cmpNameOf(c.key, c.stored)} · ${c.q.name} · ${c.label}`)}</title>`;
@@ -10949,12 +11008,14 @@ function cpChart(X, A, all) {
       lines += `<path class="ln" d="${d}" stroke="${c.color}"${c.dash ? ` stroke-dasharray="${c.dash}"` : ''}>`
         + `${title}</path>`;
     }
-    const m = cpMarks(c, parts, b);
+    const m = cpMarks(c, parts, b, xs.zero);
     if (m) {
       marks += `<path class="cp-mk" d="${m}" stroke="${c.color}"`
         + ` fill="${c.side === 'L' || !c.shape ? c.color : 'var(--surface)'}">${title}</path>`;
     }
   });
+  // With the 0 column, what x leaves out is under 0 (cpLostText).
+  if (lost.has('x')) lost.get('x').under = xs.zero != null;
   const names = list => list.map(ax => ax.qs.map(q => q.name).join(', ') + ' (' + ax.unit + ')').join('; ');
   const aria = 'Custom plot against ' + cpXTitle(X, xs.log) + (nL ? '; left: ' + names(AX.L) : '')
     + (nR ? '; right: ' + names(AX.R) : '');
@@ -11010,7 +11071,11 @@ function cpShowReadout(ev) {
   if (!r.width || !r.height) return;
   const px = (ev.clientX - r.left) * (ch.W / r.width), py = (ev.clientY - r.top) * (ch.H / r.height);
   if (px < ch.px0 || px > ch.px1 || py < ch.top || py > ch.bot) { cpHideReadout(); return; }
-  const items = [['x', (ch.xs.log ? cpFmtLog : cpFmt)(ch.xs.inv(px)), ch.X.unit]];
+  // Over the 0 column (up to the break), x reads 0; past it, with no decades
+  // (only points at 0 drawn), nothing; from the break to the first decade, it.
+  const xv = ch.xs.zero != null && px < (ch.xs.zero + ch.xs.start) / 2 ? 0 : ch.xs.bare ? null
+    : ch.xs.inv(ch.xs.zero != null ? Math.max(px, ch.xs.start) : px);
+  const items = [['x', xv == null ? '—' : (ch.xs.log ? cpFmtLog : cpFmt)(xv), xv == null ? '' : ch.X.unit]];
   ch.axes.forEach(ax => {
     const s = ch.ys[ax.key];
     if (!s || s.bare || (ch.stacked && (py < s.panel.y0 || py > s.panel.y1))) return;
@@ -11184,6 +11249,8 @@ function cpOptsHtml(X, ch) {
   const any = ['x0', 'x1', 'xs', 'xsl'].some(k => String(rg[k] || '').trim())
     || Object.values(rg.ax || {}).some(a => ['lo', 'hi', 'st', 'stl'].some(f => String((a || {})[f] || '').trim()));
   const xs = ch.xs, bad = !!xs.stepBad, log = cpXLog(X);
+  // A minimum of 0 typed with the 0 column on is the column's own start.
+  const zeroLo = xs.zero != null && cmpNum(rg.x0) === 0;
   const xseg = v => `<button type="button" class="${(v === 'log') === log ? 'on' : ''}" aria-pressed="${
     (v === 'log') === log}" onclick="cpSetXScale('${v}')">${v === 'log' ? 'Log' : 'Linear'}</button>`;
   const box = (k, ph, aria, title, extra) => `<input type="text" class="cmp-range${
@@ -11194,8 +11261,10 @@ function cpOptsHtml(X, ch) {
       seg('stack', 'Stacked panels')}</span></span>
     <span class="cmp-ranges"><span class="cmp-rlab">x</span>
       <span class="cp-seg" role="group" aria-label="Scale of the x axis">${xseg('lin')}${xseg('log')}</span>
-      ${box('x0', xs.bare ? 'min' : cmpFmtTick(xs.lo, xs.step, xs.log), 'x minimum',
-        xs.loBad ? CMP_LOG_BOUND : 'Blank follows the data', xs.loBad ? ' bad' : '')}
+      ${box('x0', xs.zero != null ? '0' : xs.bare ? 'min' : cmpFmtTick(xs.lo, xs.step, xs.log), 'x minimum',
+        zeroLo ? 'The 0 column draws 0; the decades follow the data'
+          : xs.loBad ? (xs.zero != null ? 'Nothing is drawn under 0: this bound is set aside' : CMP_LOG_BOUND)
+          : 'Blank follows the data', xs.loBad && !zeroLo ? ' bad' : '')}
       ${box('x1', xs.bare ? 'max' : cmpFmtTick(xs.hi, xs.step, xs.log), 'x maximum',
         xs.hiBad ? CMP_LOG_BOUND : 'Blank follows the data', xs.hiBad ? ' bad' : '')}
       <span class="cmp-rlab dim">tick step</span>
@@ -11330,8 +11399,8 @@ function cpRenderNotes(X, A, all, ch) {
 const cpLostSorted = lost => [...(lost || new Map())].sort(([a], [b]) => (b === 'x') - (a === 'x'));
 function cpLostText(X, k, l, short) {
   const n = l.n, m = l.curves.size, side = k[0] === 'L' ? 'left' : 'right';
-  const pts = `${n.toLocaleString('en-US')} plotted point${n === 1 ? '' : 's'} at or under 0${
-    k === 'x' ? ' ' + X.unit : ''}`;
+  const pts = `${n.toLocaleString('en-US')} plotted point${n === 1 ? '' : 's'} ${
+    k === 'x' && l.under ? 'under' : 'at or under'} 0${k === 'x' ? ' ' + X.unit : ''}`;
   if (short) return `${k === 'x' ? 'log x' : `${side} log axis in ${k.slice(2)}`}: ${pts} left out`;
   return `${k === 'x' ? 'The log x axis' : `The ${side} log axis in ${k.slice(2)}`} leaves out ${pts}, `
     + `from ${m} curve${m === 1 ? '' : 's'}.`;
