@@ -6388,13 +6388,19 @@ function cmpElxShown(analysis, kvRaw) {
 // RH cycles, a test that cycles RH says its lifetime in cycles.
 const CMP_CYC_METRIC = { 'Hours to death': 'RH cycles to death',
                          'Hours tested': 'RH cycles tested' };
-function cmpUnitMetrics(unit) {
+function cmpUnitMetrics(unit, key) {
   const want = CMP_METRICS[CMP_TYPE] || [];
   if (cmpWholeType(CMP_TYPE)) {
     const vals = unitValues({ Analysis: CMP_TYPES[CMP_TYPE].analysis, key_values: unit.kv });
     const pick = n => vals.find(([m]) => m === n);
-    return want.map(n => (cmpCycAxis() && pick(CMP_CYC_METRIC[n])) || pick(n)).filter(Boolean)
-      .map(([name, value, censored]) => ({ name, value, censored }));
+    // Smoothed, the OCV chart's loss and decay rate are its curve's, named
+    // for the width (cmpOcvMetrics); with the sample's key only.
+    const at = key != null ? cmpOcvMetrics(key, unit) : null;
+    return want.map(n => {
+      if (at && at[n]) return at[n];
+      const m = (cmpCycAxis() && pick(CMP_CYC_METRIC[n])) || pick(n);
+      return m && { name: m[0], value: m[1], censored: m[2] };
+    }).filter(Boolean);
   }
   // An electrolyzer unit's in its display units, which its row says.
   if (cmpElxType(CMP_TYPE)) return cmpElxShown(cmpAnalysisOf(CMP_TYPE), unit.kv);
@@ -7356,6 +7362,143 @@ function cmpBinHint(sm) {
 // "1 h bins (2 of 3 samples)" when the rest are stored coarser.
 const cmpSmoothedText = sm => `${cmpFmtHours(sm.w)} bins`
   + (sm.smoothed < sm.of ? ` (${sm.smoothed} of ${sm.of} samples)` : '');
+
+// ── OCV loss and decay rate at the smoothing width (Durability — OCV) ──
+// Stored, they are the script's (fc_durability_analysis): the loss from the
+// first hold's settled start (the median of its first 30 min judged) to the
+// last hold's settled end, at the first hold's conditions; the decay rate a
+// straight line through the 1-min medians of a rolling 10 h window, the
+// latest window at those conditions ending by the death. Smoothed, the chart
+// works both out again from the curve it draws (Corey, 4 Nov), at the first
+// hold's conditions: the loss from that curve's first point to its last, and
+// the rate the same rolling fit through its points, the window widened to
+// three bins where 10 h holds fewer (5 h and 10 h bins). A sample stored at
+// the width or coarser is drawn, so worked out, as stored, and named for its
+// stored spacing. Unsmoothed, and everywhere else (the index, Recall, Trends,
+// Export's workbook), the stored values stand.
+const CMP_OCV_RATE = { window_h: 10, step_h: 1, coverage: 0.8, min_pts: 3 };
+const CMP_OCV_AT = new WeakMap();    // groups -> Map("width|death" -> cmpOcvAtWidth)
+// The least-squares slope of points [x, y]; NaN when x does not vary.
+function cmpSlope(p) {
+  const n = p.length;
+  const mx = p.reduce((a, q) => a + q[0], 0) / n, my = p.reduce((a, q) => a + q[1], 0) / n;
+  let sxy = 0, sxx = 0;
+  p.forEach(([x, y]) => { sxy += (x - mx) * (y - my); sxx += (x - mx) * (x - mx); });
+  return sxx > 0 ? sxy / sxx : NaN;
+}
+// {width, loss (%), decay (μV/h), window: [start, end, length] (h)} of a test's
+// OCV curve as drawn at width w, its decay windows ending by `death` (h) when
+// it died; null with no curve. Loss or decay is null where the curve gives
+// none: a hold the store thinned (drawn, never measured), or no window with
+// three points over 80% of it.
+function cmpOcvAtWidth(sr, w, death) {
+  const groups = cmpPickSeries(sr);
+  if (!groups.length || !(w > 0)) return null;
+  const memo = CMP_OCV_AT.get(groups) || new Map();
+  CMP_OCV_AT.set(groups, memo);
+  const mk = w + '|' + death;
+  if (memo.has(mk)) return memo.get(mk);
+  const spacing = cmpGroupSpacing(groups);
+  // The bins the curve is drawn in: the width, or the stored spacing where
+  // that is as coarse (cmpRebin draws it as stored).
+  const width = isFinite(spacing) && !(spacing < w * (1 - 1e-9)) ? spacing : w;
+  const drawn = cmpDrawnParts(groups, w);
+  const byX = (p, q) => p[0] - q[0];
+  // Each hold is a part of the series of its conditions. In clock order, the
+  // first hold's series is the reference, as the script takes it.
+  const holds = [];
+  groups.forEach((g, gi) => g.parts.forEach((pts, j) => {
+    if (pts.length && drawn[gi][j].length) {
+      holds.push({ gi, thin: g.thin[j], stored: pts.slice().sort(byX), pts: drawn[gi][j].slice().sort(byX) });
+    }
+  }));
+  holds.sort((a, b) => a.stored[0][0] - b.stored[0][0]);
+  const ref = holds.filter(h => h.gi === (holds[0] || {}).gi);
+  let out = null;
+  // A hold the store thinned is drawn but never measured: with one at the
+  // reference conditions the stored values stand.
+  if (ref.length && !ref.some(h => h.thin)) {
+    out = { width, loss: null, decay: null, window: null, ended: false };
+    const first = ref[0], last = ref[ref.length - 1];
+    const v0 = first.pts[0][1], v1 = last.pts[last.pts.length - 1][1];
+    if (isFinite(v0) && isFinite(v1) && v0) out.loss = (v0 - v1) / v0 * 100;
+    const W = Math.max(CMP_OCV_RATE.window_h, 3 * width);
+    const cutoff = death != null ? death + 1e-9 : Infinity;
+    // How much of a window has data: its stored points at their spacing (a
+    // bin drawn from a few of them is not a full bin).
+    const per = isFinite(spacing) ? spacing : width;
+    ref.forEach(h => {
+      // The hold's span is its stored points'. Windows end every step from a
+      // window into it, and at its end, and never reach back past its start.
+      const H0 = h.stored[0][0], H1 = h.stored[h.stored.length - 1][0] + 1e-9;
+      const ends = [];
+      for (let e = H0 + W; e < H1 + 1e-9; e += CMP_OCV_RATE.step_h) ends.push(e);
+      if (!ends.length || H1 - ends[ends.length - 1] > 1e-6) ends.push(H1);
+      const pts = h.pts, st = h.stored;
+      let lo = 0, hi = 0, slo = 0, shi = 0;
+      ends.forEach(e => {
+        if (e > cutoff) return;
+        out.ended = true;
+        const a = Math.max(H0, e - W);
+        while (lo < pts.length && pts[lo][0] < a) lo++;
+        if (hi < lo) hi = lo;
+        while (hi < pts.length && pts[hi][0] < e) hi++;
+        while (slo < st.length && st[slo][0] < a) slo++;
+        if (shi < slo) shi = slo;
+        while (shi < st.length && st[shi][0] < e) shi++;
+        if (hi - lo < CMP_OCV_RATE.min_pts || (shi - slo) * per / (e - a) < CMP_OCV_RATE.coverage) return;
+        const s = cmpSlope(pts.slice(lo, hi));
+        if (isFinite(s)) { out.decay = -s * 1e6; out.window = [a, e, W]; }
+      });
+    });
+  }
+  memo.set(mk, out);
+  return out;
+}
+// A test's OCV loss and decay rate as the smoothed chart's legend and saved
+// image give them, by stored name: {name (the legend's, with the bins its
+// curve is drawn in), label (the image's column, with the chart's width),
+// value, title}, value null where the curve gives none. Null unless the OCV
+// chart is smoothed and the test is drawn, its curve read and measurable.
+function cmpOcvMetrics(key, unit) {
+  const w = cmpBinWidth();
+  if (CMP_TYPE !== 'fcdur_ocv' || !w || !unit) return null;
+  const sr = CMP_SERIES.get(cmpKey(key, CMP_TYPE + '::' + unit.step));
+  if (!sr || cmpUndrawn(key, sr)) return null;
+  const kv = unit.kv || {};
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
+  const death = num(kv['Hours to death']);
+  const r = cmpOcvAtWidth(sr, w, death);
+  if (!r) return null;
+  const at = `${cmpFmtHours(r.width)} bins`, chart = `${cmpFmtHours(w)} bins`;
+  const W = Math.max(CMP_OCV_RATE.window_h, 3 * r.width);
+  const h2 = x => fmtNum(Math.round(x * 100) / 100);
+  const was = (n, u) => (num(kv[n]) == null ? 'none' : fmtNum(kv[n]) + (u === '%' ? u : ' ' + u));
+  // The bins this test's curve is drawn in, where they are not the chart's.
+  const own = at !== chart ? cmpFmtHours(r.width) : '';
+  const dies = death != null ? `the death at ${fmtNum(death)} h` : '';
+  return {
+    'OCV loss': { name: `OCV loss · ${at}`, label: `OCV loss (${chart})`, own,
+      value: r.loss == null ? null : Math.round(r.loss * 1e3) / 1e3,
+      title: `%, from the curve drawn at ${at}: its first point to its last, at the first hold's `
+        + `conditions. Stored: ${was('OCV loss', '%')}, from the settled start and end (30-min medians).` },
+    'OCV decay rate': { name: `OCV decay rate · ${at}`, label: `OCV decay rate (${chart})`, own,
+      value: r.decay == null ? null : Math.round(r.decay * 10) / 10,
+      title: (r.window
+        ? `μV/h, a line through the curve's ${at} in its latest window (up to ${fmtNum(W)} h) at the `
+          + `first hold's conditions, ${h2(r.window[0])}–${h2(r.window[1])} h of hold time`
+          + (dies ? `, ending by ${dies}` : '') + '.'
+        : !r.ended
+        ? `μV/h: no window at the first hold's conditions ends by ${dies}.`
+        : `μV/h: no window (up to ${fmtNum(W)} h) at the first hold's conditions`
+          + (dies ? ` ending by ${dies}` : '') + ' holds three points of the curve and data over 80% of it.')
+        + ` Stored: ${was('OCV decay rate', 'μV/h')}, from 1-min medians in 10 h windows.` },
+  };
+}
+const cmpOcvText = m => (m.value == null ? '—' : fmtNum(m.value));
+// The image's cell: the value, and the test's own bins where its curve is not
+// drawn in the chart's (stored that coarse).
+const cmpOcvCell = m => cmpOcvText(m) + (m.own && m.value != null ? ` (${m.own})` : '');
 // The control is rebuilt with the chart, so it takes the focus back: arrow
 // keys then keep stepping through the widths.
 function cmpSetBin(v) {
@@ -8297,7 +8440,7 @@ function cmpRenderNow() {
         // as does an electrolyzer curve in place of its conditions; one drawn
         // says which cycle it is (cmpElxNote).
         const why = whole || elx ? cmpUndrawn(k, sr) : '';
-        const mets = cmpUnitMetrics(u);
+        const mets = cmpUnitMetrics(u, k);
         // A whole test draws several series, so its row is their legend.
         const head = whole
           ? `<span class="st">whole test</span>
@@ -8319,8 +8462,10 @@ function cmpRenderNow() {
                     : why ? `title="Not drawn: ${escapeAttr(CMP_UNDRAWN_WHY[why] || why)}"` : ''}>
           <span class="cmp-scol1">${head}</span>
           <span class="cmp-scol2">${mets.length
-            ? mets.map(m => `<span class="cmp-kv"><span class="k">${escapeHtml(m.name)}</span>`
-                + `<span class="v">${m.censored ? '≥ ' : ''}${escapeHtml(fmtNum(m.value))}</span>${
+            ? mets.map(m => `<span class="cmp-kv"${m.title ? ` title="${escapeAttr(m.title)}"` : ''}>`
+                + `<span class="k">${escapeHtml(m.name)}</span>`
+                + `<span class="v">${m.censored ? '≥ ' : ''}${m.value == null ? '—'
+                  : escapeHtml(fmtNum(m.value))}</span>${
                   m.unit ? `<span class="u">${escapeHtml(m.unit)}</span>` : ''}</span>`).join('')
             : '<span class="cmp-kv empty">—</span>'}</span>
           <span class="cmp-sacts">
@@ -8447,10 +8592,13 @@ function cmpRenderNow() {
         ? `Export saves this chart as drawn, and compares the stored plots it is drawn from
            server-side, with their readouts and workbook: each plot whole, every cycle and
            line it holds.`
-        : sm.smoothed
+        : (sm.smoothed
         ? `Smoothed here to ${escapeHtml(cmpSmoothedText(sm))}, and so is the chart image Export
            saves; its server-side comparison and workbook use the stored points.`
-        : 'Export renders the same comparison server-side, with its readouts and workbook.'));
+        : 'Export renders the same comparison server-side, with its readouts and workbook.')
+          + (CMP_TYPE === 'fcdur_ocv' && sm.w ? ` OCV loss and decay rate beside each test are taken
+           from its curve as drawn, at the first hold's conditions; the stored ones stand
+           everywhere else.` : '')));
 
   // Off with nothing drawn, and while an export is still saving, this type's
   // or the custom plot's. One curve is enough: it is exported alone.
@@ -12738,6 +12886,22 @@ function cmpExportRows() {
       Object.entries((unit && unit.kv) || {}).forEach(([k, v]) => {
         if (typeof v === 'number' && isFinite(v)) kv[canonMetric(k)] = fmtNum(v);
       });
+      // The OCV chart's image leads with each test's lifetime as its legend
+      // does: a live one's at least its hours tested (or RH cycles).
+      if (CMP_TYPE === 'fcdur_ocv' && unit) {
+        unitValues({ Analysis: 'fc_durability', key_values: unit.kv }).forEach(([m, v, censored]) => {
+          if (censored && !(m in kv)) kv[m] = '≥ ' + fmtNum(v);
+        });
+      }
+      // Smoothed, the OCV loss and decay rate as the legend gives them, in
+      // the stored ones' place.
+      const at = cmpOcvMetrics(u.key, unit);
+      if (at) {
+        const was = Object.entries(kv);
+        Object.keys(kv).forEach(n => { delete kv[n]; });
+        was.forEach(([n, v]) => { if (at[n]) kv[at[n].label] = cmpOcvCell(at[n]); else kv[n] = v; });
+        Object.values(at).forEach(m => { if (!(m.label in kv)) kv[m.label] = cmpOcvCell(m); });
+      }
     }
     // Drawn against RH cycles, a test that counts them is listed by them.
     if (cmpCycAxis()) {
@@ -12815,11 +12979,34 @@ function cmpSvgToPng(scale, spec) {
   // hours they stand in for would be.
   const twin = !sp.rows && cmpCycAxis()
     ? Object.fromEntries(Object.entries(CMP_CYC_METRIC).map(([h, c]) => [c, h])) : {};
-  present.sort((a, b) => {
-    const ia = order.indexOf(twin[a] || a), ib = order.indexOf(twin[b] || b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  // The OCV chart's columns are its legend's metrics first: the lifetime,
+  // the loss and the decay rate. Smoothed, the curve's loss and rate stand
+  // where the stored ones would (cmpOcvMetrics).
+  const first = !sp.rows && CMP_TYPE === 'fcdur_ocv' ? CMP_METRICS.fcdur_ocv : [];
+  const stood = k => { const m = /^(OCV loss|OCV decay rate) \(.+ bins\)$/.exec(k); return m ? m[1] : k; };
+  const base = k => twin[k] || stood(k);
+  const rank = k => {
+    const n = base(k), f = first.indexOf(n), i = order.indexOf(n);
+    return f >= 0 ? f : first.length + (i < 0 ? 99 : i);
+  };
+  present.sort((a, b) => rank(a) - rank(b));
+  // One column a metric. Keys standing for the same one share it (a count of
+  // RH cycles and the hours it stands for, the curve's loss or rate and the
+  // stored), headed by the cycles count or the curve's label where a row has
+  // it; a cell from a row with the other says so (cell).
+  const heads = new Map();                 // the metric -> its column's key
+  present.forEach(k => {
+    const b = base(k);
+    if (!heads.has(b) || (heads.get(b) === b && k !== b)) heads.set(b, k);
   });
-  const cols = present.slice(0, 3);
+  const cols = [...heads.values()].slice(0, 3);
+  const cell = (r, c) => {
+    const kv = r.kv || {}, v = kv[c];
+    if (v != null && v !== '') return v;
+    const k = Object.keys(kv).find(x => x !== c && base(x) === base(c) && kv[x] != null && kv[x] !== '');
+    if (k == null) return '—';
+    return kv[k] + (stood(c) !== c ? ' (stored)' : twin[c] && !twin[k] ? ' h' : '');
+  };
 
   const TOP = 34, ROW = 26, HEAD = rows.length ? 20 : 0;
   const legH = rows.length ? HEAD + rows.length * ROW + 18 : 0;
@@ -12902,7 +13089,7 @@ function cmpSvgToPng(scale, spec) {
       nm.appendChild(sp);
       clone.appendChild(nm);
       cols.forEach((c, i) => clone.appendChild(mk('text', { x: colX[i], y,
-        fill: ink, 'font-family': mono, 'font-size': 10 }, r.kv[c] || '—')));
+        fill: ink, 'font-family': mono, 'font-size': 10 }, cell(r, c))));
     });
   }
 
