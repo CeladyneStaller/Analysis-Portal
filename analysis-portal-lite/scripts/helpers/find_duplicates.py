@@ -36,7 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.helpers import dupdetect, jsonbin                    # noqa: E402
+from scripts.helpers import deaths, dupdetect, jsonbin            # noqa: E402
 from scripts.helpers.record import (                              # noqa: E402
     merge_detail_record, merge_index_entry, parse_run_date,
 )
@@ -340,6 +340,9 @@ for g in groups:
     merged_detail['sample_name'] = KEEP_NAME
     merged_entry['sample_name'] = KEEP_NAME
     merged_entry['bin_id'] = survivor_bin
+    # The sample's dismissals of false OCV deaths, judged against its newest
+    # analysis, as the admin panel's merge judges them.
+    deaths.judge_merged(merged_detail, merged_entry, survivor_bin)
 
     # Detail bin first: if the index write then fails, the bin holds merged
     # data and the index still describes the old layout, which is recoverable.

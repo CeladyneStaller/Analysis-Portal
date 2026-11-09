@@ -414,6 +414,25 @@ def _shades_band(item, n_axes):
     return any(_axis_bands(a)[0] for a in axes)
 
 
+def _ref_line_keys(items, n_axes):
+    """The labelled vertical lines a plot that keeps its lines' colours
+    (`ref_colors`) draws, one legend key per label: from its first n_axes
+    primary axes, of the first sample, which the reference lines come from."""
+    if not items or not items[0].get('ref_colors'):
+        return []
+    axes = [a for a in items[0]['sidecar'].get('data', {}).get('axes', [])
+            if not a.get('is_twin', False)][:n_axes]
+    out, seen = [], set()
+    for a in axes:
+        for vl in a.get('axvlines', []):
+            label = vl.get('label')
+            if not label or str(label).startswith('_') or not vl.get('color') or label in seen:
+                continue
+            seen.add(label)
+            out.append(vl)
+    return out
+
+
 def _draw_bands(ax, pairs, loose, scatters, color):
     """Shade an axis' bands, and draw their edges faintly over the shading,
     as the source plot does. Both go under everything else the redraw draws:
@@ -496,8 +515,11 @@ def render_overlay_comparison(items, save_path=None, title=None,
     n_samples = len(items)
     # A shaded band gets one key in the legend, after the samples.
     shaded = any(_shades_band(item, n_primary) for item in items)
-    n_entries = n_samples + (1 if shaded else 0)
-    max_label_len = max(len(item['label']) for item in items)
+    # A plot that keeps its lines' colours names its labelled lines too.
+    ref_keys = _ref_line_keys(items, n_primary)
+    n_entries = n_samples + (1 if shaded else 0) + len(ref_keys)
+    max_label_len = max([len(item['label']) for item in items]
+                        + [len(str(vl['label'])) for vl in ref_keys])
     if max_label_len > 30:
         ncol = 1
     elif max_label_len > 18:
@@ -672,9 +694,14 @@ def render_overlay_comparison(items, save_path=None, title=None,
                                        linestyle=hl.get('linestyle', '--'),
                                        linewidth=0.8, alpha=0.5)
                 for vl in s_ad.get('axvlines', []):
-                    ax_target.axvline(vl['x'], color='gray',
+                    # A plot whose vertical lines mean something by their
+                    # colour -- an FC Durability test's death, later deaths
+                    # and dismissed deaths -- keeps it (`ref_colors`).
+                    own = item.get('ref_colors') and vl.get('color')
+                    ax_target.axvline(vl['x'], color=tuple(vl['color']) if own else 'gray',
                                        linestyle=vl.get('linestyle', '--'),
-                                       linewidth=0.8, alpha=0.5)
+                                       linewidth=1.3 if own else 0.8,
+                                       alpha=0.9 if own else 0.5)
 
     # Apply axis labels/titles/scales from reference
     for ai, ax_target in enumerate(flat_axes):
@@ -746,9 +773,14 @@ def render_overlay_comparison(items, save_path=None, title=None,
         from matplotlib.patches import Patch
         legend_handles.append(Patch(facecolor='0.6', alpha=0.35, edgecolor='0.6',
                                     lw=0.4, label='high–low of each bin'))
+    for vl in ref_keys:
+        legend_handles.append(Line2D([0], [0], color=tuple(vl['color']),
+                                     linestyle=vl.get('linestyle', '--'), lw=1.3,
+                                     label=str(vl['label'])))
     n_samples = len(items)
     # Calculate columns: aim for at most 4 per row, fewer if names are long
-    max_label_len = max(len(item['label']) for item in items)
+    max_label_len = max([len(item['label']) for item in items]
+                        + [len(str(vl['label'])) for vl in ref_keys])
     if max_label_len > 30:
         ncol = 1
     elif max_label_len > 18:

@@ -29,6 +29,8 @@
     --amber-bg: rgba(251, 191, 36, 0.1);
     --red: #f87171;
     --red-bg: rgba(248, 113, 113, 0.1);
+    --orange: #fb923c;
+    --orange-bg: rgba(251, 146, 60, 0.1);
     /* Electrolyzer analyses: their letters, tags and cell tabs. */
     --elx: #2dd4bf;
     --elx-bg: rgba(45, 212, 191, 0.12);
@@ -59,6 +61,8 @@
       --amber-bg: rgba(183, 121, 31, 0.12);
       --red: #d13438;
       --red-bg: rgba(209, 52, 56, 0.10);
+      --orange: #a44a1a;
+      --orange-bg: rgba(192, 86, 33, 0.08);
       --elx: #0d9488;
       --elx-bg: rgba(13, 148, 136, 0.12);
       --elx-border: rgba(13, 148, 136, 0.30);
@@ -82,6 +86,8 @@
     --amber-bg: rgba(183, 121, 31, 0.12);
     --red: #d13438;
     --red-bg: rgba(209, 52, 56, 0.10);
+    --orange: #a44a1a;
+    --orange-bg: rgba(192, 86, 33, 0.08);
     --elx: #0d9488;
     --elx-bg: rgba(13, 148, 136, 0.12);
     --elx-border: rgba(13, 148, 136, 0.30);
@@ -727,6 +733,138 @@
     text-overflow: ellipsis; white-space: nowrap; }
 
   .adm-list { width: 100%; min-height: 120px; }
+
+  /* ── Admin › Deaths: dismissing a false OCV death ─────────── */
+  .adm-dd { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 16px;
+    align-items: start; }
+  .adm-dd-tests { border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; }
+  .adm-dd-testsbar { display: flex; flex-direction: column; gap: 7px; padding: 9px 10px;
+    background: var(--bg); border-bottom: 1px solid var(--border); }
+  .adm-dd-testsbar .adm-secthead { margin: 0; }
+  .adm-dd-testlist { max-height: 480px; overflow: auto; }
+  .adm-dd-test { display: flex; flex-direction: column; gap: 2px; width: 100%;
+    text-align: left; background: none; border: none; border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--border); color: var(--text); font-family: var(--font);
+    padding: 9px 10px 9px 9px; cursor: pointer; }
+  .adm-dd-test:last-child { border-bottom: none; }
+  .adm-dd-test:hover { background: var(--accent-glow); }
+  .adm-dd-test.on { border-left-color: var(--accent); background: var(--accent-glow); }
+  .adm-dd-test .nm { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+  .adm-dd-test .sub { font-size: 11.5px; color: var(--text-dim); }
+  .adm-dd-test .rv { font-size: 11.5px; color: var(--orange); font-weight: 600; }
+  .adm-dd-test.old { cursor: default; }
+  .adm-dd-test.old:hover { background: none; }
+  .adm-dd-oldhead { padding: 9px 10px 5px; font-size: 10.5px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-dim); border-top: 1px solid var(--border); }
+  .adm-dd-pad { padding: 10px; }
+  .adm-dd-main { min-width: 0; }
+  .adm-dd-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 10px; }
+  .adm-dd-head .nm { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+  .adm-dd-head .sub { font-size: 12px; color: var(--text-dim); }
+  /* The stored figure is tall (the decay panel under the OCV): its top is
+     what shows the deaths, the rest scrolls, and a click opens it whole. */
+  .adm-dd-plot { margin: 0 0 12px; border: 1px solid var(--border);
+    border-radius: var(--radius); max-height: 380px; overflow-y: auto;
+    background: var(--bg); font-size: 12px; text-align: center; }
+  .adm-dd-plot > span { display: block; padding: 34px 12px; }
+  .adm-dd-plot img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+  .adm-dd-events td { white-space: nowrap; }
+  .adm-dd-events tr.dd-death td { background: var(--red-bg); }
+  .adm-dd-events tr.dd-dis td { color: var(--text-dim); }
+  .adm-dd-events td.adm-dd-actcell { text-align: right; padding-top: 4px; padding-bottom: 4px; }
+  .adm-pill.dd-death { background: var(--red); color: var(--surface); font-family: var(--font);
+    font-weight: 600; }
+  .adm-pill.dd-later { background: none; border: 1px solid var(--red); color: var(--red);
+    font-family: var(--font); }
+  .adm-pill.dd-dis { background: none; border: 1px dashed var(--text-dim);
+    color: var(--text-dim); font-family: var(--font); }
+  .adm-dd-btn { background: var(--surface-raised); border: 1px solid var(--border);
+    color: var(--text); border-radius: var(--radius); padding: 5px 10px;
+    font-family: var(--font); font-size: 12px; cursor: pointer; min-height: 30px; }
+  .adm-dd-btn:hover { border-color: var(--accent); }
+  .adm-dd-btn.warn { border-color: var(--amber); }
+  .adm-dd-btn.bad { color: var(--red); }
+  .adm-dd-btn.on { border-color: var(--amber); background: var(--amber-bg); }
+  .adm-dd-wait { border: 1px solid var(--orange); background: var(--orange-bg);
+    border-radius: var(--radius); padding: 10px 13px; margin-bottom: 12px; font-size: 12.5px;
+    line-height: 1.5; display: flex; flex-direction: column; gap: 7px; }
+  .adm-dd-wait.kept { border-color: var(--border); background: var(--bg); }
+  .adm-dd-acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .adm-dd-move { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .adm-dd-move select { min-height: 30px; }
+  .adm-dd-actgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px; margin-top: 12px; }
+  .adm-dd-form { margin: 0; min-width: 0; border: 1px solid var(--amber);
+    background: var(--amber-bg); border-radius: var(--radius); padding: 10px 13px 12px;
+    display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; line-height: 1.5; }
+  .adm-dd-form legend { font-size: 12.5px; font-weight: 600; padding: 0 5px; }
+  .adm-dd-form.plain { border-color: var(--border); background: var(--bg); }
+  .adm-dd-formhead { font-weight: 600; }
+  .adm-dd-why { display: flex; flex-direction: column; gap: 5px; }
+  .adm-dd-why label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .adm-dd-note { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px;
+    color: var(--text-dim); }
+  .adm-body textarea { background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); font-family: var(--font);
+    font-size: 13px; padding: 7px 9px; resize: vertical; min-height: 54px; }
+  .adm-body textarea:focus { outline: none; border-color: var(--accent); }
+  .adm-dd-change { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 13px 12px; }
+  .adm-dd-changehead { font-size: 12.5px; font-weight: 600; margin-bottom: 8px; }
+  .adm-dd-changegrid { display: grid; grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px 12px; font-size: 12.5px; line-height: 1.45; align-items: baseline; }
+  .adm-dd-changegrid .k { color: var(--text-dim); }
+  .adm-dd-good { color: var(--green); }
+  .adm-dd-bad { color: var(--red); }
+  .adm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; }
+  .btn-warn { color: var(--amber); border-color: var(--amber); }
+  .btn-warn:hover:not(:disabled) { color: var(--amber); border-color: var(--amber); }
+  @media (max-width: 760px) {
+    .adm-dd, .adm-dd-actgrid { grid-template-columns: minmax(0, 1fr); }
+    .adm-dd-testlist { max-height: 220px; }
+  }
+
+  /* ── Recall: OCV deaths an admin dismissed ────────────────── */
+  .rd-deaths { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .rd-dd { display: flex; gap: 11px; align-items: flex-start; flex-wrap: wrap;
+    border: 1px solid var(--amber); background: var(--amber-bg); border-radius: var(--radius);
+    padding: 11px 13px; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+  .rd-dd.rv { border-color: var(--orange); background: var(--orange-bg); }
+  .rd-dd.kept { border-color: var(--border); background: var(--surface-raised); }
+  .rd-dd .ic { flex-shrink: 0; margin-top: 1px; color: var(--amber); }
+  .rd-dd.rv .ic { color: var(--orange); }
+  .rd-dd.kept .ic { color: var(--text-dim); }
+  .rd-dd-text { display: flex; flex-direction: column; gap: 4px; flex: 1 1 320px; min-width: 0; }
+  .rd-dd-by { font-size: 12px; }
+  .rd-dd-kept { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+  .rd-dd-kept svg { flex-shrink: 0; color: var(--green); }
+  .rd-dd-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
+  .rd-dd .rd-tool-btn { color: var(--text); min-height: 32px; }
+  .rd-dd .rd-tool-btn.warn { border-color: var(--amber); background: var(--amber-bg); }
+  .rd-dd .rd-tool-btn.bad { color: var(--red); }
+  .rd-dd-hist { border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; background: var(--surface); }
+  .rd-dd-histhead { font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-dim); font-weight: 500; margin-bottom: 6px; }
+  .rd-dd-histwrap { max-height: 280px; overflow: auto; }
+  .rd-dd-hist table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .rd-dd-hist th { text-align: left; font-weight: 500; font-size: 11px; color: var(--text-dim);
+    padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  .rd-dd-hist td { padding: 6px 8px; border-bottom: 1px solid var(--border);
+    vertical-align: top; }
+  .rd-dd-hist tr:last-child td { border-bottom: none; }
+  .rd-dd-hist td.mono { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+  .rd-dd-hist tr.ok td { background: var(--green-bg); }
+  .rd-dd-hist tr.rv td { background: var(--orange-bg); }
+  .rd-dd-badge { display: inline-block; border: 1px solid; border-radius: 99px;
+    padding: 0 8px; margin-left: 7px; font-size: 10.5px; font-weight: 600; color: var(--text);
+    white-space: nowrap; }
+  .rd-dd-badge.ok { border-color: var(--green); }
+  .rd-dd-badge.rv { border-color: var(--orange); }
+  .rd-dd-foot { margin: 7px 0 0; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
 
   .cmp-types { display: flex; gap: 6px; padding: 11px 18px;
     border-bottom: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
@@ -4810,6 +4948,10 @@ function renderRunDetail(detail, key) {
                    onclick="downloadXlsx('${escapeAttr(jobId)}')">
              ⭳ Download xlsx — whole sample</button>`;
   html += `</div>`;
+  // An FC Durability test's dismissed OCV deaths, and any waiting for an admin.
+  if ((!only || anaOf(only) === 'fc_durability') && fam !== 'elx') {
+    html += rdDeathsBlock(detail, jobId);
+  }
 
   rdSectionOrder(Object.keys(byBucket)).forEach(bucket => {
     const bucketPlots = byBucket[bucket];
@@ -4869,6 +5011,218 @@ function renderRunDetail(detail, key) {
 
   html += '</div>';
   return html;
+}
+
+// ── OCV deaths an admin dismissed (deaths.py) ──────────────────────────────
+// At the top of an FC Durability test's run detail: a banner for each
+// dismissal of a false OCV death -- applied; not applied, a rerun having
+// found no death for it, so waiting for an admin; or kept on file -- and the
+// test's death history. Their buttons open Admin › Deaths on the test with
+// that action chosen, behind the access code like any admin change.
+const DD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DD_WARN = `<svg class="ic" width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+  <path d="M10 2 L18.5 17 H1.5 Z" fill="none" stroke="currentColor" stroke-width="1.6"
+        stroke-linejoin="round"/><path d="M10 8 V12" stroke="currentColor" stroke-width="1.6"
+        stroke-linecap="round"/><circle cx="10" cy="14.6" r="1" fill="currentColor"/></svg>`;
+const DD_INFO = `<svg class="ic" width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+  <path d="M10 5.5 V10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="10" cy="13.8" r="1" fill="currentColor"/></svg>`;
+const DD_CHECK = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+  <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8"
+        stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function ddH(x) {
+  return x == null || !isFinite(x) ? '—' : `${Number(x).toFixed(2)} h`;
+}
+function ddMin(m) {
+  if (m == null || !isFinite(m)) return '—';
+  return m < 1 ? `${Math.round(m * 60)} s` : `${Math.round(m)} min`;
+}
+function ddWin(w) {
+  return Array.isArray(w) && w.length === 2
+    ? `${+Number(w[0]).toFixed(2)}–${+Number(w[1]).toFixed(2)} h` : '—';
+}
+function ddCap(s) {
+  s = String(s || '');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+// Stored times are UTC, shown as stored (as fmtTimestamp does): '6 Nov 2026,
+// 11:52'; 'day': '6 Nov 2026'.
+function ddWhen(at, how) {
+  const m = String(at || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/);
+  if (!m || !DD_MON[+m[2] - 1]) return '';
+  const day = `${+m[3]} ${DD_MON[+m[2] - 1]} ${m[1]}`;
+  return how === 'day' || !m[4] ? day : `${day}, ${m[4]}`;
+}
+// How far a dismissal is from a death: in its step file by the time into the
+// file where both are known, which an earlier folder added leaves as it was;
+// otherwise by the clock.
+function ddGap(x, n) {
+  const a = !n.other_file && x.offset_h != null && n.offset_h != null ? [x.offset_h, n.offset_h]
+    : [x.start_h, n.start_h];
+  if (a[0] == null || a[1] == null) return '';
+  const min = Math.abs(a[1] - a[0]) * 60;
+  return min < 60 ? `${Math.round(min)} min` : `${(min / 60).toFixed(2)} h`;
+}
+const ddAnalyses = v => (v.history || []).filter(h => h.what === 'analysed').length;
+// A dismissal the analysis found no death for: what it says, and of the
+// death nearest to it in its step file.
+function ddUnmatched(x, v) {
+  const day = ddWhen(v.analysed_at, 'day');
+  const head = `the death dismissed at ${ddH(x.start_h)}${x.hold_label ? ' in ' + x.hold_label : ''}`
+    + ` wasn't found in the ${ddAnalyses(v) > 1 ? 're-analysis' : 'analysis'}`
+    + `${day ? ' of ' + day : ''}.`;
+  const n = x.nearest;
+  const within = v.match_min != null ? ` (a rerun takes one within ${+v.match_min} min)` : '';
+  let body;
+  if (n && n.other_file) {
+    const gap = ddGap(x, n);
+    body = `No death left in that analysis starts in ${x.step || 'its step'}, where the dismissed `
+      + `one did. The nearest on the clock starts at ${ddH(n.start_h)}, in ${n.where || n.step}`
+      + `${gap ? ', ' + gap + ' from it' : ''}.`;
+  } else if (n) {
+    const gap = ddGap(x, n);
+    body = `The nearest death in ${n.where || x.step || 'its step'} starts at ${ddH(n.start_h)}`
+      + `${gap ? ', ' + gap + ' from the dismissed one' : ''}:`
+      + ` too far to be taken for it without an admin${within}.`;
+  } else {
+    body = `No death left in that analysis can take it.`;
+  }
+  return { head, body };
+}
+function ddDismissedBy(x) {
+  const note = String(x.note || '').trim();
+  return `Dismissed ${ddWhen(x.at) || '(no date)'}, by ${x.by || 'admin'}: `
+    + `${x.reason_text || x.reason || 'other'}.` + (note ? ` “${note}”` : '');
+}
+
+function rdDeathsBlock(detail, key) {
+  const v = detail && detail.ocv_death_view;
+  if (!v) return '';
+  const dis = v.dismissals || [];
+  if (!dis.length && !(v.history || []).some(h => h.what !== 'analysed')) return '';
+  const rank = { review: 0, applied: 1, kept: 2 };
+  const banners = dis.slice().sort((a, b) => (rank[a.status] || 0) - (rank[b.status] || 0))
+    .map(d => d.status === 'applied' ? rdDeathApplied(d, v, key) : rdDeathWaiting(d, v, key))
+    .join('');
+  return `<div class="rd-deaths">${banners}${rdDeathHistory(v)}</div>`;
+}
+
+function rdDeathBtn(key, d, act, text, cls, event) {
+  return `<button type="button" class="rd-tool-btn${cls ? ' ' + cls : ''}"
+    data-key="${escapeAttr(key)}" data-act="${act}" data-id="${escapeAttr(d.id || '')}"
+    ${event != null ? `data-event="${Number(event)}"` : ''} onclick="rdDeathAct(this)"
+    title="Admin: opens Admin › Deaths on this test">${escapeHtml(text)}</button>`;
+}
+function rdDeathAct(btn) {
+  const b = btn.dataset;
+  admDeathsOpen(b.key, { action: b.act, id: b.id || null,
+                         event: b.event != null && b.event !== '' ? Number(b.event) : undefined });
+}
+
+function rdDeathApplied(d, v, key) {
+  const ev = d.event || {};
+  const at = ev.start_h != null ? ev.start_h : d.start_h;
+  const later = v.death_h != null && at > v.death_h;
+  const now = d.kept_through ? 'is' : 'is now';
+  const head = `${later ? 'Later OCV death' : 'OCV death'} at ${ddH(at)} dismissed: `
+    + `${d.reason_text || d.reason || 'other'}.`;
+  const then = later ? `The time of death stays at ${ddH(v.hours)}.`
+    : v.death_h != null && v.cause !== 'crossover'
+      ? `The time of death ${now} ${ddH(v.death_h)}, the next death the rule found.`
+    : v.death_h != null
+      ? `The OCV death ${now} ${ddH(v.death_h)}, the next one the rule found; the time of `
+        + `death is the crossover death's, ${ddH(v.hours)}.`
+    : v.dead ? `No OCV death follows it; the time of death is the crossover death's, ${ddH(v.hours)}.`
+    : `No OCV death follows it: the sample is alive at ${ddH(v.hours)}, its hours tested.`;
+  const kept = d.kept_through ? `<span class="rd-dd-kept">${DD_CHECK}<span>Kept through the
+      re-analysis of ${escapeHtml(ddWhen(v.analysed_at, 'day'))}: the death was found again
+      ${ev.where ? 'in ' + escapeHtml(ev.where) + ' ' : ''}at ${ddH(at)}.</span></span>` : '';
+  const note = String(d.note || '').trim();
+  return `<div class="rd-dd">${DD_WARN}
+    <div class="rd-dd-text">
+      <span><strong>${escapeHtml(head)}</strong> ${escapeHtml(then)}</span>
+      ${kept}
+      <span class="rd-dd-by">${note ? escapeHtml(`“${note}” `) : ''}${escapeHtml(ddCap(d.by || 'admin'))},
+        ${escapeHtml(ddWhen(d.at) || 'no date')}.</span>
+    </div>
+    ${rdDeathBtn(key, d, 'restore', 'Restore the death')}
+  </div>`;
+}
+
+// Not applied: waiting for an admin (review), or kept on file.
+function rdDeathWaiting(d, v, key) {
+  const kept = d.status === 'kept';
+  const n = d.nearest, nev = n ? (v.events || [])[n.i] : null;
+  const move = nev && nev.status !== 'dismissed';
+  const t = ddUnmatched(d, v);
+  return `<div class="rd-dd ${kept ? 'kept' : 'rv'}">${DD_INFO}
+    <div class="rd-dd-text">
+      <span><strong>${kept ? 'Dismissal kept on file, not applied:' : 'Dismissal not applied:'}
+        ${escapeHtml(t.head)}</strong></span>
+      <span>${escapeHtml(t.body)}</span>
+      <span class="rd-dd-by">${escapeHtml(ddDismissedBy(d))}</span>
+      <div class="rd-dd-acts">
+        ${move ? rdDeathBtn(key, d, 'move', `Dismiss the death at ${ddH(nev.start_h)} instead`,
+                            'warn', nev.i) : ''}
+        ${kept ? '' : rdDeathBtn(key, d, 'keep', 'Keep on file')}
+        ${rdDeathBtn(key, d, 'remove', 'Remove the dismissal', 'bad')}
+      </div>
+      ${kept ? '' : `<span class="rd-dd-by">${move ? `Dismissing the death at
+        ${ddH(nev.start_h)} carries the reason and note over. ` : ''}Kept on file, the
+        dismissal stays unapplied and applies again if a later analysis finds the death at
+        ${ddH(d.start_h)}.</span>`}
+    </div>
+  </div>`;
+}
+
+function rdDeathHistory(v) {
+  const hist = v.history || [];
+  if (!hist.length) return '';
+  const rows = hist.map(h => {
+    const an = h.what === 'analysed';
+    const badges = !an ? ''
+      : (h.review ? '<span class="rd-dd-badge rv">To review</span>' : '')
+        + (h.applied ? `<span class="rd-dd-badge ok">${h.applied > 1
+            ? h.applied + ' dismissals kept' : 'Dismissal kept'}</span>` : '');
+    return `<tr class="${an && h.review ? 'rv' : an && h.applied ? 'ok' : ''}">
+      <td class="mono">${escapeHtml(ddWhen(h.at) || '—')}</td>
+      <td>${escapeHtml(h.text || '')}${badges}</td>
+      <td class="mono">${h.death_h == null ? 'none' : ddH(h.death_h)}</td></tr>`;
+  }).join('');
+  return `<div class="rd-dd-hist">
+    <div class="rd-dd-histhead">Death history</div>
+    <div class="rd-dd-histwrap"><table>
+      <thead><tr><th scope="col">When</th><th scope="col">What happened</th>
+        <th scope="col">OCV death</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="rd-dd-foot">Dismissals stay with the sample. Each rerun applies them again to the
+      deaths it finds in the same step file, within ${v.match_min != null ? +v.match_min : 10} min
+      of the dismissed ones. One it can't match is flagged for an admin, never moved to another
+      death.</p></div>`;
+}
+
+// After an admin change to a test's deaths, its run detail, if open, is read
+// again with its sections as they were.
+async function rdReopenDetail(key) {
+  const dr = document.querySelector(`tr.detail-row[data-job="${cssEscape(key)}"]`);
+  if (!dr || _openDetailJob !== key) return;
+  const buckets = [...dr.querySelectorAll('.rd-analysis.open')].map(s => s.dataset.bucket);
+  const cells = rdCellState(dr);
+  dr.remove();
+  _openDetailJob = null;
+  await openRunDetail(key);
+  const nd = document.querySelector(`tr.detail-row[data-job="${cssEscape(key)}"]`);
+  if (!nd) return;
+  rdRestoreCellState(nd, cells);
+  if (buckets.length) {
+    nd.querySelectorAll('.rd-analysis').forEach(s =>
+      s.classList.toggle('open', buckets.includes(s.dataset.bucket)));
+    const btn = nd.querySelector(`.rd-tool-btn[data-job="${cssEscape(key)}"]`);
+    if (btn) btn.textContent = 'Collapse all';
+    hydrateThumbs(key);
+  }
 }
 
 // Fuel-cell sections keep the alphabetical order they always had; electrolyzer
@@ -13520,6 +13874,12 @@ function adminOpenGate() {
   setTimeout(() => document.getElementById('admCode').focus(), 40);
 }
 function adminClose() {
+  // A Deaths change asked for from Recall and never opened (the code prompt
+  // cancelled) is dropped, and the pane shown before comes back.
+  if (ADM_DD_WANT) {
+    if (ADM_DD_WANT.from != null) ADM_PANE = ADM_DD_WANT.from;
+    ADM_DD_WANT = null;
+  }
   document.querySelectorAll('.adm-veil').forEach(v => v.classList.remove('show'));
 }
 async function adminUnlock() {
@@ -13556,16 +13916,18 @@ function admPane(i, btn) {
   ADM_STATE = { pane: i };
   const apply = document.getElementById('admApply');
   apply.className = 'btn ' + (i === 3 ? 'btn-danger' : 'btn-go');
-  apply.textContent = ['Merge group', 'Rename', 'Set stand', 'Unlist', 'Rebuild'][i];
+  apply.textContent = ['Merge group', 'Rename', 'Set stand', 'Unlist', 'Rebuild',
+                       'Dismiss death'][i];
   apply.disabled = true;
   document.getElementById('admFoot').textContent = [
     'Merging is one group at a time.',
     'Writes the index and the detail record together.',
     'Writes the index and the detail record together.',
     'Restore and remove are applied separately.',
-    'Rewrites the records it re-files, then the index once.'][i];
+    'Rewrites the records it re-files, then the index once.',
+    'Writes the index and the detail record together. Restore puts a death back.'][i];
   [admPaneDuplicates, admPaneRename, admPaneStand, admPaneAddDelete,
-   admPaneRebuild][i]();
+   admPaneRebuild, admPaneDeaths][i]();
 }
 
 const admOpts = (list, sel) => list.map(v =>
@@ -14380,12 +14742,482 @@ function admRebuildDone(res, saved) {
 }
 
 // ── apply and backup ────────────────────────────────────────────
+// ── deaths: dismissing a false OCV death ────────────────────────
+//
+// An OCV death the cell did not cause (a gas supply that ran out, a station
+// fault) is dismissed here: the next death the rule found counts, or the
+// sample is alive. Nothing is deleted, and a dismissal can be restored. It
+// stays with the sample through reruns (deaths.py); one a rerun can't match
+// waits here, to be moved to another death, kept on file or removed.
+// Recall's banners open this pane on their test with the action they offer
+// chosen (admDeathsOpen).
+let ADM_DD_WANT = null;     // {key, action, id, event, from}: what Recall asked for
+const ADM_DD_ACTIONS = {
+  dismiss: { label: 'Dismiss death', cls: 'btn-warn' },
+  restore: { label: 'Restore death', cls: 'btn-go' },
+  move: { label: 'Dismiss this death instead', cls: 'btn-warn' },
+  keep: { label: 'Keep on file', cls: 'btn-go' },
+  remove: { label: 'Remove dismissal', cls: 'btn-danger' },
+};
+
+function admDeathsOpen(key, want) {
+  // `from`: the pane to come back to if the code prompt is cancelled (adminClose).
+  ADM_DD_WANT = Object.assign({ key, from: ADM_PANE }, want || {});
+  ADM_PANE = 5;
+  adminOpenGate();
+}
+
+function admPaneDeaths() {
+  const want = ADM_DD_WANT;
+  ADM_DD_WANT = null;
+  ADM_STATE.dd = { key: (want && want.key) || null, want, tests: null, older: [],
+                   reasons: [], filter: '', detail: null, act: null, seq: 0 };
+  document.getElementById('admBody').innerHTML = `
+    <p class="adm-lede">Dismiss an OCV death the cell did not cause, such as a gas
+      supply that ran out or a station fault. The time of death moves to the next
+      death the rule found, or the sample is alive. Nothing is deleted: the death
+      stays on its plot, marked dismissed, and can be restored.</p>
+    <div class="adm-dd">
+      <div class="adm-dd-tests">
+        <div class="adm-dd-testsbar">
+          <span class="adm-secthead">Tests with an OCV death</span>
+          <input type="text" class="adm-picksearch" id="admDdFilter" placeholder="Filter tests…"
+                 aria-label="Filter tests" oninput="admDdFilter(this.value)">
+        </div>
+        <div class="adm-dd-testlist" id="admDdTests"><div class="adm-empty">Loading…</div></div>
+      </div>
+      <div class="adm-dd-main" id="admDdMain"></div>
+    </div>`;
+  admDdSetApply();
+  admDdLoad();
+}
+
+async function admDdLoad() {
+  const st = ADM_STATE.dd;
+  try {
+    const d = await adminPost('deaths', {});
+    if (ADM_STATE.dd !== st) return;
+    st.tests = d.tests || [];
+    st.older = d.older || [];
+    st.reasons = d.reasons || [];
+    admDdRenderTests();
+    const key = st.key || (st.tests[0] || {}).key;
+    if (key) admDdOpen(key, st.want);
+    else document.getElementById('admDdMain').innerHTML =
+      '<div class="adm-empty">No stored FC Durability test has an OCV death.</div>';
+  } catch (e) {
+    if (ADM_STATE.dd !== st) return;
+    document.getElementById('admDdTests').innerHTML =
+      `<p class="adm-note bad adm-dd-pad">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function admDdFilter(q) {
+  ADM_STATE.dd.filter = q;
+  admDdRenderTests();
+}
+
+// 'Dead at 5.50 h · 2 deaths found', 'Alive · 1 death found · 1 dismissed'
+function admDdTestSub(t) {
+  const dead = t.hours_to_death != null;
+  let s = dead ? `Dead at ${ddH(t.hours_to_death)}` : 'Alive';
+  if (dead && t.trigger === 'station' && t.death_h != null
+      && Math.abs(t.death_h - t.hours_to_death) < 0.005) s += ', station limit';
+  if (t.found) s += ` · ${t.found} death${t.found === 1 ? '' : 's'} found`;
+  if (t.dismissed) s += ` · ${t.dismissed} dismissed`;
+  return s;
+}
+
+function admDdRenderTests() {
+  const st = ADM_STATE.dd, host = document.getElementById('admDdTests');
+  if (!host || !st.tests) return;
+  const q = st.filter.trim().toLowerCase();
+  const hit = t => !q || String(t.sample_name || '').toLowerCase().includes(q);
+  const rows = st.tests.filter(hit).map(t => `
+    <button type="button" class="adm-dd-test${t.key === st.key ? ' on' : ''}"
+            aria-pressed="${t.key === st.key}" data-key="${escapeAttr(t.key)}"
+            onclick="admDdOpen(this.dataset.key)">
+      <span class="nm">${escapeHtml(t.sample_name || t.key)}</span>
+      <span class="sub">${escapeHtml(admDdTestSub(t))}</span>
+      ${t.review ? `<span class="rv">${t.review} dismissal${t.review === 1 ? '' : 's'}
+        to review</span>` : ''}
+    </button>`).join('');
+  const older = st.older.filter(hit);
+  host.innerHTML = (rows || `<div class="adm-empty">${q ? 'No test matches.' : 'None.'}</div>`)
+    + (older.length ? '<div class="adm-dd-oldhead">Analysed before deaths could be dismissed</div>'
+       + older.map(t => `<div class="adm-dd-test old">
+           <span class="nm">${escapeHtml(t.sample_name || t.key)}</span>
+           <span class="sub">Dead at ${ddH(t.hours_to_death)} · analyse it again to list its
+             deaths</span></div>`).join('') : '');
+}
+
+async function admDdOpen(key, want) {
+  const st = ADM_STATE.dd;
+  st.key = key;
+  st.detail = null;
+  st.act = null;
+  admDdSetApply();
+  admDdRenderTests();
+  const main = document.getElementById('admDdMain');
+  main.innerHTML = '<div class="adm-empty">Loading…</div>';
+  try {
+    const d = await adminPost('deaths/detail', { key });
+    if (ADM_STATE.dd !== st || st.key !== key) return;
+    st.detail = d;
+    if (d.reasons && d.reasons.length) st.reasons = d.reasons;
+    admDdRenderMain();
+    if (want && want.action) {
+      admDdChoose(want.action, want.id, want.event);
+      if (!st.act) document.getElementById('admFoot').textContent =
+        'What Recall showed has changed since it was read: choose again here.';
+    }
+  } catch (e) {
+    if (ADM_STATE.dd !== st || st.key !== key) return;
+    main.innerHTML = `<p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function admDdRenderMain() {
+  const st = ADM_STATE.dd, d = st.detail, v = d.view;
+  const persist = v.persist_min != null ? ` (shorter than ${+v.persist_min} min)` : '';
+  const under = v.threshold_v != null ? `Under ${+v.threshold_v} V` : 'Under threshold';
+  document.getElementById('admDdMain').innerHTML = `
+    <div class="adm-dd-head"><span class="nm">${escapeHtml(d.sample_name || d.key)}</span>
+      <span class="sub">FC Durability · ${escapeHtml(v.verdict)} · ${ddH(v.hours_tested)}
+        tested</span></div>
+    <div id="admDdWait"></div>
+    <figure class="adm-dd-plot" id="admDdPlot"><span class="adm-dim">${d.ocv_plot
+      ? 'Drawing the OCV plot…' : 'No OCV plot is stored for this test.'}</span></figure>
+    <div class="adm-secthead">Deaths the OCV rule found</div>
+    <div class="adm-prev"><div class="adm-prevbody adm-dd-events"><table>
+      <thead><tr><th scope="col">#</th><th scope="col">Starts</th><th scope="col">Where</th>
+        <th scope="col">${under}</th><th scope="col">Lowest</th>
+        <th scope="col">OCV back at</th><th scope="col">Status</th>
+        <th scope="col"><span class="adm-sr">Action</span></th></tr></thead>
+      <tbody id="admDdRows"></tbody></table></div></div>
+    <p class="adm-note">${admDdKeptNote(v)}Dips${persist}
+      are listed in the workbook's OCV events sheet; they never count as deaths.</p>
+    <div id="admDdAct"></div>`;
+  admDdRenderRows();
+  if (d.ocv_plot) admDdPlot(st, d.key, d.ocv_plot);
+}
+
+// A test of more deaths than its record keeps: the first, and past them only
+// those an admin dismissed (restored since or not), listed.
+function admDdKeptNote(v) {
+  const n = (v.events || []).length, first = v.kept_first == null ? n : v.kept_first;
+  if (!(v.found > n)) return '';
+  const past = n - first;
+  return `The first ${first} of the ${v.found} deaths found are kept with the record, and listed`
+    + (past ? `, as ${past === 1 ? 'is 1 later one' : `are ${past} later ones`} an admin dismissed`
+      : '') + '. ';
+}
+
+async function admDdPlot(st, key, plot) {
+  const fig = () => ADM_STATE.dd === st && st.key === key && document.getElementById('admDdPlot');
+  try {
+    const url = await thumbUrl(key, plot);
+    const el = fig();
+    if (el) el.innerHTML = `<img src="${escapeAttr(url)}" alt="Hold OCV of
+      ${escapeAttr(st.detail.sample_name || key)}, its deaths marked: the death solid red,
+      later deaths dash-dot, a dismissed one grey and dotted"
+      title="Open it full size" onclick="openLightbox(this.src, 'Hold OCV')">`;
+  } catch (e) {
+    const el = fig();
+    if (el) el.innerHTML = `<span class="adm-note bad">The OCV plot could not be drawn:
+      ${escapeHtml(e.message)}</span>`;
+  }
+}
+
+function admDdRenderRows() {
+  const st = ADM_STATE.dd, v = st.detail.view, a = st.act;
+  const rows = (v.events || []).map(ev => {
+    const busy = !!a && ((a.kind === 'dismiss' && a.event === ev.i)
+                         || (a.kind === 'restore' && a.id === ev.dismissal)
+                         || (a.kind === 'move' && a.event === ev.i));
+    const pill = ev.status === 'dismissed' ? '<span class="adm-pill dd-dis">Dismissed</span>'
+      : ev.status === 'death' ? `<span class="adm-pill dd-death">${v.cause === 'crossover'
+          ? 'OCV death' : 'Time of death'}</span>`
+      : '<span class="adm-pill dd-later">Later death</span>';
+    const btn = ev.status === 'dismissed'
+      ? `<button type="button" class="adm-dd-btn${busy ? ' on' : ''}" aria-pressed="${busy}"
+           data-id="${escapeAttr(ev.dismissal || '')}"
+           onclick="admDdChoose('restore', this.dataset.id)">${busy ? 'Restoring…' : 'Restore…'}</button>`
+      : `<button type="button" class="adm-dd-btn${busy ? ' on' : ''}" aria-pressed="${busy}"
+           onclick="admDdChoose('dismiss', null, ${Number(ev.i)})">${busy
+             ? 'Dismissing…' : 'Dismiss…'}</button>`;
+    const cls = ev.status === 'death' ? 'dd-death' : ev.status === 'dismissed' ? 'dd-dis' : '';
+    return `<tr class="${cls}">
+      <td class="adm-mono">${Number(ev.n || Number(ev.i) + 1)}</td>
+      <td class="adm-mono">${ddH(ev.start_h)}</td>
+      <td>${escapeHtml(ev.where || ev.step || '—')}</td>
+      <td class="adm-mono"${ev.acted ? ` title="${escapeAttr(ev.acted)}"` : ''}>${
+        escapeHtml(ddMin(ev.minutes))}${ev.trigger === 'station' ? ', station limit' : ''}</td>
+      <td class="adm-mono">${ev.lowest_v == null ? '—' : Number(ev.lowest_v).toFixed(3) + ' V'}</td>
+      <td class="adm-mono">${ev.back_h == null ? 'never' : ddH(ev.back_h)}</td>
+      <td>${pill}</td>
+      <td class="adm-dd-actcell">${btn}</td></tr>`;
+  }).join('');
+  document.getElementById('admDdRows').innerHTML = rows
+    || '<tr><td colspan="8" class="adm-dim">No death in the stored analysis.</td></tr>';
+  document.getElementById('admDdWait').innerHTML = (v.dismissals || [])
+    .filter(x => x.status !== 'applied').map(x => admDdWaiting(x, v)).join('');
+}
+
+// A dismissal a rerun found no death for, with what can be done with it: any
+// death not already dismissed can take it, the nearest offered first.
+function admDdWaiting(x, v) {
+  const a = ADM_STATE.dd.act;
+  const on = k => !!a && a.id === x.id && a.kind === k;
+  const b = (k, text, cls) => `<button type="button" class="adm-dd-btn${cls ? ' ' + cls : ''}${
+      on(k) ? ' on' : ''}" aria-pressed="${on(k)}" data-id="${escapeAttr(x.id || '')}"
+      onclick="admDdChoose('${k}', this.dataset.id)">${escapeHtml(text)}</button>`;
+  const free = (v.events || []).filter(e => e.status !== 'dismissed');
+  const pick = on('move') ? a.event : x.nearest ? x.nearest.i : (free[0] || {}).i;
+  const move = !free.length ? '' : `<span class="adm-dd-move">
+      <select aria-label="The death to dismiss in its place" data-id="${escapeAttr(x.id || '')}"
+              onchange="admDdRepick(this)">${free.map(e => `<option value="${Number(e.i)}"${
+        e.i === pick ? ' selected' : ''}>${escapeHtml(ddH(e.start_h) + (e.where ? ' in ' + e.where : ''))
+        }</option>`).join('')}</select>
+      <button type="button" class="adm-dd-btn warn${on('move') ? ' on' : ''}" aria-pressed="${on('move')}"
+              data-id="${escapeAttr(x.id || '')}"
+              onclick="admDdChoose('move', this.dataset.id, Number(this.previousElementSibling.value))"
+              >Dismiss this death instead</button></span>`;
+  const t = ddUnmatched(x, v);
+  return `<div class="adm-dd-wait${x.status === 'kept' ? ' kept' : ''}">
+    <span><strong>${x.status === 'kept' ? 'Kept on file, not applied:' : 'Dismissal not applied:'}
+      ${escapeHtml(t.head)}</strong> ${escapeHtml(t.body)}</span>
+    <span>${escapeHtml(ddDismissedBy(x))}</span>
+    <div class="adm-dd-acts">
+      ${move}
+      ${x.status === 'review' ? b('keep', 'Keep on file') : ''}
+      ${b('remove', 'Remove the dismissal', 'bad')}
+    </div></div>`;
+}
+
+// Another death picked while moving a dismissal: the move goes to it.
+function admDdRepick(sel) {
+  const a = ADM_STATE.dd && ADM_STATE.dd.act;
+  if (a && a.kind === 'move' && a.id === sel.dataset.id) admDdChoose('move', a.id, Number(sel.value));
+}
+
+function admDdChoose(kind, id, event) {
+  const st = ADM_STATE.dd, v = st.detail && st.detail.view;
+  if (!v) return;
+  const was = st.act;
+  let a = null;
+  if (kind === 'dismiss') {
+    const ev = (v.events || [])[event];
+    if (!ev || ev.status === 'dismissed') return;
+    const same = was && was.kind === 'dismiss';
+    a = { kind, event: ev.i, start_h: ev.start_h,
+          word: ev.status === 'death' ? 'death' : 'later death',
+          reason: same ? was.reason : '', note: same ? was.note : '' };
+  } else if (kind === 'restore') {
+    const x = (v.dismissals || []).find(d => d.id === id && d.status === 'applied');
+    if (!x) return;
+    a = { kind, id, x };
+  } else if (kind === 'move' || kind === 'keep' || kind === 'remove') {
+    const x = (v.dismissals || []).find(d => d.id === id && d.status !== 'applied');
+    if (!x) return;
+    a = { kind, id, x };
+    if (kind === 'move') {
+      const ev = (v.events || [])[event != null ? event : (x.nearest || {}).i];
+      if (!ev || ev.status === 'dismissed') return;
+      a.event = ev.i;
+      a.start_h = ev.start_h;
+    }
+  } else {
+    return;
+  }
+  // The same choice again puts it away.
+  if (was && was.kind === a.kind && was.id === a.id && was.event === a.event) a = null;
+  st.act = a;
+  admDdRenderRows();
+  admDdRenderAct();
+  admDdSetApply();
+  if (a) admDdPreview();
+}
+
+function admDdRenderAct() {
+  const st = ADM_STATE.dd, a = st.act, host = document.getElementById('admDdAct');
+  if (!host) return;
+  if (!a) { host.innerHTML = ''; return; }
+  const change = `<div class="adm-dd-change" id="admDdChange" aria-live="polite">
+    <div class="adm-dd-changehead">What changes</div><div class="adm-dim">Working it out…</div></div>`;
+  let left;
+  if (a.kind === 'dismiss') {
+    const radios = (st.reasons || []).map(([k, t]) => `<label><input type="radio"
+        name="admDdWhy" value="${escapeAttr(k)}"${a.reason === k ? ' checked' : ''}
+        onchange="admDdSet('reason', this.value)"> ${escapeHtml(ddCap(t))}</label>`).join('');
+    left = `<fieldset class="adm-dd-form">
+      <legend>Dismiss the ${escapeHtml(a.word)} at ${ddH(a.start_h)}</legend>
+      <div class="adm-dd-why" role="radiogroup" aria-labelledby="admDdWhyLbl">
+        <span class="adm-dim" id="admDdWhyLbl">Why it is not the cell's</span>${radios}</div>
+      <label class="adm-dd-note">Note (required, kept with the record)
+        <textarea id="admDdNote" rows="2" maxlength="500"
+                  oninput="admDdSet('note', this.value)">${escapeHtml(a.note || '')}</textarea></label>
+      <span class="adm-note" id="admDdHint"></span>
+    </fieldset>`;
+  } else {
+    const x = a.x, mm = +st.detail.view.match_min;
+    const at = x.event && x.event.start_h != null ? x.event.start_h : x.start_h;
+    const head = {
+      restore: `Restore the ${x.kind || 'death'} at ${ddH(at)}`,
+      move: `Dismiss the death at ${ddH(a.start_h)} instead`,
+      keep: 'Keep the dismissal on file',
+      remove: 'Remove the dismissal',
+    }[a.kind];
+    const say = {
+      restore: 'The death counts again. The dismissal comes off the record; the history keeps it.',
+      move: `The dismissal of the death at ${ddH(x.start_h)} moves to the death at `
+        + `${ddH(a.start_h)}, its reason and note carried over.`,
+      keep: `It stays unapplied and waits no more. It applies again if a later analysis finds a `
+        + `death starting in ${x.step || 'its step'} within ${mm} min of the dismissed one.`,
+      remove: 'It comes off the record; the history keeps it. The analysis does not change: '
+        + 'the dismissal was not applied to it.',
+    }[a.kind];
+    left = `<div class="adm-dd-form plain">
+      <div class="adm-dd-formhead">${escapeHtml(head)}</div>
+      <span>${escapeHtml(ddDismissedBy(x))}</span>
+      <span>${escapeHtml(say)}</span></div>`;
+  }
+  host.innerHTML = `<div class="adm-dd-actgrid">${left}${change}</div>`;
+}
+
+function admDdSet(field, value) {
+  const a = ADM_STATE.dd && ADM_STATE.dd.act;
+  if (!a) return;
+  a[field] = value;
+  admDdSetApply();
+}
+
+function admDdSetApply() {
+  const st = ADM_STATE.dd, a = st && st.act;
+  const apply = document.getElementById('admApply');
+  if (!a) {
+    apply.textContent = 'Dismiss death';
+    apply.className = 'btn btn-warn';
+    apply.disabled = true;
+    return;
+  }
+  const spec = ADM_DD_ACTIONS[a.kind];
+  apply.textContent = a.kind === 'move' ? `Dismiss the death at ${ddH(a.start_h)}` : spec.label;
+  apply.className = 'btn ' + spec.cls;
+  const note = String(a.note || '').trim();
+  const missing = a.kind !== 'dismiss' ? ''
+    : !a.reason && !note ? 'Choose why, and write the note, to dismiss it.'
+    : !a.reason ? "Choose why it is not the cell's."
+    : !note ? 'Write the note: say what happened, for whoever reads it next.' : '';
+  const hint = document.getElementById('admDdHint');
+  if (hint) hint.textContent = missing;
+  apply.disabled = !a.preview || !!missing;
+}
+
+function admDdCall(a, apply) {
+  const key = ADM_STATE.dd.key;
+  if (a.kind === 'dismiss') {
+    return { path: 'deaths/dismiss', body: { key, event: a.event, start_h: a.start_h,
+             reason: apply ? a.reason : '', note: apply ? a.note : '', apply } };
+  }
+  if (a.kind === 'restore') return { path: 'deaths/restore', body: { key, id: a.id, apply } };
+  return { path: 'deaths/settle', body: { key, id: a.id, action: a.kind,
+           event: a.kind === 'move' ? a.event : null,
+           start_h: a.kind === 'move' ? a.start_h : null, apply } };
+}
+
+async function admDdPreview() {
+  const st = ADM_STATE.dd, a = st.act;
+  const seq = ++st.seq;
+  try {
+    const call = admDdCall(a, false);
+    const d = await adminPost(call.path, call.body);
+    if (ADM_STATE.dd !== st || st.act !== a || st.seq !== seq) return;
+    a.preview = d;
+    admDdRenderChange(a, d);
+  } catch (e) {
+    if (ADM_STATE.dd !== st || st.act !== a) return;
+    const el = document.getElementById('admDdChange');
+    if (el) el.innerHTML = `<div class="adm-dd-changehead">What changes</div>
+      <p class="adm-note bad">${escapeHtml(e.message)}</p>`;
+  }
+  admDdSetApply();
+}
+
+function admDdRateChange(b, f) {
+  const r = x => `${Math.round(x)} μV/h`;
+  const w = x => `<span class="adm-mono">${escapeHtml(ddWin(x))}</span>`;
+  if (f.rate == null) return 'none: no window to fit';
+  const same = b.rate != null && Math.abs(b.rate - f.rate) < 1e-6
+    && JSON.stringify(b.window) === JSON.stringify(f.window);
+  if (same) return `${r(f.rate)} over ${w(f.window)} <span class="adm-dim">(unchanged)</span>`;
+  const by = !f.dead ? null : f.cause === 'crossover' ? 'the crossover death' : ddH(f.death_h);
+  return `${r(f.rate)} over ${w(f.window)}, ` + (by ? `the latest window ending by ${by}`
+      : 'the latest window at the reference conditions, no longer cut by a death')
+    + (b.rate != null ? `; in place of ${r(b.rate)} over ${w(b.window)}` : '');
+}
+
+function admDdRenderChange(a, d) {
+  const el = document.getElementById('admDdChange');
+  if (!el) return;
+  const v = ADM_STATE.dd.detail.view, b = d.before || {}, f = d.after || {};
+  const eq = (x, y) => (x == null && y == null) || (x != null && y != null && Math.abs(x - y) < 1e-6);
+  const H = x => x == null ? 'none' : ddH(x);
+  const step = (x, y, show, cls) => eq(x, y)
+    ? `${escapeHtml(show(y))} <span class="adm-dim">(unchanged)</span>`
+    : `<span class="adm-was">${escapeHtml(show(x))}</span> <span class="adm-arrow">→</span>
+       <strong class="${cls || ''}">${escapeHtml(show(y))}</strong>`;
+  const rows = [
+    ['OCV death', step(b.death_h, f.death_h, H, f.death_h == null ? 'adm-dd-good' : 'adm-dd-bad')],
+    ['Verdict', b.verdict === f.verdict
+      ? `${escapeHtml(f.verdict)} <span class="adm-dim">(unchanged)</span>`
+      : `<span class="adm-was">${escapeHtml(b.verdict)}</span> <span class="adm-arrow">→</span>
+         ${escapeHtml(f.verdict)}`],
+  ];
+  if (!eq(b.hours_to_death, f.hours_to_death)) {
+    rows.push(['Hours to death', f.dead ? step(b.hours_to_death, f.hours_to_death, H)
+      : `gone; Recall and Trends show the lifetime as ≥ ${ddH(v.hours_tested)}, still alive`]);
+  }
+  if (!eq(b.cycles_to_death, f.cycles_to_death)) {
+    rows.push(['RH cycles to death', step(b.cycles_to_death, f.cycles_to_death,
+                                          x => x == null ? 'none' : String(x))]);
+  }
+  rows.push(['OCV decay rate', admDdRateChange(b, f)]);
+  if (b.later !== f.later) {
+    rows.push(['Later deaths', `${b.later} <span class="adm-arrow">→</span> ${f.later}`]);
+  }
+  rows.push(['Unchanged', {
+    dismiss: 'hours tested, OCV initial, final and loss; the plot keeps the dismissed death, '
+      + 'drawn grey and dotted',
+    restore: 'hours tested, OCV initial, final and loss; the plot draws the death red again',
+    move: 'hours tested, OCV initial, final and loss',
+    keep: 'all the analysis reports: the dismissal is not applied to it',
+    remove: 'all the analysis reports: the dismissal was not applied to it',
+  }[a.kind]]);
+  rows.push(['On a rerun', {
+    dismiss: "kept with the sample and applied again to this death; flagged for review if the "
+      + "rerun doesn't find it",
+    restore: 'nothing applies to this death: a rerun judges it as found',
+    move: "kept with the sample and applied again to this death; flagged for review if the "
+      + "rerun doesn't find it",
+    keep: `applies again if a rerun finds a death starting in ${escapeHtml((a.x || {}).step || 'its step')}`
+      + ` within ${+v.match_min} min of the dismissed one`,
+    remove: 'nothing of it is kept',
+  }[a.kind]]);
+  const xo = b.cause === 'crossover' || f.cause === 'crossover';
+  el.innerHTML = `<div class="adm-dd-changehead">What changes</div>
+    <div class="adm-dd-changegrid">${rows.map(([k, x]) =>
+      `<span class="k">${k}</span><span>${x}</span>`).join('')}</div>
+    ${xo ? '<p class="adm-note">The crossover death is untouched: only OCV deaths can be '
+           + 'dismissed here.</p>' : ''}`;
+}
+
 async function adminApply() {
   const btn = document.getElementById('admApply');
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'Working…';
-  const tag = ['merge', 'rename', 'stand', 'delete', 'elx-rebuild'][ADM_PANE];
-  let res = null;
+  const tag = ['merge', 'rename', 'stand', 'delete', 'elx-rebuild', 'deaths'][ADM_PANE];
+  let res = null, ddKey = null;
   try {
     if (ADM_PANE === 0) {
       res = await adminPost('merge', { keys: admPicked('admGrpMembers'),
@@ -14423,6 +15255,17 @@ async function adminApply() {
       admPane(4);
       admRebuildDone(res, saved);
       return;
+    } else if (ADM_PANE === 5) {
+      // A death dismissed or restored, or a dismissal a rerun found no death
+      // for settled: the pane opens on the same test again, read afresh, and
+      // so does its run detail if open.
+      const st = ADM_STATE.dd;
+      if (!st || !st.act) throw new Error('Choose what to change first.');
+      const call = admDdCall(st.act, true);
+      res = await adminPost(call.path, call.body);
+      ddKey = st.key;
+      viewForgetRuns([ddKey]);
+      ADM_DD_WANT = { key: ddKey };
     } else {
       const purge = document.getElementById('admPurge').checked;
       // A purge is irreversible, so the confirm names what is about to go and
@@ -14442,6 +15285,7 @@ async function adminApply() {
       ? `Done — backup saved as ${saved}`
       : 'Done. The backup could not be saved to this browser; '
         + 'use ⭳ Backup before the next change.';
+    if (ddKey) rdReopenDetail(ddKey);
   } catch (e) {
     alert(e.message);
     btn.disabled = false; btn.textContent = label;
@@ -16424,6 +17268,7 @@ document.addEventListener('keydown', e => {
       <button class="adm-tab" data-pane="2" onclick="admPane(2,this)">Test stand</button>
       <button class="adm-tab" data-pane="4" onclick="admPane(4,this)">Electrolyzer</button>
       <button class="adm-tab danger" data-pane="3" onclick="admPane(3,this)">Add / Delete</button>
+      <button class="adm-tab" data-pane="5" onclick="admPane(5,this)">Deaths</button>
     </div>
     <div class="adm-body" id="admBody"></div>
     <div class="adm-foot">

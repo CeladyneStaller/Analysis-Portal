@@ -76,7 +76,6 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
         raise ValueError(f"Unknown script: {script_name}")
 
     run_fn = registry[script_name]
-    result = run_fn(input_dir=input_dir, output_dir=output_dir, params=params or {})
 
     # ── Resolve sample name ──
     p = params or {}
@@ -94,6 +93,26 @@ def _run_job(job_id: str, script_name: str, input_dir: str, output_dir: str,
             # Linux permits characters Windows does not, so a name derived from
             # an uploaded filename can still be unusable downstream.
             sample_name = sanitise_derived_name(sample_name)
+
+    # A sample analysed again keeps the admin's dismissals of false OCV
+    # deaths: read here, from the store, so the analysis is judged with them
+    # and its outputs say so. Read in the worker, not the request: JSONBin
+    # blocks. A failed read leaves them to the push, which applies the stored
+    # ones itself.
+    if script_name == 'FC Durability':
+        # Only the store's: dismissals in an upload's own parameters are not
+        # the sample's.
+        p = {k: v for k, v in p.items() if k != 'ocv_dismissals'}
+        if sample_name:
+            try:
+                from scripts.helpers import deaths
+                stored = deaths.stored_dismissals(sample_name)
+                if stored:
+                    p['ocv_dismissals'] = stored
+            except Exception as e:
+                print(f"[deaths] job={job_id} dismissals not read: {e}", flush=True)
+
+    result = run_fn(input_dir=input_dir, output_dir=output_dir, params=p)
 
     # Script short label
     short = scripts.SCRIPT_SHORT.get(script_name, script_name.replace(' ', ''))
@@ -206,6 +225,10 @@ def _on_job_done(job_id: str, future):
                     # in which case the record falls back to deriving the
                     # family from the file extensions.
                     'stand': (jobs[job_id].get("params") or {}).get("stand"),
+                    # An FC Durability analysis's death table, which an
+                    # admin's dismissal of a false death is applied to.
+                    # Taken off the job's result, which every poll sends.
+                    'fc_deaths': (result.get("script_result") or {}).pop("fc_deaths", None),
                 }
                 # Set with "complete", so a poll never sees the job finished
                 # with its push still to come. Cleared when the push has
@@ -261,6 +284,11 @@ def _push_metrics(job_id: str, push_args: dict):
                                + str(push_result.get('reason', 'unknown')))
                     jobs[job_id]["message"] = (
                         f"{current_msg} ({warning})" if current_msg else warning)
+                elif push_result.get('dismissals_reapplied'):
+                    jobs[job_id]["message"] = (
+                        f"{jobs[job_id].get('message', '')} (stored with the sample's "
+                        f"dismissed OCV deaths, which this job's downloads were not judged "
+                        f"with: Recall shows the test as stored)").strip()
         print(f"[metrics] job={job_id} pushed={push_result.get('pushed')} "
               f"bin={push_result.get('bin_id')} "
               f"reason={push_result.get('reason')}", flush=True)
@@ -434,8 +462,18 @@ async def view_run_detail(key: str):
         raise HTTPException(404, f"no indexed run matching {key}")
     except Exception as e:
         raise HTTPException(502, f"could not read detail bin: {e}")
-    slim = {k: v for k, v in detail.items() if k != 'sidecars'}
+    # The death table and the dismissals reach the page as their view.
+    slim = {k: v for k, v in detail.items()
+            if k not in ('sidecars', 'fc_deaths', 'ocv_dismissals', 'ocv_death_history')}
     slim['plots'] = viewstore.run_plots(key)
+    # An FC Durability test's deaths and their dismissals, as Recall shows them.
+    try:
+        from scripts.helpers import deaths
+        dv = deaths.view(detail)
+        if dv is not None:
+            slim['ocv_death_view'] = dv
+    except Exception as e:
+        print(f"[deaths] view of {key} failed: {e}", flush=True)
     return slim
 
 
@@ -465,8 +503,10 @@ async def view_render(payload: dict):
                 404, f"plot {plot!r} has no stored sidecar (cleaning plots are "
                      f"not stored; its metrics remain available)")
         sidecar_path = render_dir / '_plot_data' / f'{plot}.json'
-        item = {'label': plot, 'sidecar': load_sidecar(str(sidecar_path)),
-                'filename': f'{plot}.png'}
+        sidecar = load_sidecar(str(sidecar_path))
+        item = {'label': plot, 'sidecar': sidecar, 'filename': f'{plot}.png',
+                # An FC Durability test's death lines are told apart by colour.
+                'ref_colors': str((sidecar or {}).get('plot_type') or '').startswith('fcdur_')}
         out_png = render_dir / f'{plot}.png'
         fig = render_overlay_comparison([item], save_path=str(out_png),
                                         title=plot)
@@ -881,6 +921,53 @@ def admin_restore(payload: dict):
     return _admin_call(admin.restore_backup,
                        payload.get("backup") or {},
                        payload.get("names") or [],
+                       apply=bool(payload.get("apply")))
+
+
+# ── OCV deaths: dismissing a false one (deaths.py, admin.py) ──
+
+@app.post("/api/admin/deaths")
+def admin_deaths(payload: dict):
+    """FC Durability tests with an OCV death or a dismissal."""
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.list_deaths)
+
+
+@app.post("/api/admin/deaths/detail")
+def admin_death_detail(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.death_detail, str(payload.get("key") or ""))
+
+
+@app.post("/api/admin/deaths/dismiss")
+def admin_death_dismiss(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.dismiss_death, str(payload.get("key") or ""),
+                       payload.get("event"), payload.get("start_h"),
+                       str(payload.get("reason") or ""), str(payload.get("note") or ""),
+                       apply=bool(payload.get("apply")))
+
+
+@app.post("/api/admin/deaths/restore")
+def admin_death_restore(payload: dict):
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.restore_death, str(payload.get("key") or ""),
+                       str(payload.get("id") or ""), apply=bool(payload.get("apply")))
+
+
+@app.post("/api/admin/deaths/settle")
+def admin_death_settle(payload: dict):
+    """A dismissal a rerun found no death for: move it to another death,
+    keep it on file, or remove it."""
+    _require_admin(payload)
+    from scripts.helpers import admin
+    return _admin_call(admin.settle_dismissal, str(payload.get("key") or ""),
+                       str(payload.get("id") or ""), str(payload.get("action") or ""),
+                       payload.get("event"), payload.get("start_h"),
                        apply=bool(payload.get("apply")))
 
 

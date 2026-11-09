@@ -33,7 +33,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set
 
-from scripts.helpers import dupdetect, jsonbin, registry
+from scripts.helpers import deaths, dupdetect, jsonbin, registry
 from scripts.helpers.record import (
     FORBIDDEN_NAME_CHARS, PRE_ELX_TYPES, STAND_OPTIONS, build_index_entry,
     decode_sidecars, guesses_stand, merge_detail_record, merge_index_entry,
@@ -319,6 +319,10 @@ def merge_duplicate_group(keys: List[str], keep_name: str,
     merged_detail['sample_name'] = keep_name
     merged_entry['sample_name'] = keep_name
     merged_entry['bin_id'] = survivor
+    # One sample's dismissals of false OCV deaths, from every record merged,
+    # judged against the newest analysis's table, and the entry's deaths read
+    # off the merged record.
+    deaths.judge_merged(merged_detail, merged_entry, survivor)
 
     superseded = [m.get('bin_id') for m in ordered if m.get('bin_id') != survivor]
     preview = {
@@ -1086,3 +1090,292 @@ def _rebuild_apply(keys: List[str], token: str) -> Dict[str, Any]:
                 return out
         out['applied'] = bool(done)
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  OCV deaths: dismissing a false one
+# ─────────────────────────────────────────────────────────────────────
+#
+# A death the cell did not cause -- a gas supply that ran out, a station
+# fault -- is dismissed with a reason and a note, and the next death the
+# rule found counts, or the sample is alive (deaths.py). The dismissal is the
+# sample's: kept in its record through every rerun, which applies it again
+# to the death starting in the same step within deaths.MATCH_MIN of it. One a
+# rerun cannot match is not applied and waits here, to be moved to another
+# death, kept on file or removed. Every change is previewed, and applied with
+# a backup, writing the record and the index entry together.
+
+def _fc_entry(key: str):
+    """The index entry of a stored FC Durability test, and its record."""
+    index = jsonbin.fetch_index()
+    entry = next((e for e in _entries(index) if _key(e) == key), None)
+    if entry is None:
+        raise ValueError(f'no stored sample with key {key!r}')
+    if not entry.get('bin_id'):
+        raise ValueError('that entry has no detail record')
+    record = jsonbin.fetch_detail_bin(entry['bin_id'])
+    if not isinstance(record.get('fc_deaths'), dict):
+        raise ValueError(
+            'this test was analysed before deaths could be dismissed: analyse it '
+            'again, and its deaths are listed here')
+    return entry, record
+
+
+def _fc_kv(entry: Dict[str, Any]) -> Dict[str, Any]:
+    return next((u.get('key_values') or {} for u in entry.get('Data') or []
+                 if u.get('Analysis') == 'fc_durability'), {})
+
+
+def list_deaths() -> Dict[str, Any]:
+    """FC Durability tests with an OCV death, or a dismissal; and the dead
+    ones analysed before deaths could be dismissed, which need analysing
+    again first."""
+    index = jsonbin.fetch_index()
+    tests, older = [], []
+    for e in _entries(index):
+        fc = e.get('script') == 'FC Durability' or any(
+            u.get('Analysis') == 'fc_durability' for u in e.get('Data') or [])
+        if not fc:
+            continue
+        kv = _fc_kv(e)
+        row = {'key': _key(e), 'sample_name': e.get('sample_name') or '',
+               'run_date': e.get('run_date') or str(e.get('timestamp') or '')[:10],
+               'hours_tested': kv.get('Hours tested'),
+               'hours_to_death': kv.get('Hours to death')}
+        summ = e.get('ocv_deaths')
+        if isinstance(summ, dict):
+            # A test with no OCV death and none dismissed (alive, or dead on
+            # crossover only) has none to list.
+            if summ.get('found') or summ.get('dismissals'):
+                tests.append(dict(row, **summ))
+        elif kv.get('Hours to death') is not None:
+            older.append(row)
+    tests.sort(key=lambda r: r['run_date'], reverse=True)
+    tests.sort(key=lambda r: -(r.get('review') or 0))      # stable: those to review first
+    return {'tests': tests, 'older': older, 'reasons': [list(r) for r in deaths.REASONS],
+            'match_min': deaths.MATCH_MIN}
+
+
+def death_detail(key: str) -> Dict[str, Any]:
+    """A test's deaths, its dismissals and their history, and the stored OCV
+    plot to show."""
+    entry, record = _fc_entry(key)
+    plot = next((name for name, sc in decode_sidecars(record).items()
+                 if isinstance(sc, dict) and sc.get('plot_type') == deaths.OCV_PLOT), None)
+    return {'key': key, 'sample_name': entry.get('sample_name') or '',
+            'view': deaths.view(record), 'ocv_plot': plot,
+            'reasons': [list(r) for r in deaths.REASONS]}
+
+
+def _change(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+    """What a change does to a test: the time of death, the verdict, hours
+    and RH cycles to death, the decay rate and its window."""
+    def side(res):
+        v = res['verdict']
+        rate = res.get('rate') or {}
+        return {'death_h': deaths.death_h(res), 'verdict': deaths.verdict_text(v),
+                'dead': v['dead'], 'hours_to_death': v['hours'] if v['dead'] else None,
+                'cycles_to_death': v['cycles'] if v['dead'] else None,
+                'cause': deaths.cause_text(v),
+                'rate': rate.get('uV_h'), 'window': rate.get('window'),
+                'later': res['later_n'], 'dismissed': len(res['dismissed'])}
+    return {'before': side(before), 'after': side(after)}
+
+
+def _write_fc(entry: Dict[str, Any], record: Dict[str, Any]) -> None:
+    """Write a rewritten FC Durability record and its index entry. The entry
+    keeps its timestamp and job count: no analysis was stored (the views'
+    caches are dropped on an applied admin change)."""
+    bin_id = entry['bin_id']
+    jsonbin.update_detail_bin(bin_id, record)
+    rebuilt = build_index_entry(record, bin_id)
+    key = _key(entry)
+
+    def change(runs):
+        out = []
+        for e in runs:
+            if _key(e) == key:
+                e = dict(e, Data=rebuilt.get('Data') or [])
+                if rebuilt.get('ocv_deaths'):
+                    e['ocv_deaths'] = rebuilt['ocv_deaths']
+                else:
+                    e.pop('ocv_deaths', None)
+            out.append(e)
+        return out
+    _patch_index(change)
+
+
+def _event_at(table: Dict[str, Any], event: Any, start_h: Any) -> int:
+    """The death the panel asked about, checked against the stored table: a
+    test analysed again since the panel read it is refused."""
+    events = table.get('events') or []
+    try:
+        i = int(event)
+    except (TypeError, ValueError):
+        raise ValueError('no death given')
+    if not 0 <= i < len(events):
+        raise ValueError('that death is not in the stored analysis')
+    want = deaths._num(start_h)
+    if want is None or abs(float(events[i]['start_h']) - want) > 1e-6:
+        raise ValueError('the stored analysis has changed since this was read: '
+                         'open the test again')
+    return i
+
+
+def _clean_note(note: str) -> str:
+    note = re.sub(r'[\x00-\x09\x0b-\x1f\x7f]', ' ', str(note or '')).strip()
+    if not note:
+        raise ValueError('a note is required: say what happened, for whoever reads it next')
+    if len(note) > deaths.NOTE_MAX:
+        raise ValueError(f'the note is over {deaths.NOTE_MAX} characters')
+    return note
+
+
+def _kind(res: Dict[str, Any], i: int) -> str:
+    return 'death' if i == res['death'] else 'later death'
+
+
+def _within_table(table: Dict[str, Any], after: Dict[str, Any]) -> None:
+    """A table that keeps the first deaths of more (past them, only those a
+    dismissal took): the death that would count, and the later deaths its
+    plot draws, must be among the first, where no death it does not keep
+    comes between. (A death past them has none of the first after it.)"""
+    first = deaths.kept_first(table)
+    drawn = sum(1 for i in after['later'] if i < first)
+    if after['beyond'] and (after['death'] is None
+                            or drawn < min(deaths.LATER_LISTED, after['later_n'])):
+        raise ValueError(f"the death that would count, or the later deaths drawn after it, are "
+                         f"past the first {deaths.kept_first(table)} deaths this test's record "
+                         f"keeps: restore one first")
+
+
+@_locked_when_applied(lambda index, a: _names_for(index, [a['key']]))
+def dismiss_death(key: str, event: Any, start_h: Any, reason: str, note: str,
+                  apply: bool = False) -> Dict[str, Any]:
+    """Dismiss a death or later death: the next death counts, or the sample
+    is alive. Nothing is deleted; it can be restored. The preview needs no
+    reason or note (what changes does not depend on them); applying does."""
+    if apply or reason:
+        if reason not in deaths.REASON_TEXT:
+            raise ValueError('choose why it is not the cell\'s')
+    if apply:
+        note = _clean_note(note)
+    entry, record = _fc_entry(key)
+    table, given = record['fc_deaths'], list(record.get('ocv_dismissals') or [])
+    i = _event_at(table, event, start_h)
+    before = deaths.resolve(table, given)
+    if i in before['by_event']:
+        raise ValueError('that death is already dismissed')
+    ev = table['events'][i]
+    d = deaths.new_dismissal(ev, _kind(before, i), reason or 'other', note if apply else '')
+    after = deaths.resolve(table, given + [d])
+    if i not in after['by_event']:
+        raise ValueError('that death cannot be named by where it starts, so it cannot '
+                         'be dismissed')
+    _within_table(table, after)
+    preview = {'key': key, 'sample_name': entry.get('sample_name') or '',
+               'event': deaths.event_view(ev, _kind(before, i), i),
+               **_change(before, after), 'applied': False}
+    if not apply:
+        return preview
+    preview['backup'] = _snapshot([key])
+    record['ocv_dismissals'] = given + [d]
+    deaths.apply_to_record(record)
+    deaths.history_add(record, 'dismissed',
+                       f"Admin dismissed the {d['kind']} at {ev['start_h']:.2f} h"
+                       + (f" in {ev.get('hold_label')}" if ev.get('hold_label') else '')
+                       + f': {deaths.reason_text(d)}', id=d['id'])
+    _write_fc(entry, record)
+    preview['applied'] = True
+    preview['id'] = d['id']
+    return preview
+
+
+def _dismissal(record: Dict[str, Any], did: str) -> Dict[str, Any]:
+    d = next((x for x in record.get('ocv_dismissals') or [] if x.get('id') == did), None)
+    if d is None:
+        raise ValueError('no such dismissal on this test')
+    return d
+
+
+@_locked_when_applied(lambda index, a: _names_for(index, [a['key']]))
+def restore_death(key: str, did: str, apply: bool = False) -> Dict[str, Any]:
+    """Take a dismissal back: the death counts again."""
+    entry, record = _fc_entry(key)
+    table, given = record['fc_deaths'], list(record.get('ocv_dismissals') or [])
+    d = _dismissal(record, did)
+    rest = [x for x in given if x is not d]
+    before, after = deaths.resolve(table, given), deaths.resolve(table, rest)
+    if any(x is d for x in before['unmatched']):
+        raise ValueError('that dismissal is not applied to a death: settle it instead')
+    preview = {'key': key, 'sample_name': entry.get('sample_name') or '', 'id': did,
+               **_change(before, after), 'applied': False}
+    if not apply:
+        return preview
+    preview['backup'] = _snapshot([key])
+    record['ocv_dismissals'] = rest
+    deaths.apply_to_record(record)
+    start = deaths._num(d.get('start_h'))
+    deaths.history_add(record, 'restored',
+                       f"Admin restored the {d.get('kind') or 'death'} at "
+                       + (f'{start:.2f} h' if start is not None else 'its time')
+                       + (f" in {d.get('hold_label')}" if d.get('hold_label') else ''), id=did)
+    _write_fc(entry, record)
+    preview['applied'] = True
+    return preview
+
+
+SETTLE_ACTIONS = ('move', 'keep', 'remove')
+
+
+@_locked_when_applied(lambda index, a: _names_for(index, [a['key']]))
+def settle_dismissal(key: str, did: str, action: str, event: Any = None,
+                     start_h: Any = None, apply: bool = False) -> Dict[str, Any]:
+    """A dismissal a rerun found no death for: `move` it to a death of the
+    stored analysis (its reason and note carried over), `keep` it on file
+    (unapplied, it waits no more, and applies again if a later analysis
+    finds its death), or `remove` it."""
+    if action not in SETTLE_ACTIONS:
+        raise ValueError(f'unknown action {action!r}')
+    entry, record = _fc_entry(key)
+    table, given = record['fc_deaths'], list(record.get('ocv_dismissals') or [])
+    d = _dismissal(record, did)
+    before = deaths.resolve(table, given)
+    if not any(x is d for x in before['unmatched']):
+        raise ValueError('that dismissal is applied to a death: restore it instead')
+    old = deaths._num(d.get('start_h'))
+    old_text = f'{old:.2f} h' if old is not None else 'its time'
+    if action == 'move':
+        i = _event_at(table, event, start_h)
+        if i in before['by_event']:
+            raise ValueError('that death is already dismissed')
+        ev = table['events'][i]
+        moved = dict(d, start_h=ev.get('start_h'), folder=ev.get('folder') or '',
+                     step=ev.get('step') or '', offset_h=ev.get('offset_h'),
+                     hold_label=ev.get('hold_label') or '', kind=_kind(before, i),
+                     trigger=ev.get('trigger') or '', moved_at=deaths.now())
+        moved.pop('kept', None)
+        rest = [moved if x is d else x for x in given]
+        text = (f'Admin moved the dismissal of {old_text} to the {moved["kind"]} at '
+                f"{ev['start_h']:.2f} h" + (f" in {ev.get('hold_label')}" if ev.get('hold_label') else '')
+                + f': {deaths.reason_text(d)}')
+    elif action == 'keep':
+        rest = [dict(x, kept=True) if x is d else x for x in given]
+        text = f'Admin kept the dismissal of {old_text} on file, unapplied'
+    else:
+        rest = [x for x in given if x is not d]
+        text = f'Admin removed the dismissal of {old_text}'
+    after = deaths.resolve(table, rest)
+    if action == 'move':
+        _within_table(table, after)
+    preview = {'key': key, 'sample_name': entry.get('sample_name') or '', 'id': did,
+               'action': action, **_change(before, after), 'applied': False}
+    if not apply:
+        return preview
+    preview['backup'] = _snapshot([key])
+    record['ocv_dismissals'] = rest
+    deaths.apply_to_record(record)
+    deaths.history_add(record, action if action != 'keep' else 'kept', text, id=did)
+    _write_fc(entry, record)
+    preview['applied'] = True
+    return preview

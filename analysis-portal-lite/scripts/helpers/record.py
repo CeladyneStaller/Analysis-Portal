@@ -903,8 +903,12 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
                         summary: Optional[Any] = None,
                         stand: Optional[str] = None,
                         include_sidecars: bool = True,
-                        compress_sidecars: bool = True) -> Dict[str, Any]:
+                        compress_sidecars: bool = True,
+                        fc_deaths: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Assemble the schema-2 detail bin body for one completed job.
+
+    `fc_deaths`: an FC Durability analysis's death table, which an admin's
+    dismissal of a false death is applied to (deaths.py).
 
     metrics is nested bucket -> plot -> {conditions, values}. Each plot carries
     its own conditions, so no blending occurs across differing setpoints.
@@ -962,6 +966,8 @@ def build_detail_record(*, job_id: str, sample_name: Optional[str], script: str,
     }
     if summary:
         record['summary'] = summary
+    if isinstance(fc_deaths, dict):
+        record['fc_deaths'] = json_safe(fc_deaths)
     # A declared stand carries the number; the derived one only ever recovers
     # the family from a file extension, so it is the fallback.
     declared = stand_family(stand) and str(stand).strip()
@@ -1120,6 +1126,13 @@ def build_index_entry(detail_record: Dict[str, Any], bin_id: str) -> Dict[str, A
         stand = parse_stand(detail_record.get('input_files'))
     if stand:
         entry['stand'] = stand
+    # An FC Durability test's deaths, as the admin list and Recall show them:
+    # the time of death, how many were found and dismissed, and how many
+    # dismissals wait for an admin.
+    from scripts.helpers import deaths
+    summary = deaths.index_summary(detail_record)
+    if summary:
+        entry['ocv_deaths'] = summary
     return entry
 
 
@@ -1565,6 +1578,23 @@ def merge_detail_record(existing: Optional[Dict[str, Any]],
     merged['conditions'] = (json.loads(sets[0])
                             if sets and len(set(sets)) == 1 else None)
 
+    # ── an FC Durability analysis's death table, replaced by the rerun's ──
+    # The dismissals and the death history are the sample's: a rerun's record
+    # has neither, so the stored ones stand as they are; a merge of two stored
+    # records keeps both's -- each dismissal as the record it last changed on
+    # has it, by the two histories (merged after).
+    if isinstance(incoming.get('fc_deaths'), dict):
+        merged['fc_deaths'] = json.loads(json.dumps(incoming['fc_deaths']))
+    from scripts.helpers import deaths
+    hist_a, hist_b = merged.get('ocv_death_history'), incoming.get('ocv_death_history')
+    if incoming.get('ocv_dismissals') or hist_b:
+        joined = deaths.merge_dismissals(merged.get('ocv_dismissals'),
+                                         incoming.get('ocv_dismissals'), hist_a, hist_b)
+        if joined or merged.get('ocv_dismissals'):
+            merged['ocv_dismissals'] = json.loads(json.dumps(joined))
+    if hist_a or hist_b:
+        merged['ocv_death_history'] = json.loads(json.dumps(deaths.merge_history(hist_a, hist_b)))
+
     # ── provenance ──
     merged['schema'] = SCHEMA_VERSION
     merged['job_id'] = incoming.get('job_id', '')     # last writer
@@ -1688,4 +1718,9 @@ def merge_index_entry(existing: Optional[Dict[str, Any]],
         merged['stand'] = stand
     else:
         merged.pop('stand', None)
+    # Built from the whole record, so it describes the sample as it now is.
+    if incoming.get('ocv_deaths'):
+        merged['ocv_deaths'] = json.loads(json.dumps(incoming['ocv_deaths']))
+    else:
+        merged.pop('ocv_deaths', None)
     return merged

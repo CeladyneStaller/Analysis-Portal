@@ -603,7 +603,8 @@ res = analyze_ocv(build_timeline(str(death)))
 check('case 2: five holds', len(res.holds), 5)
 close('case 2: death within one bin of the built-in time', res.death_h, T_DEATH / 3600, 60 / 3600)
 check('... in hold 4', (res.death.segment, res.death.step), (4, 'c8'))
-check('... and later stretches never move it', [r.verdict for r in res.runs], ['death', 'after death'])
+check('... and later stretches never move it: hold 5, still under 0.7 V from its start with the OCV '
+      'never back, is part of the death', [r.verdict for r in res.runs], ['death', 'with death'])
 check('... no recovery', res.recovered_h, None)
 check('decay rate from the latest window ending by the death, not the dead trace',
       res.decay_window_h, (8.0, 12.0))
@@ -680,7 +681,7 @@ check('... settling timed once, from the start of the hold', res.holds[1].settli
 close('case 5: death across the rollover, dated at its start', res.death_h, T_DIE / 3600, 60 / 3600)
 close('... a 40 min stretch', res.death.minutes, 40.4, 0.3)
 close('recovery flagged when the median comes back', res.recovered_h, (28800 + 1200) / 3600, 0.1)
-true('... and the death stands', any('Flagged; the death at 7.66 h stands' in n for n in res.notes),
+true('... and the death stands', any('Flagged; the OCV death at 7.66 h stands' in n for n in res.notes),
      res.notes)
 comeback = tmp / 'comeback'
 write_ocv(comeback / HOLD.format('c2'), 14400, 10, 0.0, lambda H: np.where(H < 7200, 0.90, 0.60))
@@ -837,7 +838,7 @@ true('characterization ticks at 0 h and 20 h', {round(a['x'], 4) for a in top['a
      top['axvlines'])
 wb = openpyxl.load_workbook(out / 'fc_durability.xlsx', read_only=True)
 check('events sheet', [(r[0], r[6]) for r in wb['OCV events'].iter_rows(min_row=2, values_only=True)],
-      [(4, 'death'), (5, 'after death')])
+      [(4, 'death'), (5, 'part of the death at 14.50 h')])
 holds_sheet = list(wb['Holds'].iter_rows(values_only=True))
 col = holds_sheet[0].index('OCV death (h)')
 check('holds sheet marks the death', [r[col] for r in holds_sheet[1:]],
@@ -3380,7 +3381,7 @@ ocv = analyze_ocv(build_timeline(str(low)))
 check('a 2 h hold under its limit throughout: a station death from its first sample, the OCV '
       'rule\'s stretch after it',
       ([(r.trigger, r.verdict) for r in ocv.runs], round(ocv.death.start_h * 3600, 3)),
-      ([('station', 'death'), ('median', 'after death')], 10.0))
+      ([('station', 'death'), ('median', 'with death')], 10.0))
 # A Wet flag that cannot be read is said so, and not also said never to switch.
 _ends = FD.fcd_rh_cycle_ends
 FD.fcd_rh_cycle_ends = lambda *a, **k: (_ for _ in ()).throw(ValueError('unreadable'))
@@ -3398,8 +3399,9 @@ t_c3 = np.arange(10, 7201.0, 10)
 write_fcd(cut3 / 'c5_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 900.0 + t_c3,
           {'E_Stack (V)': np.where((t_c3 > 1800) & (t_c3 <= 4200), 0.6, 0.95)}, desc=TERM)
 ocv = analyze_ocv(build_timeline(str(cut3)))
-check('... and comes first when the next file has a median-rule stretch later',
-      [(r.trigger, r.verdict, r.step) for r in ocv.runs], [('station', 'death', 'c4'), ('median', 'after death', 'c5')])
+check('... and comes first when the next file has a median-rule stretch later, a later death once the '
+      'OCV was back', [(r.trigger, r.verdict, r.step) for r in ocv.runs],
+      [('station', 'death', 'c4'), ('median', 'later death', 'c5')])
 st = tmp / 'fcd_two_ends'
 write_fcd(st / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + np.arange(10, 7201.0, 10),
           {'E_Stack (V)': np.r_[np.full(500, 0.95), np.full(200, 0.66), np.full(19, 0.72), 0.69]},
@@ -3409,7 +3411,7 @@ ocv = analyze_ocv(tl)
 check('the station death is the run under the limit the hold ends on; the median rule\'s '
       'earlier stretch comes first',
       [(r.trigger, r.verdict, round(r.start_h * 3600)) for r in ocv.runs],
-      [('median', 'death', 5010), ('station', 'after death', 7200)])
+      [('median', 'death', 5010), ('station', 'later death', 7200)])
 # A hold the station ends at its last sample, then the crossover after it
 # over the limit: both at the same hour, though the hold clock sums the hold
 # lengths (7,230 s and 7,200 s) one way and the OCV trace the other.
@@ -3494,7 +3496,7 @@ check('... and says what the station did, and when the OCV was back',
         'in a wet half and the RH loop ran on; the OCV was under it 1 s in all (lowest reading '
         '0.6500 V); the 10-min median never fell under 0.7 V in it',
         'OCV recovered: the 10-min median never fell under 0.7 V while the station\'s limit acted, '
-        'and was at 0.7 V or more after it at 0.84 h. Flagged; the death at 0.84 h stands'],
+        'and was at 0.7 V or more after it at 0.84 h. Flagged; the OCV death at 0.84 h stands'],
        ['death: the station\'s own limit tripped in a wet half and the RH loop ran on (lowest sample '
         'shown)']))
 res_once = quiet(run, str(trip / 'once'), str(tmp / 'out_trip_once'), {'image_format': 'none'})
@@ -3684,7 +3686,7 @@ check('... while a cell that never comes up to the limit is dead from its first 
       'rule\'s stretch after it',
       (d.trigger, d.trips, round(d.start_h * 3600, 6), round(d.end_h * 3600, 6),
        [(r_.trigger, r_.verdict) for r_ in ocv.runs]),
-      ('station', 160, 1.0, 7315.0, [('station', 'death'), ('median', 'after death')]))
+      ('station', 160, 1.0, 7315.0, [('station', 'death'), ('median', 'with death')]))
 # A blank Wet flag belongs to neither half: after a trip, the next flagged
 # row still ends the half; on the trip's own row, the half reads as ending
 # early, a sample before it.
@@ -3768,11 +3770,11 @@ for label, (c1, c2, v2) in {'8 min': (40, 47, 0.65), '12 min': (40, 50, 0.65),
     rhc_hold(trip / label / RHC_HOLD, 110, two_at(c1, c2, v2), cut=lambda c, c1=c1, c2=c2: 5 if c in (c1, c2) else None)
     got_m.append((label, [(r_.verdict, r_.trips, round(r_.start_h * 3600, 6), round(r_.end_h * 3600, 6),
                            r_.lowest_v) for r_ in analyze_ocv(build_timeline(str(trip / label))).runs]))
-check('... trips 8 min apart one event; 12 or 37 min apart two, the death and one after it, each '
+check('... trips 8 min apart one event; 12 or 37 min apart two, the death and a later death, each '
       'its own lowest',
       got_m, [('8 min', [('death', 2, 3005.0, 3505.0, 0.65)]),
-              ('12 min', [('death', 1, 3005.0, 3005.0, 0.65), ('after death', 1, 3730.0, 3730.0, 0.65)]),
-              ('37 min', [('death', 1, 2255.0, 2255.0, 0.65), ('after death', 1, 4480.0, 4480.0, 0.6)])])
+              ('12 min', [('death', 1, 3005.0, 3005.0, 0.65), ('later death', 1, 3730.0, 3730.0, 0.65)]),
+              ('37 min', [('death', 1, 2255.0, 2255.0, 0.65), ('later death', 1, 4480.0, 4480.0, 0.6)])])
 # Across the files of one hold, and across a re-run appended to one file,
 # trips close together are still one event, under the first file's step.
 rhc_hold(trip / 'rollover' / RHC_HOLD, 100, one_at(99, 5), cut=lambda c: 5 if c == 99 else None)
@@ -3838,9 +3840,9 @@ rhc_hold(trip / 'tie' / RHC_HOLD, 110,
          lambda c, wet, k: 0.65 if 8 <= c < 24 or (c, wet, k) == (7, 0, 45) else 0.95,
          cut=lambda c: 1 if 8 <= c < 24 else None)
 ocv = analyze_ocv(build_timeline(str(trip / 'tie')))
-check('... a median stretch starting with the station\'s act is after the death, not a dip',
+check('... a median stretch starting with the station\'s act is part of the death, not a dip',
       [(r_.trigger, r_.verdict, round(r_.start_h * 3600)) for r_ in ocv.runs],
-      [('station', 'death', 600), ('median', 'after death', 600)])
+      [('station', 'death', 600), ('median', 'with death', 600)])
 # What the station did, in words.
 acts = [FD.OcvRun(1, 'c4', 1.0, 2.0, 0.0, 0.6, trigger='station', trips=n_, stopped=st_,
                   run_ended=en_, half='wet') for n_, st_, en_ in
@@ -4699,6 +4701,442 @@ check('through the portal: its RH cycles in the index beside the hours, its map 
        [s['label'] for s in src_fo], staged_fo.get('xlabel'),
        bool(xs_fo) and min(xs_fo) >= 0 and 230 < max(xs_fo) <= 236),
       ({'Hours tested': 9.01667, 'RH cycles tested': 236}, True, [FCTS_S], 'RH cycles', True))
+
+# ── 12. Every OCV stretch after the death ─────────────────────────────
+# Corey, 6 Nov: "After OCV hits a death criterion, the portal stops analyzing
+# any OCV data. I want all provided data to be analyzed, but the death to be
+# flagged." Every stretch after the death is judged by the same rule: one
+# that meets it again, once the OCV was back, is a later death, flagged; a
+# shorter one a dip; one that starts before the OCV was back is part of the
+# death it follows. None moves the death, and the decay rate still ends by it
+# (Corey's choice: a rate over a dead cell's trace measures its death).
+print('12. every OCV stretch after the death')
+OCV_HOLD = '{}_S_OCV_95Cell-30RH_0.1WH2-0.2WA.csv'     # HOLD is a plot by now (section 9)
+
+
+def _rn(x_, n_):
+    """round(), None kept: a check then fails on it, where round(None) would end the run."""
+    return None if x_ is None else round(x_, n_)
+
+
+def _wb(out_):
+    """A run's Summary (as a dict), Holds rows and OCV events rows."""
+    wb_ = openpyxl.load_workbook(Path(out_) / 'fc_durability.xlsx', read_only=True)
+    got_ = ({r_[0]: r_[1] for r_ in wb_['Summary'].iter_rows(min_row=2, values_only=True)},
+            list(wb_['Holds'].iter_rows(values_only=True)),
+            list(wb_['OCV events'].iter_rows(min_row=2, values_only=True)))
+    wb_.close()
+    return got_
+
+
+def _dips_later(hs_):
+    """Each hold's (dips, later deaths) from the Holds rows."""
+    a_, b_ = hs_[0].index('Dips'), hs_[0].index('Later OCV deaths')
+    return [(r_[a_], r_[b_]) for r_ in hs_[1:]]
+
+
+def _ocv_axes(out_):
+    """The OCV plot's upper axes and readout, as stored."""
+    sc_ = json.loads((Path(out_) / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                     parse_constant=_no_nan)
+    return sc_['data']['axes'][0], extract_values(sc_)
+
+
+def _dash_dot(ax_):
+    return [(round(a_['x'], 4), a_.get('label')) for a_ in ax_['axvlines'] if a_['linestyle'] == '-.']
+
+
+DIP_KEY = 'dip under 0.7 V, shorter than 30 min'
+fd = tmp / 'false_death'
+xover(fd, 'b20')
+OUT0, OUT1 = 4 * 3600 + 5400.0, 4 * 3600 + 9000.0      # hold 2: the gas out 1.5-2.5 h in
+DIP0, DIP1 = 8 * 3600 + 3600.0, 8 * 3600 + 4800.0      # hold 3: a 20-min dip
+DIE = 16 * 3600 + 7200.0                                # hold 5: dies 2 h in, for good
+
+
+def fd_ocv(H):
+    v = 0.95 - (H / 3600.0) * 400e-6                    # 400 μV/h
+    v = np.where((H >= OUT0) & (H < OUT1), 0.30, v)
+    v = np.where((H >= DIP0) & (H < DIP1), 0.60, v)
+    return np.where(H >= DIE, 0.55, v)
+
+
+for j, step in enumerate(['c2', 'c4', 'c6', 'c8', 'c10']):
+    if j:
+        gas_step(fd, f'c{2 * j + 1}')
+    write_ocv(fd / OCV_HOLD.format(step), 14400, 10, j * 14400.0, fd_ocv)
+xover(fd, 'c11')
+tl_fd = build_timeline(str(fd))
+ocv_fd = analyze_ocv(tl_fd)
+check('a false death (the gas out for 60 min) stays the death; the dip after it is judged a dip, and '
+      'the real death at 18 h a later death, flagged',
+      ([(r.verdict, round(r.start_h, 2), round(r.minutes)) for r in ocv_fd.runs],
+       _rn(ocv_fd.death_h, 2), [round(r.start_h, 2) for r in ocv_fd.later_deaths],
+       _rn(ocv_fd.recovered_h, 2)),
+      ([('death', 5.5, 60), ('dip', 9.0, 20), ('later death', 18.0, 120)], 5.5, [18.0], 6.5))
+check('... the decay rate still from the latest window ending by the death',
+      (round(ocv_fd.decay_uV_h, 1), ocv_fd.decay_window_h), (400.0, (0.0, 4.0)))
+notes_fd = [n_ for n_ in ocv_fd.notes if n_.startswith(('OCV death', 'hold 3 (c6): 10-min'))]
+check('... and the notes say each: the dip as a dip, the later death flagged, the death standing',
+      (len(notes_fd), notes_fd[0].startswith('hold 3 (c6): 10-min median under 0.7 V 1 time(s)')
+       and notes_fd[0].endswith('shorter than 30 min, so not a death'), notes_fd[1:]),
+      (3, True,
+       ['OCV death at 5.50 h in hold 2 (c4), step c4: 10-min median under 0.7 V for 60 min',
+        'OCV death rule met again after the OCV death at 5.50 h: at 18.00 h in hold 5 (c10), 10-min '
+        'median under 0.7 V for 120 min. Flagged; the OCV death at 5.50 h stands']))
+v_fd = decide(tl_fd, ocv_fd, analyze_characterizations(tl_fd))
+check('... the verdict at the death', v_fd.text, 'dead at 5.50 h, OCV')
+out_fd = tmp / 'out_false_death'
+res_fd = quiet(run, str(fd), str(out_fd), {'image_format': 'png'})
+sc_fd = json.loads((out_fd / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(), parse_constant=_no_nan)
+vals_fd = extract_values(sc_fd)
+top_fd = sc_fd['data']['axes'][0]
+check('... on the OCV plot: the death a solid line, the later death dash-dot, apart from the dashed '
+      'threshold; in its readout',
+      (sorted((round(a_['x'], 2), a_['linestyle']) for a_ in top_fd['axvlines'] if a_['x'] > 1.0
+              and a_['x'] < 19.0),
+       vals_fd.get('Later OCV deaths'), vals_fd.get('First later OCV death'),
+       [a_['linestyle'] for a_ in top_fd['axhlines'] if abs(a_['y'] - 0.7) < 1e-12]),
+      ([(5.5, '-'), (18.0, '-.')], 1.0, {'value': 18.0, 'unit': 'h'}, ['--']))
+wb_fd = openpyxl.load_workbook(out_fd / 'fc_durability.xlsx', read_only=True)
+ev_fd = [(r_[0], r_[6]) for r_ in wb_fd['OCV events'].iter_rows(min_row=2, values_only=True)]
+hs_fd = list(wb_fd['Holds'].iter_rows(values_only=True))
+sum_fd = {r_[0]: r_[1] for r_ in wb_fd['Summary'].iter_rows(min_row=2, values_only=True)}
+wb_fd.close()
+c_dips, c_later = hs_fd[0].index('Dips'), hs_fd[0].index('Later OCV deaths')
+again_fd = sum_fd['OCV death rule met again after the death at (h)']
+check('... and in the workbook: the events sheet, each hold\'s dips and later deaths, the Summary '
+      '(how many, and when: one, a number)',
+      (ev_fd, [(r_[c_dips], r_[c_later]) for r_ in hs_fd[1:]],
+       isinstance(again_fd, (int, float)) and not isinstance(again_fd, bool)
+       and abs(again_fd - 18.0) <= 20 / 3600
+       and [again_fd] == [round(r.start_h, 4) for r in ocv_fd.later_deaths],
+       sum_fd.get('Later OCV deaths', 'no row'), sum_fd['OCV dips (under threshold, too short for death)'],
+       sum_fd['OCV death (h)']),
+      ([(2, 'death'), (3, 'dip, shorter than 30 min'), (5, 'later death (the rule met again, flagged)')],
+       [(0, 0), (0, 0), (1, 0), (0, 0), (0, 1)], True, 1, 1, 5.4972))
+top_fd_dips = [sc_.get('label') for sc_ in top_fd['scatters']]
+check('... the dip after the death marked as a dip on the plot',
+      top_fd_dips.count(DIP_KEY), 1)
+check('... the summary row and run() unchanged: the death is the first',
+      (round(res_fd['ocv_death_h'], 4), round(res_fd['hours_to_death'], 4), res_fd['summary'][0]['OCV death']),
+      (5.4972, 5.4972, 5.4972))
+# A later death the OCV never comes back from: what follows it is part of it.
+fd2 = tmp / 'false_death_then_dead'
+for j, step in enumerate(['c2', 'c4', 'c6']):
+    if j:
+        gas_step(fd2, f'c{2 * j + 1}')
+    write_ocv(fd2 / OCV_HOLD.format(step), 14400, 10, j * 14400.0,
+              lambda H: np.where((H >= 3600) & (H < 7200), 0.30, np.where(H >= 4 * 3600 + 7200, 0.55, 0.92)))
+ocv_fd2 = analyze_ocv(build_timeline(str(fd2)))
+ev_fd2 = [r_['Verdict'] for r_ in FD.ocv_event_rows(ocv_fd2)]
+check('a later death never recovered from: the next hold\'s stretch is part of it, said so',
+      ([(r.verdict, round(r.start_h, 2)) for r in ocv_fd2.runs], ev_fd2),
+      ([('death', 1.0), ('later death', 6.0), ('with death', 8.17)],
+       ['death', 'later death (the rule met again, flagged)', 'part of the later death at 6.00 h']))
+out_fd2 = tmp / 'out_false_death_then_dead'
+res_fd2 = quiet(run, str(fd2), str(out_fd2), {'image_format': 'png'})
+sum_fd2, hs_fd2, _ = _wb(out_fd2)
+ax_fd2, _ = _ocv_axes(out_fd2)
+check('... a part counted as neither a dip nor a later death: the Holds sheet, the Summary, the plot\'s '
+      'dip markers, the notes',
+      (_dips_later(hs_fd2), sum_fd2['OCV dips (under threshold, too short for death)'],
+       sum_fd2.get('Later OCV deaths', 'no row'), [sc_.get('label') for sc_ in ax_fd2['scatters']].count(DIP_KEY),
+       [n_ for n_ in res_fd2['notes'] if 'so not a death' in n_]),
+      ([(0, 0), (0, 1), (0, 0)], 0, 1, 0, []))
+# A deep collapse in an RH loop: half the 10-min window low, its median is the
+# mean of a low and a high reading, under 0.7 V a sample before the first
+# reading under the station's limit. That stretch, 20 min, is part of the
+# station's act -- after the death, and as the death -- not a dip beside it.
+
+
+def collapse(c0_, c1_, trip_first):
+    def v_(c, wet, k):
+        if c0_ <= c < c1_:
+            return 0.30
+        return 0.65 if trip_first and (c, wet, k) == (20, 1, 10) else 0.95
+
+    def cut_(c):
+        return 1 if c0_ <= c < c1_ else 10 if trip_first and c == 20 else None
+    return v_, cut_
+
+
+deep = tmp / 'deep_collapse'
+v_dc, cut_dc = collapse(100, 126, True)
+rhc_hold(deep / RHC_HOLD, 200, v_dc, cut=cut_dc)
+tl_dc = build_timeline(str(deep))
+ocv_dc = analyze_ocv(tl_dc)
+runs_dc = ocv_dc.runs
+check('a deep collapse after the death: the median\'s stretch a sample ahead, part of the station\'s '
+      'act, a later death; no dip',
+      ([(r.trigger, r.verdict, runs_dc.index(r.part_of) if r.part_of is not None else None)
+        for r in runs_dc],
+       len(runs_dc) == 3 and runs_dc[1].start_h < runs_dc[2].start_h, _rn(ocv_dc.death_h, 4),
+       [round(r.start_h, 2) for r in ocv_dc.later_deaths]),
+      ([('station', 'death', None), ('median', 'with death', 2), ('station', 'later death', None)],
+       True, 0.4194, [2.08]))
+check('... its notes: no dip; the later death as the station acted',
+      ([n_ for n_ in ocv_dc.notes if 'so not a death' in n_],
+       [n_ for n_ in ocv_dc.notes if n_.startswith('OCV death rule met again')]),
+      ([], ['OCV death rule met again after the OCV death at 0.42 h: at 2.08 h in hold 1 (c4), the '
+            'station\'s own limit tripped in 26 wet halves, the RH loop running on. Flagged; the OCV '
+            'death at 0.42 h stands']))
+check('... its events: the part, and the later death without a double colon',
+      [r_['Verdict'] for r_ in FD.ocv_event_rows(ocv_dc)],
+      ['death: the station\'s own limit tripped in a wet half and the RH loop ran on (lowest sample shown)',
+       'part of the later death at 2.08 h',
+       'later death (the rule met again, flagged): the station\'s own limit tripped in 26 wet halves, the RH '
+       'loop running on (lowest sample shown)'])
+out_dc = tmp / 'out_deep_collapse'
+quiet(run, str(deep), str(out_dc), {'image_format': 'png'})
+sum_dc, hs_dc, _ = _wb(out_dc)
+ax_dc, vals_dc = _ocv_axes(out_dc)
+check('... in the workbook and on the plot: one later death, no dip',
+      (_dips_later(hs_dc), sum_dc['OCV dips (under threshold, too short for death)'], sum_dc.get('Later OCV deaths', 'no row'),
+       [sc_.get('label') for sc_ in ax_dc['scatters']].count(DIP_KEY), len(_dash_dot(ax_dc)),
+       vals_dc.get('Later OCV deaths')),
+      ([(0, 1)], 0, 1, 0, 1, 1.0))
+deep_b = tmp / 'deep_collapse_first'
+v_db, cut_db = collapse(100, 126, False)
+rhc_hold(deep_b / RHC_HOLD, 200, v_db, cut=cut_db)
+tl_db = build_timeline(str(deep_b))
+ocv_db = analyze_ocv(tl_db)
+runs_db = ocv_db.runs
+check('... and as the death: part of it, no dip; the death dated at the station\'s act, as before',
+      ([(r.trigger, r.verdict, runs_db.index(r.part_of) if r.part_of is not None else None)
+        for r in runs_db],
+       len(runs_db) == 2 and ocv_db.death is runs_db[1] and runs_db[0].start_h < runs_db[1].start_h,
+       [n_ for n_ in ocv_db.notes if 'so not a death' in n_],
+       decide(tl_db, ocv_db, analyze_characterizations(tl_db)).text),
+      ([('median', 'with death', 1), ('station', 'death', None)], True, [],
+       'dead at 2.08 h, OCV (station limit)'))
+# A collapse the median judges, the station's limit tripping on 6 min after
+# the median is back: the recovery is the median's, as on main, and the note
+# says the station's act, part of the death, went on.
+long_c = tmp / 'collapse_then_trips'
+rhc_hold(long_c / RHC_HOLD, 200,
+         lambda c, wet, k: 0.30 if 60 <= c < 106 else 0.65 if (106 <= c < 114 and wet and k == 5) else 0.95,
+         cut=lambda c: 1 if 60 <= c < 106 else 5 if 106 <= c < 114 else None)
+ocv_lc = analyze_ocv(build_timeline(str(long_c)))
+md_lc, st_lc = (ocv_lc.runs + [None, None])[:2]
+rec_lc = [n_ for n_ in ocv_lc.notes if n_.startswith('OCV recovered')]
+
+
+def _acted_on(ocv_, md_, st_):
+    """The recovery the median's own, and the note: when the median was back,
+    and when the station's limit, part of the death, last acted."""
+    rec_ = [n_ for n_ in ocv_.notes if n_.startswith('OCV recovered')]
+    return (st_ is not None and None not in (ocv_.recovered_h, md_.recovered_h, ocv_.death_h)
+            and ocv_.recovered_h == md_.recovered_h
+            and rec_ == [f'OCV recovered: the 10-min median was back at 0.7 V or more at {md_.recovered_h:.2f} h; '
+                         f'the station\'s limit acted on until {st_.end_h:.2f} h, part of the death. Flagged; '
+                         f'the OCV death at {ocv_.death_h:.2f} h stands'])
+
+
+check('a station act part of the death going on 6 min after the median is back: the recovery the '
+      'median\'s, the note saying when the limit last acted',
+      ([(r.trigger, r.verdict) for r in ocv_lc.runs], _acted_on(ocv_lc, md_lc, st_lc),
+       st_lc is not None and md_lc.recovered_h is not None and 5 / 60 < st_lc.end_h - md_lc.recovered_h < 7 / 60),
+      ([('median', 'death'), ('station', 'with death')], True, True))
+# The same, the limit tripping every 5 min to the end of the log, which ends
+# in a wet half it tripped in: still the median's recovery, never none.
+to_end = tmp / 'collapse_trips_to_end'
+trips_end = lambda c: c >= 106 and (c - 106) % 4 == 0 or c == 199
+rhc_hold(to_end / RHC_HOLD, 200,
+         lambda c, wet, k: 0.30 if 60 <= c < 106 else 0.65 if (trips_end(c) and wet and k == 5) else 0.95,
+         cut=lambda c: 1 if 60 <= c < 106 else 5 if trips_end(c) else None,
+         drop={(199, 0, k_) for k_ in range(1, 46)})
+ocv_te = analyze_ocv(build_timeline(str(to_end)))
+md_te, st_te = (ocv_te.runs + [None, None])[:2]
+check('... to the end of the log: the recovery still the median\'s, the note saying when the limit last acted',
+      ([(r.trigger, r.verdict) for r in ocv_te.runs], _acted_on(ocv_te, md_te, st_te),
+       st_te is not None and FD._back_at(ocv_te, st_te) == float('inf')),
+      ([('median', 'death'), ('station', 'with death')], True, True))
+# A part that does not outlast the death leaves its recovery said as the
+# death's: a .fcd hold the station stopped inside its settle (no judged OCV),
+# after a death that never recovered, the next hold healthy.
+settle_stop = tmp / 'settle_stop'
+t_ss = np.arange(1, 7201.0, 1.0)
+write_fcd(settle_stop / 'c4_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 100.0 + t_ss,
+          {'E_Stack (V)': np.where(t_ss > 1800, 0.6, 0.95)})
+t_ss2 = np.arange(1, 301.0, 1.0)
+write_fcd(settle_stop / 'c6_OCV_80C-100RH_0o1H2-0o1Air_0kPa.fcd', 9000.0 + t_ss2,
+          {'E_Stack (V)': np.where(t_ss2 < 300, 0.95, 0.69)}, desc=TERM)
+write_fcd(settle_stop / 'c8_OCV_90C-100RH_0o1H2-0o1Air_0kPa.fcd', 12000.0 + t_ss, {'E_Stack (V)': 0.95})
+ocv_ss = analyze_ocv(build_timeline(str(settle_stop)))
+check('a station stop in a hold with no judged OCV, after a death never recovered: part of it; the '
+      'recovery said as the death\'s',
+      ([(r.trigger, r.verdict) for r in ocv_ss.runs], _rn(ocv_ss.recovered_h, 2),
+       [n_ for n_ in ocv_ss.notes if n_.startswith('OCV recovered')]),
+      ([('median', 'death'), ('station', 'with death')], 2.25,
+       ['OCV recovered: the 10-min median was back at 0.7 V or more at 2.25 h. Flagged; the OCV death '
+        'at 0.50 h stands']))
+end_dip = tmp / 'dip_then_dead_hold'
+xover(end_dip, 'b20')
+for j, step in enumerate(['c2', 'c4', 'c6', 'c8']):
+    if j:
+        gas_step(end_dip, f'c{2 * j + 1}')
+    write_ocv(end_dip / OCV_HOLD.format(step), 14400, 10, j * 14400.0,
+              lambda H: np.where((H >= 8 * 3600 - 1200) & (H < 10 * 3600), 0.60, 0.93))
+xover(end_dip, 'c9')
+ocv_ed = analyze_ocv(build_timeline(str(end_dip)))
+check('a dip at the end of a hold, the next hold dead from its start: a dip, its note kept; the death '
+      'in the next hold',
+      ([(r.verdict, round(r.start_h, 2)) for r in ocv_ed.runs], _rn(ocv_ed.recovered_h, 2),
+       [n_.split(':')[0] for n_ in ocv_ed.notes if 'so not a death' in n_]),
+      ([('dip', 7.67), ('death', 8.17)], 10.0, ['hold 2 (c4)']))
+# Back only at a judged OCV: a hold with none (all on load) between a death
+# that never recovers in its hold and the next hold, healthy from its settle.
+load_gap = tmp / 'load_gap'
+xover(load_gap, 'b20')
+for j, step in enumerate(['c2', 'c4', 'c6', 'c8']):
+    if j:
+        gas_step(load_gap, f'c{2 * j + 1}')
+    write_ocv(load_gap / OCV_HOLD.format(step), 14400, 10, j * 14400.0,
+              lambda H: np.where(((H >= 5 * 3600) & (H < 8 * 3600)) | ((H >= 14 * 3600) & (H < 14 * 3600 + 2400)),
+                                 0.60, 0.93),
+              i=(lambda H: np.full(len(H), 0.5)) if j == 2 else None)
+xover(load_gap, 'c9')
+ocv_lg = analyze_ocv(build_timeline(str(load_gap)))
+check('a hold with no judged OCV between: the OCV back at the next judged one, so the stretch after '
+      'it a later death',
+      ([(r.verdict, round(r.start_h, 1)) for r in ocv_lg.runs], [h_.judged for h_ in ocv_lg.holds][2],
+       _rn(ocv_lg.recovered_h, 2)),
+      ([('death', 5.0), ('later death', 14.0)], 0, 12.17))
+# Exactly ten later deaths: all named, all drawn, nothing more.
+ten = tmp / 'ten_later'
+trips10 = set(range(20, 152, 12))
+rhc_hold(ten / RHC_HOLD, 180, lambda c, wet, k: 0.65 if (c in trips10 and wet and k == 5) else 0.95,
+         cut=lambda c: 5 if c in trips10 else None)
+res_10 = quiet(run, str(ten), str(tmp / 'out_ten'), {'image_format': 'png'})
+note_10 = next((n_ for n_ in res_10['notes'] if n_.startswith('OCV death rule met again')), '')
+sum_10, _, _ = _wb(tmp / 'out_ten')
+ax_10, vals_10 = _ocv_axes(tmp / 'out_ten')
+lines_10 = _dash_dot(ax_10)
+cell_10 = sum_10['OCV death rule met again after the death at (h)']
+check('exactly ten later deaths: the note names all ten and no more; ten lines, the legend without a '
+      'cap; the Summary lists ten',
+      (note_10.count('; at ') + 1, 'more' in note_10, note_10.startswith(
+          'OCV death rule met again after the OCV death at 0.42 h, 10 times: at 0.66 h in hold 1 (c4), the '
+          'station\'s own limit tripped in a wet half and the RH loop ran on; at 0.90 h'),
+       len(lines_10), [lab_ for _, lab_ in lines_10 if lab_],
+       sum_10.get('Later OCV deaths', 'no row'), isinstance(cell_10, str) and len(cell_10.split(', ')), ';' in str(cell_10),
+       vals_10.get('Later OCV deaths')),
+      (10, False, True, 10, ['OCV death rule met again (flagged)'], 10, 10, False, 10.0))
+# Many later deaths: ten named, the rest counted; three in the readout. The
+# station's limit trips in 12 wet halves 15 min apart, the OCV back between.
+many = tmp / 'many_trips'
+trips_at = set(range(20, 164, 12))
+rhc_hold(many / RHC_HOLD, 180, lambda c, wet, k: 0.65 if (c in trips_at and wet and k == 5) else 0.95,
+         cut=lambda c: 5 if c in trips_at else None)
+tl_m = build_timeline(str(many))
+ocv_m = analyze_ocv(tl_m)
+later_m = ocv_m.later_deaths
+note_m = next((n_ for n_ in ocv_m.notes if n_.startswith('OCV death rule met again')), '')
+res_m = quiet(run, str(many), str(tmp / 'out_many'), {'image_format': 'png'})
+vals_m = extract_values(json.loads((tmp / 'out_many' / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                                   parse_constant=_no_nan))
+check('twelve trips 15 min apart: the death and eleven later deaths; the note names ten and counts the '
+      'rest; the readout how many, and when the first was',
+      (len(ocv_m.runs), [r.verdict for r in ocv_m.runs][:2], len(later_m),
+       note_m.count('; at ') + 1, note_m.endswith('; and 1 more. Flagged; the OCV death at 0.42 h stands'),
+       note_m.startswith('OCV death rule met again after the OCV death at 0.42 h, 11 times: at 0.66 h in hold 1 '
+                         '(c4), the station\'s own limit tripped in a wet half and the RH loop ran on; at 0.90 h'),
+       vals_m.get('Later OCV deaths'), vals_m.get('First later OCV death')),
+      (12, ['death', 'later death'], 11, 10, True, True, 11.0, {'value': 0.66, 'unit': 'h'}))
+sum_m, _, _ = _wb(tmp / 'out_many')
+ax_m, _ = _ocv_axes(tmp / 'out_many')
+lines_m = _dash_dot(ax_m)
+check('... on the plot the first ten drawn, the legend saying so; the Summary how many, and the first ten '
+      'and how many more',
+      (len(lines_m), [x_ for x_, _ in lines_m] == [round(r.start_h, 4) for r in later_m[:10]],
+       [lab_ for _, lab_ in lines_m if lab_], sum_m.get('Later OCV deaths', 'no row'),
+       sum_m['OCV death rule met again after the death at (h)']),
+      (10, True, ['OCV death rule met again (flagged), the first 10 of 11 drawn'], 11,
+       ', '.join(f'{r.start_h:.4f}' for r in later_m[:10]) + '; and 1 more, in OCV events'))
+
+# The rule itself on stretches made by hand: each (start h, minutes, trigger)
+# with when the OCV was back after it.
+def judged(rows, persist=30.0):
+    runs = [FD.OcvRun(1, 'c2', a, a + m / 60.0, m, 0.6, trigger=t) for a, m, t, _ in rows]
+    back = {id(r): b for r, (_, _, _, b) in zip(runs, rows)}
+    death = FD.judge_runs(runs, persist, lambda r: back[id(r)])
+    return ([(r.verdict, runs.index(r.part_of) if r.part_of is not None else None) for r in runs],
+            runs.index(death) if death is not None else None)
+
+
+inf = float('inf')
+check('the rule at its edges: a dip before the death; a stretch that starts before the OCV was back '
+      'part of the death; one that starts as it was back judged on its own',
+      judged([(0.5, 20, 'median', 0.9), (1.0, 40, 'median', 2.0), (1.9, 5, 'station', 2.5),
+              (2.5, 31, 'median', 3.2), (3.5, 10, 'median', 3.8)]),
+      ([('dip', None), ('death', None), ('with death', 1), ('later death', None), ('dip', None)], 1))
+check('... a part that the OCV was back from later than the death extends it: a stretch after the '
+      'death\'s own recovery but before its part\'s is still part of it',
+      judged([(1.0, 40, 'median', 2.0), (1.5, 1, 'station', 3.0), (2.5, 40, 'median', 3.4)]),
+      ([('death', None), ('with death', 0), ('with death', 0)], 0))
+check('... a death the OCV never comes back from takes everything after it, the station\'s acts too',
+      judged([(1.0, 40, 'median', inf), (5.0, 1, 'station', 5.1), (9.0, 90, 'median', inf)]),
+      ([('death', None), ('with death', 0), ('with death', 0)], 0))
+check('... a later death takes what follows it until the OCV is back, and a dip after that is a dip',
+      judged([(1.0, 40, 'median', 1.8), (3.0, 1, 'station', 4.0), (3.5, 45, 'median', 4.5),
+              (5.0, 10, 'median', 5.3)]),
+      ([('death', None), ('later death', None), ('with death', 1), ('dip', None)], 0))
+check('... a dip the station\'s act starts within is part of its act, as the death or later; one it '
+      'starts after stays a dip; a part taken in extends the act',
+      (judged([(1.0, 20, 'median', 1.4), (1.01, 1, 'station', 1.3)]),
+       judged([(1.0, 20, 'median', 1.4), (1.4, 1, 'station', 1.5)]),
+       judged([(0.5, 40, 'median', 1.0), (2.0, 20, 'median', 2.6), (2.1, 1, 'station', 2.3),
+               (2.5, 5, 'median', 2.55)])),
+      (([('with death', 1), ('death', None)], 1), ([('dip', None), ('death', None)], 1),
+       ([('death', None), ('with death', 2), ('later death', None), ('with death', 2)], 0)))
+check('... but a dip the OCV is not back from when a death comes after it stays a dip: the death a '
+      'median\'s (across a hold or a gap in the log), or the station\'s act after the dip',
+      (judged([(1.0, 20, 'median', 3.0), (2.0, 40, 'median', 3.5)]),
+       judged([(1.0, 20, 'median', 3.0), (2.0, 1, 'station', 2.1)])),
+      (([('dip', None), ('death', None)], 1), ([('dip', None), ('death', None)], 1)))
+check('... a station act starting on the dip\'s last sample is still within it',
+      judged([(1.0, 20, 'median', 1.4), (1.0 + 20 / 60.0, 1, 'station', 1.5)]),
+      ([('with death', 1), ('death', None)], 1))
+runs_bh = [FD.OcvRun(1, 'c2', a_, a_ + m_ / 60.0, m_, 0.6, trigger=t_)
+           for a_, m_, t_ in ((1.0, 40, 'median'), (1.4, 1, 'station'), (3.0, 45, 'median'), (5.0, 10, 'median'))]
+back_bh = dict(zip(map(id, runs_bh), (1.5, 1.6, inf, 5.3)))
+FD.judge_runs(runs_bh, 30.0, lambda r: back_bh[id(r)])
+check('... each death and later death keeps when the OCV was back after it and its parts, None if never',
+      [(r.verdict, r.back_h) for r in runs_bh],
+      [('death', 1.6), ('with death', None), ('later death', None), ('with death', None)])
+back_bh2 = dict(zip(map(id, runs_bh), (1.2, 1.6, 3.9, 5.3)))
+FD.judge_runs(runs_bh, 30.0, lambda r: back_bh2[id(r)])
+check('... judged again (as after a death dismissed), every verdict and link set afresh',
+      [(r.verdict, runs_bh.index(r.part_of) if r.part_of is not None else None, r.back_h) for r in runs_bh],
+      [('death', None, 1.2), ('later death', None, 1.6), ('later death', None, 3.9), ('dip', None, None)])
+check('... no stretch meeting the rule: no death, dips only; none at all: none',
+      (judged([(1.0, 29.9, 'median', 1.6), (3.0, 10, 'median', 3.3)]), judged([])),
+      (([('dip', None), ('dip', None)], None), ([], None)))
+# Alive: no later deaths anywhere.
+out_al = tmp / 'out_alive_later'
+quiet(run, str(dips), str(out_al), {'image_format': 'png'})
+wb_al = openpyxl.load_workbook(out_al / 'fc_durability.xlsx', read_only=True)
+sum_al = {r_[0]: r_[1] for r_ in wb_al['Summary'].iter_rows(min_row=2, values_only=True)}
+hs_al = list(wb_al['Holds'].iter_rows(values_only=True))
+wb_al.close()
+vals_al = extract_values(json.loads((out_al / '_plot_data' / 'fcdur_ocv_vs_time.json').read_text(),
+                                    parse_constant=_no_nan))
+check('alive: no later deaths in the readout, the Summary cells blank, every hold none',
+      ('Later OCV deaths' in vals_al or 'First later OCV death' in vals_al,
+       sum_al.get('Later OCV deaths', 'no row'), sum_al['OCV death rule met again after the death at (h)'],
+       {r_[hs_al[0].index('Later OCV deaths')] for r_ in hs_al[1:]}),
+      (False, None, None, {0}))
+# Dead with no later death: 'none'.
+wb_d = openpyxl.load_workbook(tmp / 'out_death' / 'fc_durability.xlsx', read_only=True)
+sum_d = {r_[0]: r_[1] for r_ in wb_d['Summary'].iter_rows(min_row=2, values_only=True)}
+wb_d.close()
+_, vals_d = _ocv_axes(tmp / 'out_death')
+check('dead without a later death: the Summary says none; the readout counts 0, so the record says '
+      'they were judged',
+      (sum_d.get('Later OCV deaths', 'no row'), sum_d['OCV death rule met again after the death at (h)'],
+       vals_d.get('Later OCV deaths'), 'First later OCV death' in vals_d),
+      (0, 'none', 0.0, False))
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{passed} passed, {failed} failed')

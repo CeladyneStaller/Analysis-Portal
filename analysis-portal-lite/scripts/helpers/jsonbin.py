@@ -484,8 +484,13 @@ def push_job_metrics(*,
                      summary: Optional[Any] = None,
                      stand: Optional[str] = None,
                      script_short: str = '',
-                     extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     extra: Optional[Dict[str, Any]] = None,
+                     fc_deaths: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Persist one completed analysis as a detail bin plus an index entry.
+
+    `fc_deaths`: an FC Durability analysis's death table. The sample's
+    dismissals of false OCV deaths, which the analysis was judged with, are
+    applied here instead when they changed meanwhile (deaths.py).
 
     Returns
     -------
@@ -527,7 +532,7 @@ def push_job_metrics(*,
             job_id=job_id, sample_name=sample_name, script=script,
             timestamp=timestamp, input_files=input_files,
             output_dir=Path(output_dir), summary=summary, stand=stand,
-            include_sidecars=False)
+            include_sidecars=False, fc_deaths=fc_deaths)
         all_sidecars = load_sidecars(Path(output_dir))
     except Exception as e:
         out['reason'] = f'record assembly failed: {e}'
@@ -596,6 +601,34 @@ def push_job_metrics(*,
 
         base = merge_detail_record(existing_record, record) if existing_record \
             else record
+        # The sample's dismissals of false OCV deaths are the stored ones. A
+        # job judged with others -- changed while it ran, or not read -- is
+        # brought to them here, sidecars included; then the analysis goes in
+        # the death history.
+        if isinstance(fc_deaths, dict) and isinstance(base.get('fc_deaths'), dict):
+            from scripts.helpers import deaths
+            if not existing_record and not base.get('ocv_dismissals'):
+                # A new bin -- a new sample, or one whose lookup failed: the
+                # dismissals the job was judged with, which its worker read
+                # from the store, are the sample's.
+                carried = deaths.clean_dismissals(fc_deaths.get('dismissals'))
+                if carried:
+                    base['ocv_dismissals'] = json.loads(json.dumps(carried))
+            # One kept on file that this analysis finds its death for applies
+            # again, and waits again if a later analysis loses it.
+            unkept = deaths.applied_again(base)
+            stored = base.get('ocv_dismissals') or []
+            if deaths.canon(fc_deaths.get('dismissals') or []) != deaths.canon(stored):
+                deaths.apply_to_record(base, sidecars=merged_sidecars)
+                out['dismissals_reapplied'] = True
+            # The table keeps what the analysis found; the dismissals are kept
+            # beside it, as the sample's.
+            base['fc_deaths'] = {k: v for k, v in base['fc_deaths'].items() if k != 'dismissals'}
+            if base['fc_deaths'].get('events') or stored:
+                # Dated when stored, after any admin change it waited behind;
+                # naming any kept on file it applied again.
+                deaths.history_add(base, 'analysed', deaths.analysis_text(base), job_id=job_id,
+                                   unkept=unkept or None)
         base, kept, dropped, body_bytes = fit_record_to_budget(
             base, merged_sidecars, protected=incoming_names)
 

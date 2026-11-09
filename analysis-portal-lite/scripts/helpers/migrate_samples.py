@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.helpers import jsonbin                                  # noqa: E402
+from scripts.helpers import deaths, jsonbin                          # noqa: E402
 from scripts.helpers.record import (                                 # noqa: E402
     decode_sidecars, merge_detail_record, merge_index_entry,
 )
@@ -144,6 +144,11 @@ for name, group in dupes.items():
         continue
 
     merged_entry['bin_id'] = survivor.get('bin_id')
+    # The sample's dismissals of false OCV deaths, judged against its newest
+    # analysis, as the admin panel's merge judges them: the sidecars rewritten
+    # are those fitted below.
+    deaths.judge_merged(merged_detail, merged_entry, merged_entry['bin_id'],
+                        sidecars=all_sidecars)
     fitted, kept, dropped, body_bytes = jsonbin.fit_record_to_budget(
         merged_detail, all_sidecars, protected=protected)
 

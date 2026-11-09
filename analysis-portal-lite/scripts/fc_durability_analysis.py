@@ -44,10 +44,16 @@ in which the centred 10-min rolling median of the judged samples stays below
 0.7 V for 30 min. A .fcd hold whose header carries its own voltage limit
 (Term:E<0.7) also dies when the station acts on it, however briefly: when
 it ends the step, or cuts a wet half of the RH-cycling loop short and the
-loop runs on. Each hold also gives a settled start and end OCV (30-min
-medians) and a rolling 10 h decay rate; the test's OCV loss runs from the
-first hold's settled start to the last hold's end at the first hold's
-conditions.
+loop runs on. Every stretch after the death is judged by the same rule and
+flagged -- one that meets it again a later death, a shorter one a dip --
+and never moves it; a stretch that starts before the OCV was back after a
+death, or a dip the station's act starts within, is part of that death.
+An admin may dismiss a death the cell did not cause (a gas supply that ran
+out, say): the store keeps the dismissal with the sample, a rerun passes it
+in, and the next death counts (deaths.py).
+Each hold also gives a settled start and end OCV (30-min medians) and a
+rolling 10 h decay rate; the test's OCV loss runs from the first hold's
+settled start to the last hold's end at the first hold's conditions.
 
 Every crossover, ECSA, EIS and pol-curve file is analyzed by the portal's
 own functions on columns read by header name, and stamped with the hold
@@ -82,7 +88,7 @@ import os
 import re
 from dataclasses import dataclass, field, replace as dc_replace
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -94,6 +100,8 @@ from matplotlib.patches import Patch
 # The OCV plot's high–low band is labelled by its edges as the portal's redraw
 # and Comparisons know them, and shaded alike.
 from scripts.helpers.plot_compare import save_with_sidecar, BAND_LOW, BAND_HIGH, BAND_ALPHA
+# Dismissing a false OCV death: the rules the store applies to a record too.
+from scripts.helpers import deaths as DEATHS
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1696,7 +1704,14 @@ class OcvRun:
     minutes: float
     lowest_v: float
     recovered_h: Optional[float] = None   # median back at or above the threshold, same hold
-    verdict: str = 'dip'                  # 'death', 'dip' or 'after death'
+    # 'death' (the first that meets the rule), 'later death' (one that meets
+    # it again once the OCV was back), 'dip' (shorter), or 'with death' (part
+    # of a death or later death, `part_of`: it starts before the OCV was back
+    # after that one, or that one, the station's act, starts within it -- the
+    # same episode, seen by the other rule or still going). judge_runs. Or
+    # 'dismissed': a death or later death an admin dismissed (`dismissed`),
+    # `judged_as` what it was judged.
+    verdict: str = 'dip'
     # 'median': the 10-min median under the threshold; 'station': a .fcd hold
     # whose own voltage limit acted (station_runs), a death however short.
     trigger: str = 'median'
@@ -1705,6 +1720,16 @@ class OcvRun:
     run_ended: bool = False  # station: its last trip was in the last half of a run
     half: str = ''           # station: the halves the limit is on, 'wet' (KM8-S6) or 'dry'
     median_fell: bool = True  # station: the 10-min median fell under the threshold in it
+    part_of: Optional['OcvRun'] = None   # 'with death': the death or later death it is part of
+    # death, later death: when the OCV was back after it and its parts, the
+    # episode's end as judge_runs grouped it (None if never).
+    back_h: Optional[float] = None
+    # death, later death: where it starts, which names it to a dismissal --
+    # the folder of its step's file and the time into that file (h).
+    folder: str = ''
+    offset_h: Optional[float] = None
+    dismissed: Optional[Dict[str, Any]] = None   # the dismissal that takes it
+    judged_as: str = ''                          # 'dismissed': what it was judged
 
     def station_acted(self, limit: str = '', until: bool = False) -> str:
         """What the station's limit did, for the notes and the events sheet:
@@ -1920,6 +1945,12 @@ class OcvResult:
     notes: List[str] = field(default_factory=list)
     plot_bin_s: float = math.nan     # bin width of the OCV plot (and its stored copy)
     plot_bin_rule: str = ''          # how that width was chosen
+    # Every death and later death as judged, dismissed or not, in clock
+    # order: one per episode. The admin's dismissals given, cleaned, and
+    # those that matched no death (deaths.py).
+    events: List['OcvRun'] = field(default_factory=list)
+    dismissals: List[Dict[str, Any]] = field(default_factory=list)
+    unmatched: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def death_h(self) -> Optional[float]:
@@ -1934,6 +1965,16 @@ class OcvResult:
     @property
     def runs(self) -> List[OcvRun]:
         return [r for h in self.holds for r in h.runs]
+
+    @property
+    def later_deaths(self) -> List[OcvRun]:
+        """Stretches after the death that meet the death rule again, flagged."""
+        return [r for r in self.runs if r.verdict == 'later death']
+
+    @property
+    def dismissed_runs(self) -> List[OcvRun]:
+        """Deaths and later deaths an admin dismissed."""
+        return [r for r in self.runs if r.verdict == 'dismissed']
 
 
 def _by_condition(holds: List[HoldOcv], ref_key: Tuple[Any, ...],
@@ -1965,6 +2006,29 @@ def _by_condition(holds: List[HoldOcv], ref_key: Tuple[Any, ...],
     return rows
 
 
+# Later deaths named one by one in the notes; the rest are counted.
+LATER_LISTED = DEATHS.LATER_LISTED
+
+
+def _dismissed_note(res: OcvResult, r: OcvRun, last: bool) -> str:
+    """A death an admin dismissed: where, when, why; on the last before the
+    death, which death counts now."""
+    d = r.dismissed
+    note = str(d.get('note') or '').strip()
+    when = DEATHS.day(d.get('at'))
+    lab = _hold_label(res.holds[r.segment - 1].segment)
+    later = res.death is not None and r.start_h > res.death.start_h
+    several = sum(1 for x in res.dismissed_runs
+                  if res.death is None or x.start_h < res.death.start_h) > 1
+    return (f'{"Later OCV death" if later else "OCV death"} at {r.start_h:.2f} h in {lab} '
+            f'dismissed by an admin' + (f' on {when}' if when else '')
+            + f': {DEATHS.reason_text(d)}' + (f' (“{note}”)' if note else '')
+            + ('' if later or not last else
+               f'. The OCV death is now the next one{" not dismissed" if several else ""}, '
+               f'at {res.death.start_h:.2f} h' if res.death else
+               f'. No OCV death follows {"them" if several else "it"}'))
+
+
 def _ocv_notes(res: OcvResult) -> List[str]:
     s = res.settings
     out: List[str] = []
@@ -1993,6 +2057,12 @@ def _ocv_notes(res: OcvResult) -> List[str]:
         if h.raw_below:
             out.append(f'{lab}: {h.raw_below} judged samples under {s.threshold_v:g} V while '
                        f'the 10-min median stayed above it')
+    # An admin's dismissals, in clock order: those before the death say why
+    # it is where it is, so they come first; later deaths dismissed follow
+    # the later deaths.
+    dismissed = res.dismissed_runs
+    first = [r for r in dismissed if res.death is None or r.start_h < res.death.start_h]
+    out.extend(_dismissed_note(res, r, r is first[-1]) for r in first)
     if res.death:
         d = res.death
         seg = res.holds[d.segment - 1].segment
@@ -2013,13 +2083,45 @@ def _ocv_notes(res: OcvResult) -> List[str]:
                        f'{s.threshold_v:g} V for {d.minutes:.0f} min')
         if res.recovered_h is not None:
             thr, at = f'{s.threshold_v:g} V', f'{res.recovered_h:.2f} h'
+            # The station's act, part of the death, acting on after the median was back.
+            on = [r.end_h for r in res.runs if r.part_of is d and r.trigger == 'station'
+                  and _back_at(res, r) > res.recovered_h]
             out.append('OCV recovered: ' + (
                 f'the 10-min median was back at {thr} or more at {at}' if d.trigger != 'station' else
                 f"once the station's limit stopped acting, the 10-min median was back at {thr} or "
                 f'more at {at}' if d.median_fell else
                 f"the 10-min median never fell under {thr} while the station's limit acted, and "
                 f'was at {thr} or more after it at {at}')
-                + f'. Flagged; the death at {d.start_h:.2f} h stands')
+                + (f"; the station's limit acted on until {max(on):.2f} h, part of the death" if on else '')
+                + f'. Flagged; the OCV death at {d.start_h:.2f} h stands')
+        later = res.later_deaths
+        if later:
+            def when(r: OcvRun) -> str:
+                how = (r.station_acted() if r.trigger == 'station'
+                       else f'10-min median under {s.threshold_v:g} V for {r.minutes:.0f} min')
+                return f'{r.start_h:.2f} h in {_hold_label(res.holds[r.segment - 1].segment)}, {how}'
+            n = len(later)
+            more = f'; and {n - LATER_LISTED} more' if n > LATER_LISTED else ''
+            out.append(f'OCV death rule met again after the OCV death at {d.start_h:.2f} h'
+                       + (f', {n} times' if n > 1 else '') + ': at '
+                       + '; at '.join(when(r) for r in later[:LATER_LISTED]) + more
+                       + f'. Flagged; the OCV death at {d.start_h:.2f} h stands')
+    out.extend(_dismissed_note(res, r, False) for r in dismissed if r not in first)
+    events = [_event_dict(res, r) for r in res.events]
+    dismissed = {i for i, r in enumerate(res.events) if r.dismissed is not None}
+    for d in res.unmatched:
+        j = DEATHS.nearest(d, events, dismissed)
+        when = DEATHS.day(d.get('at'))
+        start = DEATHS._num(d.get('start_h'))
+        out.append(f'A dismissal of the OCV death at '
+                   + (f'{start:.2f} h' if start is not None else 'a time not given')
+                   + (f' in {d.get("hold_label")}' if d.get('hold_label') else '')
+                   + f' ({DEATHS.reason_text(d)}' + (f', {when}' if when else '') + ')'
+                   + f' found no death starting in {d.get("step")} within {DEATHS.MATCH_MIN:g} min '
+                   + 'of it in this analysis, so it is not applied'
+                   + (' (kept on file)' if d.get('kept') else '; an admin should review it')
+                   + (f'. The nearest death there starts at {events[j]["start_h"]:.2f} h'
+                      if j is not None else ''))
     if res.rate_note:
         out.append(res.rate_note)
     if not res.judged:
@@ -2094,11 +2196,91 @@ def _plot_bin_cap_s(total_s: float) -> float:
     return math.ceil(cap_min * 10.0 ** digits - 1e-6) / 10.0 ** digits * 60.0
 
 
-def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResult:
+def _back_at(res: 'OcvResult', r: OcvRun) -> float:
+    """When the OCV was back after a stretch: the first judged 10-min median
+    at or over the threshold after it, in its hold or a later one (inf if
+    never)."""
+    if r.recovered_h is not None:
+        return r.recovered_h
+    return next((h.first_ok_h for h in res.holds
+                 if h.segment.number > r.segment and h.first_ok_h is not None), math.inf)
+
+
+def _start_place(res: OcvResult, r: OcvRun) -> Tuple[str, float]:
+    """Where a death starts, as a dismissal names it: the folder of its
+    step's file and the time into that file (h). Hours before it -- an
+    earlier folder added -- leave it where it is."""
+    seg = res.holds[r.segment - 1].segment
+    f = next((f for f in seg.files if f.step == r.step), seg.files[0])
+    return f.folder, r.start_h - f.H_start_h
+
+
+def _event_dict(res: OcvResult, r: OcvRun) -> Dict[str, Any]:
+    return {'start_h': r.start_h, 'folder': r.folder, 'step': r.step, 'offset_h': r.offset_h,
+            'hold_label': _hold_label(res.holds[r.segment - 1].segment)}
+
+
+def _dismiss(res: OcvResult) -> None:
+    """Apply the admin's dismissals (deaths.resolve): each takes the death it
+    names; the first death left is the death, the rest later deaths."""
+    out = DEATHS.resolve({'events': [_event_dict(res, r) for r in res.events]}, res.dismissals)
+    for i, d in out['by_event'].items():
+        r = res.events[i]
+        r.judged_as, r.verdict, r.dismissed = r.verdict, 'dismissed', d
+    res.unmatched = out['unmatched']
+    heads = [r for r in res.events if r.dismissed is None]
+    res.death = heads[0] if heads else None
+    for r in heads:
+        r.verdict = 'death' if r is res.death else 'later death'
+
+
+def judge_runs(runs: List[OcvRun], persist_min: float,
+               back_at: Callable[[OcvRun], float]) -> Optional[OcvRun]:
+    """Judge every stretch, in clock order, and return the death.
+
+    The first that meets the rule (it lasts `persist_min`, or the station's
+    own limit acted) is the death; one that meets it again later is a later
+    death, a shorter one a dip. One that starts before the OCV was back after
+    a death or later death (`back_at`: when the OCV was back after a stretch)
+    is part of it; so is a dip it starts within, the station's act (the
+    10-min median can fall a sample before the limit acts). A death or later
+    death lasts until the OCV was back after the last of its parts, kept in
+    its `back_h` (None if never). Every verdict is set afresh.
+    """
+    death: Optional[OcvRun] = None
+    event: Optional[OcvRun] = None     # the death or later death the OCV is not back from
+    event_back = -math.inf
+    dips: List[OcvRun] = []            # dips since the last event
+    for r in runs:
+        r.part_of = r.back_h = None
+        if event is not None and r.start_h < event_back:
+            r.verdict, r.part_of = 'with death', event
+            event_back = max(event_back, back_at(r))
+        elif r.trigger == 'station' or r.minutes >= persist_min - 1e-9:
+            r.verdict = 'death' if death is None else 'later death'
+            death = death or r
+            event, event_back = r, back_at(r)
+            for d in dips:
+                if d.start_h <= r.start_h <= d.end_h:
+                    d.verdict, d.part_of = 'with death', r
+                    event_back = max(event_back, back_at(d))
+            dips = []
+        else:
+            r.verdict = 'dip'
+            dips.append(r)
+        if event is not None:
+            event.back_h = event_back if math.isfinite(event_back) else None
+    return death
+
+
+def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None,
+                dismissals: Any = None) -> OcvResult:
     """OCV of every hold, the OCV death verdict, and the decay of the test.
 
     Holds are read one at a time and only their summaries kept, so a long
-    test never has more than one hold's samples in memory.
+    test never has more than one hold's samples in memory. `dismissals`: an
+    admin's, as the store keeps them (deaths.py); each takes the death it
+    names, and the next death counts.
     """
     s = settings or OcvSettings()
     res = OcvResult(settings=s)
@@ -2115,7 +2297,7 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
         h = analyze_hold(tr, s, plot_bin_s, loss_ref_v=initial,
                          loss_pct=DOE_OCV_LOSS_PCT if is_ref else None)
         # In clock order; the station's act first where a median stretch
-        # starts with it, so that stretch is after the death, not a dip.
+        # starts with it, so that stretch is part of it (judge_runs), not a dip.
         h.runs = sorted(h.runs + station_runs(tr, s),
                         key=lambda r: (r.start_h, r.trigger != 'station'))
         if is_ref and initial is None and math.isfinite(h.start_v):
@@ -2128,20 +2310,25 @@ def analyze_ocv(tl: Timeline, settings: Optional[OcvSettings] = None) -> OcvResu
 
     # Death is the first stretch, in clock order, that lasts persist_min, or
     # the first event of a hold's own limit (a step the station ended, a wet
-    # half it cut short), whichever is earlier.
-    # Later stretches are kept and labelled but never move it (plan: a
-    # recovery is flagged, not forgiven).
-    for r in res.runs:
-        if res.death is None and (r.trigger == 'station' or r.minutes >= s.persist_min - 1e-9):
-            r.verdict, res.death = 'death', r
-        elif res.death is not None:
-            r.verdict = 'after death'
+    # half it cut short), whichever is earlier. Every stretch after it is
+    # judged by the same rule and flagged (Corey, 6 Nov: "I want all provided
+    # data to be analyzed, but the death to be flagged"): one that meets it
+    # again is a later death, a shorter one a dip; neither moves the death
+    # (plan: a recovery is flagged, not forgiven). A stretch that starts
+    # before the OCV was back after a death -- the station's act seen by the
+    # median rule too, or a cell still dead into the next hold -- is part of
+    # that death, not another; so is a dip the station's act starts within
+    # (the median falling a sample before the limit acts).
+    res.death = judge_runs(res.runs, s.persist_min, lambda r: _back_at(res, r))
+    res.events = [r for r in res.runs if r.verdict in ('death', 'later death')]
+    for r in res.events:
+        r.folder, r.offset_h = _start_place(res, r)
+    res.dismissals = DEATHS.clean_dismissals(dismissals)
+    if res.dismissals:
+        _dismiss(res)
     if res.death is not None:
-        res.recovered_h = res.death.recovered_h
-        if res.recovered_h is None:
-            res.recovered_h = next((h.first_ok_h for h in res.holds
-                                    if h.segment.number > res.death.segment
-                                    and h.first_ok_h is not None), None)
+        back = _back_at(res, res.death)
+        res.recovered_h = back if math.isfinite(back) else None
 
     ref_key = res.holds[0].conditions_key
     ref = [h for h in res.holds if h.conditions_key == ref_key]
@@ -2373,11 +2560,25 @@ def _station_run(tr: HoldTrace, group: List[_Hit], s: OcvSettings) -> OcvRun:
                   minutes=minutes,
                   lowest_v=float(tr.v[span].min()) if span.any() else float(tr.v[b]),
                   recovered_h=float(tr.t_s[later[0]]) / 3600.0 if len(later) else None,
-                  verdict='death', trigger='station', trips=len(trips),
+                  trigger='station', trips=len(trips),
                   stopped=any(h[2] == 'stop' for h in group),
                   run_ended=last[2] in ('stop', 'trip-end'),
                   half=trips[0][4] if trips else '',
                   median_fell=bool(np.any(tr.median[judged] < s.threshold_v)))
+
+
+def rate_at(res: OcvResult, death_h: Optional[float]) -> Tuple[float, Tuple[float, float]]:
+    """The latest rolling window at the reference conditions ending by
+    death_h (any, for None): its rate (μV/h) and span (h), nan without one."""
+    if not res.holds:
+        return math.nan, (math.nan, math.nan)
+    cutoff = death_h + 1e-9 if death_h is not None else math.inf
+    ref_key = res.holds[0].conditions_key
+    rated = [r for h in res.holds if h.conditions_key == ref_key for r in h.rates
+             if math.isfinite(r['decay']) and r['end'] <= cutoff]
+    if rated:
+        return rated[-1]['decay'], (rated[-1]['start'], rated[-1]['end'])
+    return math.nan, (math.nan, math.nan)
 
 
 def set_rate_cutoff(res: OcvResult, death_h: Optional[float], cause: str = '') -> None:
@@ -2389,12 +2590,7 @@ def set_rate_cutoff(res: OcvResult, death_h: Optional[float], cause: str = '') -
         return
     cutoff = death_h + 1e-9 if death_h is not None else math.inf
     ref_key = res.holds[0].conditions_key
-    rated = [r for h in res.holds if h.conditions_key == ref_key for r in h.rates
-             if math.isfinite(r['decay']) and r['end'] <= cutoff]
-    res.decay_uV_h, res.decay_window_h = math.nan, (math.nan, math.nan)
-    if rated:
-        res.decay_uV_h = rated[-1]['decay']
-        res.decay_window_h = (rated[-1]['start'], rated[-1]['end'])
+    res.decay_uV_h, res.decay_window_h = rate_at(res, death_h)
     res.rate_cutoff_h = death_h
     res.by_condition = _by_condition(res.holds, ref_key, cutoff)
     res.rate_note = ''
@@ -2405,6 +2601,19 @@ def set_rate_cutoff(res: OcvResult, death_h: Optional[float], cause: str = '') -
                          f'({a:.2f}–{b:.2f} h)' if math.isfinite(a) else
                          f'OCV decay rate: no rolling window at the reference conditions ends '
                          f'by {what}')
+
+
+def _later_cell(later: List[OcvRun], death: Optional[OcvRun]) -> Any:
+    """The Summary's later deaths: blank without a death, 'none', one start
+    as a number, or the first LATER_LISTED and how many more (the OCV events
+    sheet lists them all)."""
+    if death is None:
+        return ''
+    if len(later) <= 1:
+        return _r(later[0].start_h, 4) if later else 'none'
+    n = len(later)
+    return (', '.join(f'{r.start_h:.4f}' for r in later[:LATER_LISTED])
+            + (f'; and {n - LATER_LISTED} more, in OCV events' if n > LATER_LISTED else ''))
 
 
 def hold_rows(tl: Timeline, ocv: Optional[OcvResult] = None) -> List[Dict[str, Any]]:
@@ -2425,6 +2634,7 @@ def hold_rows(tl: Timeline, ocv: Optional[OcvResult] = None) -> List[Dict[str, A
             'Latest decay rate (μV/h)': _r(rate['decay'], 1) if rate else None,
             'Dips': sum(r.verdict == 'dip' for r in h.runs),
             'OCV death (h)': _r(ocv.death.start_h, 4) if died else None,
+            'Later OCV deaths': sum(r.verdict == 'later death' for r in h.runs),
             'Samples': h.samples,
             'Judged': h.judged,
             'Settling': h.settling,
@@ -2440,17 +2650,27 @@ EVENT_COLUMNS = ['Segment', 'Step', 'Start (h)', 'End (h)', 'Minutes',
 
 
 def ocv_event_rows(res: OcvResult, tl: Optional[Timeline] = None) -> List[Dict[str, Any]]:
-    """Every stretch of 10-min median under the threshold, judged or not, and
-    every event of a hold's own limit (a step the station ended, wet halves
-    it cut short); with RH cycling, where each starts in RH cycles too."""
+    """Every stretch of 10-min median under the threshold and every event of a
+    hold's own limit (a step the station ended, wet halves it cut short), each
+    with its verdict; with RH cycling, where each starts in RH cycles too."""
     words = {'death': 'death',
-             'dip': f'dip, shorter than {res.settings.persist_min:g} min',
-             'after death': 'after death'}
+             'later death': 'later death (the rule met again, flagged)',
+             'dip': f'dip, shorter than {res.settings.persist_min:g} min'}
+
+    def word(r: OcvRun) -> str:
+        if r.verdict == 'with death':
+            of = r.part_of
+            if of.verdict == 'dismissed':
+                return f'part of the dismissed {of.judged_as} at {of.start_h:.2f} h'
+            return f'part of the {"death" if of.verdict == "death" else "later death"} at {of.start_h:.2f} h'
+        if r.verdict == 'dismissed':
+            return f'{r.judged_as}, dismissed by an admin ({DEATHS.reason_text(r.dismissed)})'
+        return words[r.verdict]
     return [{'Segment': r.segment, 'Step': r.step,
              'Start (h)': round(r.start_h, 4), 'End (h)': round(r.end_h, 4),
              'Minutes': round(r.minutes, 2), 'Lowest 10-min median (V)': round(r.lowest_v, 5),
-             'Verdict': words[r.verdict] + (f': {r.station_acted()} (lowest sample shown)'
-                                            if r.trigger == 'station' else ''),
+             'Verdict': word(r) + (f': {r.station_acted()} (lowest sample shown)'
+                                   if r.trigger == 'station' else ''),
              'Median at or over threshold after (h)': _r(r.recovered_h, 4),
              **({'Start (RH cycles)': tl.cycles_at(r.start_h)} if tl is not None and tl.cycles_tested
                 else {})}
@@ -3063,26 +3283,20 @@ def timeline_lanes(tl: Timeline) -> Tuple[Dict[str, List[Tuple[float, float]]],
     return lanes, folder_x, total, True
 
 
+def verdict_dict(v: 'Verdict') -> Dict[str, Any]:
+    """A verdict as deaths.py takes one (deaths.verdict gives the same from
+    the stored table)."""
+    return {'dead': v.dead, 'hours': v.hours, 'cause': v.cause,
+            'bracket': list(v.bracket) if v.bracket else None, 'at_bol': v.at_bol,
+            'trigger': v.ocv_trigger, 'cycles': v.cycles,
+            'ocv_judged': v.ocv_judged, 'xover_judged': v.xover_judged}
+
+
 def _verdict_lines(v: Optional['Verdict']) -> List[str]:
     """Readout lines for the verdict. Hours to death is the only number;
     the verdict, cause and bracket are text, as the plan's summary row has
-    them."""
-    if v is None:
-        return []
-    if not v.dead:
-        lines = ['Verdict: alive']
-        if not v.ocv_judged or not v.xover_judged:
-            lines.append(' and '.join(
-                n for n, ok in (('OCV rule', v.ocv_judged), ('crossover rule', v.xover_judged))
-                if not ok) + ' not applied (no data)')
-        return lines
-    lines = ['Verdict: dead', f'Hours to death = {v.hours:.2f} h']
-    if v.cycles is not None:
-        lines.append(f'RH cycles to death = {v.cycles}')
-    lines.append(f'Death cause: {v.cause_text}')
-    if v.bracket_text:
-        lines.append(f'Death bracket: {v.bracket_text}')
-    return lines
+    them (deaths.verdict_lines)."""
+    return DEATHS.verdict_lines(verdict_dict(v)) if v is not None else []
 
 
 def plot_timeline(tl: Timeline, save_path: Optional[str] = None, title: str = '',
@@ -3177,9 +3391,9 @@ def plot_timeline(tl: Timeline, save_path: Optional[str] = None, title: str = ''
                 shown.append(s.H_end_h)
                 fig.text(s.H_end_h, n - 1 + 0.78, f'{s.H_end_h:.2f} h', transform=ax.transData,
                          fontsize=7, ha='right', va='bottom', color='#1f77b4')
-    if verdict is not None and verdict.dead:
-        ax.axvline(round(verdict.hours, 4), color='#d62728', lw=1.6,
-                   label=f'death at {verdict.hours:.2f} h')
+    line = DEATHS.verdict_line(verdict_dict(verdict)) if verdict is not None else None
+    if line:
+        ax.axvline(line['x'], color=line['color'], ls=line['ls'], lw=line['lw'], label=line['label'])
 
     ax.set_yticks([n - 1 - i + 0.35 for i in range(len(lanes))])
     ax.set_yticklabels([ln[1] for ln in lanes], fontsize=9)
@@ -3232,7 +3446,8 @@ def _series(ax, x, y, **style):
         ax.plot(x, y, **style)
 
 
-def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, title: str = ''):
+def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, title: str = '',
+             resolved: Optional[Dict[str, Any]] = None):
     """Hold OCV against hold hours, holds joined, over its rolling decay rate.
 
     Each hold is drawn from bins of its judged samples: the bin median, over a
@@ -3242,8 +3457,11 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
     BAND_LOW and BAND_HIGH, which the portal shades between. Settled start and
     end values and dips are markers (scatters, so a pair of them never reads
     back as a reference line), and the threshold, characterization hours and
-    the death trip are reference lines. Every plotted array is finite, since
-    the sidecar writer refuses NaN.
+    the death trip are reference lines, and so are later deaths (the death
+    rule met again, flagged), dash-dot, the first LATER_LISTED of them, and
+    deaths an admin dismissed, grey and dotted: drawn, with the readout's
+    death lines, from `resolved` (deaths.resolve), as the store redraws
+    them. Every plotted array is finite, since the sidecar writer refuses NaN.
     """
     s = res.settings
     fig, (ax, axr) = plt.subplots(2, 1, figsize=(12, 7.5), dpi=120, sharex=True,
@@ -3298,10 +3516,14 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
                    marker='v', s=36, color='#d62728', zorder=4,
                    label=f'dip under {s.threshold_v:g} V, shorter than {s.persist_min:g} min')
         ys += [r.lowest_v for r in dips]
-    if res.death:
-        how = ', the station\'s own limit' if res.death.trigger == 'station' else ''
-        ax.axvline(round(res.death.start_h, 4), color='#d62728', lw=1.6,
-                   label=f'OCV death at {res.death.start_h:.2f} h{how}')
+    if resolved is None:
+        resolved = DEATHS.resolve(deaths_table(tl, res), res.dismissals)
+    # The death solid; later deaths dash-dot, apart from the threshold's
+    # dashes, the first ten, as the notes name them, so many cannot hide the
+    # trace; dismissed deaths grey and dotted.
+    for spec in DEATHS.ocv_lines(resolved):
+        ax.axvline(spec['x'], color=spec['color'], ls=spec['ls'], lw=spec['lw'],
+                   label=spec['label'])
 
     lo, hi = min(ys), max(ys)
     pad = max(0.01, 0.06 * (hi - lo))
@@ -3319,13 +3541,15 @@ def plot_ocv(tl: Timeline, res: OcvResult, save_path: Optional[str] = None, titl
         first[f'high–low of the samples in each {res.plot_bin_s / 60:.4g}-min bin'] = Patch(
             facecolor='0.6', alpha=0.35, edgecolor='0.6', lw=0.4)
     ax.legend(list(first.values()), list(first), loc='best', fontsize=8, framealpha=0.9)
+    # The death lines are numbers the record keeps as such: the death; once
+    # there is one, how many later deaths (0 too: judged, where a record made
+    # before says nothing) and when the first was; how many dismissed.
     lines = [_kv('OCV initial', res.initial_v, '.4f', 'V'),
              _kv('OCV final', res.final_v, '.4f', 'V'),
              _kv('OCV loss', res.loss_pct, '.2f', '%'),
-             _kv('OCV decay rate', res.decay_uV_h, '.0f', 'μV/h'),
+             DEATHS.ocv_rate_line(resolved),
              _kv('OCV min (10-min median)', res.lowest_v, '.4f', 'V'),
-             (_kv('OCV death', res.death_h, '.2f', 'h') if res.death
-              else 'OCV death: none' if res.judged else 'OCV death: not judged'),
+             *DEATHS.ocv_death_lines(resolved),
              _kv('Hours tested', tl.hours_tested, '.2f', 'h'),
              f'RH cycles tested = {tl.cycles_tested}' if tl.cycles_tested else None,
              _kv('OCV plot bin', res.plot_bin_s / 60.0, '.4g', 'min')]
@@ -3595,9 +3819,9 @@ def plot_rh_cycles(tl: Timeline, verdict: Optional[Verdict] = None,
     for j, xh in enumerate(char_h):
         ax.axvline(xh, color='0.55', ls=':', lw=1.0,
                    label='characterization' if j == 0 else '_nolegend_')
-    if verdict is not None and verdict.dead:
-        ax.axvline(round(verdict.hours, 4), color='#d62728', lw=1.6,
-                   label=f'death at {verdict.hours:.2f} h, RH cycle {verdict.cycles}')
+    line = DEATHS.verdict_line(verdict_dict(verdict), rh=True) if verdict is not None else None
+    if line:
+        ax.axvline(line['x'], color=line['color'], ls=line['ls'], lw=line['lw'], label=line['label'])
     ax.set_xlim(0, max(tl.hours_tested, 1e-3))
     ax.set_ylim(0, max(tl.cycles_tested, 1) * 1.05)
     ax.set_xlabel('Hold hours (h)')
@@ -3956,6 +4180,17 @@ def export_workbook(tl: Timeline, path: str, params: Dict[str, Any],
              if not (d and d.trigger == 'station' and not d.median_fell) else
              f'{ocv.recovered_h:.4f}, after the station\'s limit last acted: the 10-min median '
              f'never fell under the threshold'),
+            ('Later OCV deaths', len(ocv.later_deaths) if d else ''),
+            ('OCV death rule met again after the death at (h)', _later_cell(ocv.later_deaths, d)),
+        ] + ([
+            ('OCV deaths dismissed by an admin (h)',
+             '; '.join(f'{r.start_h:.4f} ({DEATHS.reason_text(r.dismissed)})'
+                       for r in ocv.dismissed_runs) or 'none'),
+            ('OCV death dismissals not applied',
+             '; '.join(f'{DEATHS._num(x.get("start_h")) or 0:.4f} h in {x.get("hold_label") or x.get("step")}'
+                       + (' (kept on file)' if x.get('kept') else ' (to review)')
+                       for x in ocv.unmatched) or 'none'),
+        ] if ocv.dismissals else []) + [
             ('OCV dips (under threshold, too short for death)',
              sum(r.verdict == 'dip' for r in ocv.runs)),
             ('OCV death rule', s.describe() + (
@@ -4064,7 +4299,53 @@ def build_summary(tl: Timeline, params: Dict[str, Any],
             row['Death cause'] = verdict.cause_text
             if verdict.bracket_text:
                 row['Death bracket'] = verdict.bracket_text
+    if ocv is not None and ocv.dismissed_runs:
+        row['OCV deaths dismissed'] = len(ocv.dismissed_runs)
     return row
+
+
+def deaths_table(tl: Timeline, ocv: OcvResult, ca: Optional[CharAnalysis] = None,
+                 verdict: Optional['Verdict'] = None) -> Dict[str, Any]:
+    """What the store keeps to apply a dismissal without the raw files
+    (deaths.py, `fc_deaths`): every death and later death as judged, one per
+    episode -- where it starts, how long and how low, when the OCV was back,
+    the RH cycles by then, the decay rate ending by it -- the crossover
+    death with the rate ending by it, the rate uncut, and what was tested."""
+    def fin(x: Any) -> Optional[float]:
+        return float(x) if x is not None and math.isfinite(x) else None
+
+    def rate(cut: Optional[float]) -> Optional[Dict[str, Any]]:
+        x, (a, b) = rate_at(ocv, cut)
+        return {'uV_h': float(x), 'window': [float(a), float(b)]} if math.isfinite(x) else None
+
+    events = []
+    for r in ocv.events:
+        events.append({'start_h': float(r.start_h), 'end_h': float(r.end_h),
+                       'minutes': float(r.minutes), 'lowest_v': fin(r.lowest_v),
+                       'trigger': r.trigger, 'hold': r.segment,
+                       'hold_label': _hold_label(ocv.holds[r.segment - 1].segment),
+                       'folder': r.folder, 'step': r.step, 'offset_h': fin(r.offset_h),
+                       'back_h': fin(r.back_h), 'recovered_h': fin(r.recovered_h),
+                       'cycles': int(tl.cycles_at(r.start_h)) if tl.cycles_tested else None,
+                       'acted': r.station_acted() if r.trigger == 'station' else '',
+                       'rate': rate(r.start_h)})
+    xd = ca.xover_death if ca is not None else None
+    # The first deaths, and past them those a dismissal takes, so the store
+    # applies it as this analysis did; each of those with its place among
+    # all found (`n`, from 1).
+    cap = DEATHS.TABLE_EVENTS_MAX
+    kept = events[:cap] + [dict(e, n=k + 1) for k, (e, r) in enumerate(zip(events, ocv.events))
+                           if k >= cap and r.dismissed is not None]
+    return {'v': 1, 'hours_tested': float(tl.hours_tested),
+            'cycles_tested': int(tl.cycles_tested) if tl.cycles_tested else None,
+            'ocv_judged': bool(ocv.judged), 'xover_judged': bool(ca is not None and ca.xover_judged),
+            'threshold_v': float(ocv.settings.threshold_v),
+            'persist_min': float(ocv.settings.persist_min),
+            'rate_uncut': rate(None),
+            'xover': ({'H': float(xd.H), 'low': float(xd.low), 'at_bol': xd.interval.index == 0,
+                       'cycles': int(tl.cycles_at(xd.H)) if tl.cycles_tested else None,
+                       'rate': rate(xd.H)} if xd is not None else None),
+            'events': kept, 'events_found': len(events), 'events_max': cap}
 
 
 def _num_param(p: Dict[str, Any], key: str, default: float, low: float, high: float,
@@ -4177,7 +4458,9 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
                         'this run mixes station CSVs and .fcd files; their names give '
                         'conditions differently, so holds of the two never count as the same '
                         'conditions')
-    ocv = analyze_ocv(tl, ocv_settings)
+    # An admin's dismissals of false OCV deaths, which the portal reads from
+    # the store for a sample analysed again (deaths.py).
+    ocv = analyze_ocv(tl, ocv_settings, p.get('ocv_dismissals'))
     ca = analyze_characterizations(tl, char_settings)
     verdict = decide(tl, ocv, ca)
     if verdict.dead and (ocv.death is None or verdict.hours < ocv.death.start_h):
@@ -4185,6 +4468,8 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
         stale = ocv.rate_note
         set_rate_cutoff(ocv, verdict.hours, verdict.cause)
         ocv.notes = [n for n in ocv.notes if n != stale] + ([ocv.rate_note] if ocv.rate_note else [])
+    table = deaths_table(tl, ocv, ca, verdict)
+    resolved = DEATHS.resolve(table, ocv.dismissals)
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -4207,7 +4492,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
                 tl, verdict, path, title=f'RH cycles — {sample}'))
         if ocv.holds:
             save('fcdur_ocv_vs_time', lambda path: plot_ocv(
-                tl, ocv, path, title=f'Hold OCV — {sample}'))
+                tl, ocv, path, title=f'Hold OCV — {sample}', resolved=resolved))
         if 'crossover' in kinds:
             save('fcdur_xover_vs_time', lambda path: plot_xover_vs_time(
                 tl, ca, path, title=f'H₂ crossover — {sample}'))
@@ -4240,4 +4525,7 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             'verdict': verdict.text,
             'hours_to_death': verdict.hours if verdict.dead else None,
             'notes': notes,
-            'summary': [build_summary(tl, settings, ocv, ca, verdict)]}
+            'summary': [build_summary(tl, settings, ocv, ca, verdict)],
+            # What the store needs to apply a dismissal itself, and the
+            # dismissals this was judged with (deaths.py).
+            'fc_deaths': dict(table, dismissals=ocv.dismissals)}
