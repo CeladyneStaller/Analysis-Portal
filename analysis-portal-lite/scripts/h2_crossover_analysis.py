@@ -10,12 +10,19 @@ leaving only the faradaic H2 oxidation current + electronic short:
 
     j_avg(V) = j_xover + V / R_short
 
+Reported for each CV: the crossover, the mean of j_avg over the averaging
+window (0.35-0.50 V by default), as FC Durability judges it; beside it, the
+short-corrected crossover, the value at 0 V of the line through j_avg over
+the same window, which takes the short out; and R_short, one over that
+line's slope. Both are always computed. A line that is flat or falls shows
+no short, so it has no R_short; its corrected value is still reported.
+
 Usage:
   python h2_crossover_analysis.py              # interactive mode
   python h2_crossover_analysis.py --demo       # built-in demo
 """
 
-import os, csv, glob, argparse
+import os, csv, glob, argparse, math
 import numpy as np
 from scipy import interpolate, stats
 import matplotlib
@@ -75,16 +82,19 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
             f'Analysis produced no output. {len(files)} file(s) were found '
             f'but none could be processed. Check file format and parameters.'
         )
-    # Tier 1 summary scalars.
+    # Tier 1 summary scalars: finite numbers only, since one NaN or infinity
+    # makes the job record unreadable (JSON has no form for either). The Label
+    # is as the plot's name writes it, so the row is matched to its plot.
     summary = []
     for r in (results or []):
-        row = {'Label': r.get('label', '')}
-        for key in ('j_xover_mA_cm2', 'J_H2_nmol_cm2_s', 'J_H2_mL_min_cm2',
-                    'K_H2_mol_cm_s_Pa', 'j_avg_mean_mA_cm2',
-                    'membrane_thickness_um', 'geo_area'):
+        row = {'Label': r.get('plot_label') or plot_label(r.get('label', ''))}
+        for key in SUMMARY_KEYS:
             v = r.get(key)
-            if isinstance(v, (int, float)):
+            if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(v)):
                 row[key] = float(v)
+            elif key == 'R_short_ohm_cm2' and 'j_xover_mA_cm2' in row:
+                row[key] = None
         summary.append(row)
 
     return {"status": "success", "files_processed": len(files),
@@ -93,6 +103,85 @@ def run(input_dir: str, output_dir: str, params: dict = None) -> dict:
 FARADAY = 96485.3329
 N_ELECTRONS = 2
 MOLAR_VOL_STP = 22414.0
+
+# The summary row's fields, in the order run detail lists them: the crossover,
+# then its short-corrected value, R_short and how well the window's line fits.
+# A CV whose window line is flat or falls has R_short null (None), not absent:
+# measured as none. Two CVs at one step and the same conditions are one index
+# unit, which takes each field from the first row that has it; so its crossover
+# and R_short always come from the same CV.
+SUMMARY_KEYS = ('j_xover_mA_cm2', 'j_xover_corrected_mA_cm2', 'R_short_ohm_cm2',
+                'R_squared', 'J_H2_nmol_cm2_s', 'J_H2_mL_min_cm2',
+                'K_H2_mol_cm_s_Pa', 'j_avg_mean_mA_cm2', 'membrane_thickness_um',
+                'geo_area')
+# What a workbook says where a CV has no R_short.
+NO_SHORT_TEXT = 'none (the window line is flat or falls)'
+
+
+def xl_value(v):
+    """A value as a workbook cell: a number that is not finite (from a fit that
+    failed) left blank. openpyxl would write it as an empty numeric value."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    return v
+
+
+def r_short_shown(r):
+    """R_short as a workbook, the console or the plot gives it: the value;
+    NO_SHORT_TEXT where the window's line was fitted and is flat or falls; None
+    (left blank) where no line could be fitted at all."""
+    R = r.get('R_short_ohm_cm2')
+    if R is not None:
+        return R
+    slope = r.get('slope')
+    return NO_SHORT_TEXT if slope is not None and math.isfinite(slope) else None
+
+# A station's own CSV, as both stands write it: Time Stamp, Counter Electrode
+# Voltage, Working Electrode Voltage, Current (A), comma-separated under one
+# header row. Its columns are found by name. Read by position, its time stamp
+# was taken for the voltage, no sweep could be found, and nothing came out.
+STATION_V_COL = 'Working Electrode Voltage'
+STATION_I_COL = 'Current'
+
+
+def read_cv(filepath, geo_area=5.0, delimiter=',', skip_header=1, v_col=0, j_col=1,
+            current_is_total=False, mode_col=None, mode_exclude=None):
+    """V and j of one CV file, by one rule wherever it is read (the portal, Full
+    Analysis, the command line): a .fcd file by its own header; a station CSV by
+    its column names, comma-separated under one header row with the current in
+    A, whatever the caller's preset says; any other file as the preset gives it."""
+    fcd = parse_fcd_header(filepath)
+    station = None if fcd else station_csv_columns(filepath)
+    if fcd:
+        skip_header = fcd['skip']
+        v_col, j_col = fcd.get('v_col', v_col), fcd.get('j_col', j_col)
+        mode_col = fcd.get('mode_col', mode_col)
+    elif station:
+        skip_header, (v_col, j_col), mode_col, delimiter, current_is_total = 1, station, None, ',', True
+    return load_cv_data(filepath, v_col=v_col, j_col=j_col, delimiter=delimiter,
+                        skip_header=skip_header, current_is_total=current_is_total,
+                        geo_area=geo_area, mode_col=mode_col, mode_exclude=mode_exclude)
+
+
+def plot_label(label):
+    """A CV's label as its plot's file name writes it: spaces and slashes made
+    underscores. A summary row is matched to its plot by its label, so it
+    carries this form."""
+    return str(label).replace(' ', '_').replace('/', '_').replace('\\', '_')
+
+
+def station_csv_columns(filepath):
+    """(voltage column, current column) of a station CSV, read off its header
+    row, or None for any other file."""
+    try:
+        with open(filepath, 'r', errors='replace', newline='') as f:
+            head = next(csv.reader(f), [])
+    except Exception:
+        return None
+    names = [h.strip() for h in head]
+    if STATION_V_COL in names and STATION_I_COL in names:
+        return names.index(STATION_V_COL), names.index(STATION_I_COL)
+    return None
 
 def parse_fcd_header(filepath):
     """Parse Scribner .fcd header for skip count and column indices."""
@@ -152,9 +241,11 @@ def load_cv_data(filepath, v_col=0, j_col=1, delimiter=',', skip_header=1,
             try:
                 if mode_col is not None and mode_excl:
                     if int(float(row[mode_col])) in mode_excl: continue
-                v_data.append(float(row[v_col]))
-                j_data.append(float(row[j_col]))
+                v, jv = float(row[v_col]), float(row[j_col])
             except (ValueError, IndexError): continue
+            if math.isfinite(v) and math.isfinite(jv):
+                v_data.append(v)
+                j_data.append(jv)
     V, j = np.array(v_data), np.array(j_data)
     if current_is_total: j = j / geo_area
     return V, j
@@ -224,10 +315,20 @@ def analyze_crossover(V, j, avg_V_min=0.35, avg_V_max=0.50,
 
     slope, intercept, r_value, _, _ = stats.linregress(V_fit, j_fit)
     j_avg_mean = np.mean(j_fit)
-    R_short = 1.0 / slope if abs(slope) > 1e-12 else np.inf
 
     # Primary crossover metric: mean of averaged anodic+cathodic current
     j_xover = abs(j_avg_mean)  # magnitude — sign is convention-dependent
+
+    # The short. The window's line is j_xover + V / R_short: its value at 0 V
+    # is the crossover with the short taken out, and one over its slope is
+    # R_short. The crossover is a magnitude, so the line is read on the same
+    # side: a current logged with oxidation negative gives a line whose
+    # intercept and slope are negative too, and they are read as FC Durability
+    # reads them once it has flipped the current. A line that is flat or falls
+    # shows no short, so R_short is None there; the corrected value stands.
+    side = -1.0 if j_avg_mean < 0 else 1.0
+    rise = side * slope
+    R_short = 1.0 / rise if rise > 1e-12 else None
     J_H2 = j_xover / (N_ELECTRONS * FARADAY)
     K_H2 = None
     if membrane_thickness_um and membrane_thickness_um > 0:
@@ -242,7 +343,8 @@ def analyze_crossover(V, j, avg_V_min=0.35, avg_V_max=0.50,
         'V_grid': V_grid, 'j_avg': j_avg,
         'j_xover_mA_cm2': j_xover * 1000,
         'j_avg_mean_mA_cm2': j_avg_mean * 1000,
-        'j_intercept_mA_cm2': intercept * 1000,
+        'j_intercept_mA_cm2': intercept * 1000,       # the line at 0 V, as logged
+        'j_xover_corrected_mA_cm2': side * intercept * 1000,
         'R_short_ohm_cm2': R_short, 'slope': slope, 'R_squared': r_value**2,
         'J_H2_mol_cm2_s': J_H2,
         'J_H2_nmol_cm2_s': J_H2 * 1e9,
@@ -263,6 +365,11 @@ def print_results(r):
     print(f'  Averaging window:    {r["avg_V_min"]:.2f} - {r["avg_V_max"]:.2f} V')
     print(f'  {"-" * w}')
     print(f'  H2 crossover j:     {r["j_xover_mA_cm2"]:.3f} mA/cm2')
+    print(f'  Short-corrected j:   {r["j_xover_corrected_mA_cm2"]:.3f} mA/cm2'
+          f'  (the window line at 0 V)')
+    R = r_short_shown(r)
+    print(f'  R_short:             ' + (R if isinstance(R, str) else '-' if R is None else f'{R:.0f} ohm.cm2'))
+    print(f'  Window fit R2:       {r["R_squared"]:.4f}')
     print(f'  {"-" * w}')
     print(f'  H2 flux:             {r["J_H2_nmol_cm2_s"]:.2f} nmol/cm2/s')
     print(f'                       {r["J_H2_mL_min_cm2"]:.4f} mL_STP/min/cm2')
@@ -289,6 +396,13 @@ def plot_crossover(r, save_path=None):
             label='(anodic + cathodic) / 2')
     ax.axvspan(r['avg_V_min'], r['avg_V_max'], alpha=0.1, color='orange',
                label=f'Window [{r["avg_V_min"]:.2f}, {r["avg_V_max"]:.2f}] V')
+    # The window's line run back to 0 V, where it reads the crossover with the
+    # short taken out (drawn as logged; the readout gives its magnitude).
+    V_line = np.linspace(0.0, r['avg_V_max'], 50)
+    ax.plot(V_line, (r['slope'] * V_line) * 1000 + r['j_intercept_mA_cm2'], '--',
+            color='green', lw=1.2, label='Window line, run back to 0 V')
+    ax.plot([0.0], [r['j_intercept_mA_cm2']], 'o', color='green', ms=5,
+            label='Short-corrected (line at 0 V)')
     ax.set_xlabel('Voltage (V)'); ax.set_ylabel('Current density (mA/cm2)')
     ax.set_title('Averaged Current'); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
 
@@ -301,7 +415,11 @@ def plot_crossover(r, save_path=None):
                label=f'Mean = {r["j_avg_mean_mA_cm2"]:.3f} mA/cm2')
     ax.axhline(0, color='gray', ls=':', lw=0.5)
 
+    R = r_short_shown(r)
+    # R_short as a word where there is none: stored as text, never as a value.
     txt = (f'|j_xover| = {r["j_xover_mA_cm2"]:.3f} mA/cm2\n'
+           f'j_xover corrected = {r["j_xover_corrected_mA_cm2"]:.3f} mA/cm2\n'
+           f'R_short = {R if isinstance(R, str) else "-" if R is None else f"{R:.0f} ohm·cm2"}\n'
            f'H2 flux = {r["J_H2_nmol_cm2_s"]:.1f} nmol/cm2/s')
     if r['K_H2_mol_cm_s_Pa'] is not None:
         txt += f'\nK_H2 = {r["K_H2_mol_cm_s_Pa"]:.2e} mol/cm/s/Pa'
@@ -338,6 +456,9 @@ def save_crossover_excel(r, filepath, label=None):
         ('Averaging Window (V)', f'{r["avg_V_min"]:.2f} - {r["avg_V_max"]:.2f}'),
         ('', ''),
         ('H2 Crossover j (mA/cm2)', r['j_xover_mA_cm2']),
+        ('H2 Crossover j, short-corrected (mA/cm2)', r['j_xover_corrected_mA_cm2']),
+        ('R_short (ohm·cm2)', r_short_shown(r)),
+        ('Window fit R²', r['R_squared']),
         ('', ''),
         ('H2 Flux (nmol/cm2/s)', r['J_H2_nmol_cm2_s']),
         ('H2 Flux (mL_STP/min/cm2)', r['J_H2_mL_min_cm2']),
@@ -347,7 +468,7 @@ def save_crossover_excel(r, filepath, label=None):
                  ('H2 Permeability (mol/cm/s/Pa)', r['K_H2_mol_cm_s_Pa'])]
     for i, (lab, val) in enumerate(rows, 1):
         ws.cell(row=i, column=1, value=lab).font = hf
-        ws.cell(row=i, column=2, value=val)
+        ws.cell(row=i, column=2, value=xl_value(val))
     ws.column_dimensions['A'].width = 35; ws.column_dimensions['B'].width = 20
 
     ws2 = wb.create_sheet('Averaged Data')
@@ -372,13 +493,24 @@ def save_crossover_excel(r, filepath, label=None):
     wb.save(filepath); print(f'  Excel: {filepath}')
 
 
+# Under a summary table of crossovers: what its columns are.
+XOVER_NOTES = (
+    'j_xover: the mean of the averaged CV current over the window, the crossover reported.',
+    'j_xover corrected: the line through the averaged current over the same window, '
+    'read at 0 V, which takes the membrane short out.',
+    'R_short: one over that line\'s slope; none where the line is flat or falls, '
+    'which shows no short. Window fit R²: how well the line fits.',
+)
+
+
 def save_batch_crossover_excel(all_results, filepath):
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     wb = Workbook()
     hf, hfill = Font(bold=True), PatternFill('solid', fgColor='D9E1F2')
     ws = wb.active; ws.title = 'Summary'
-    cols = ['Label', 'j_xover (mA/cm2)',
+    cols = ['Label', 'j_xover (mA/cm2)', 'j_xover corrected (mA/cm2)',
+            'R_short (ohm·cm2)', 'Window fit R²',
             'H2 Flux (nmol/cm2/s)', 'H2 Flux (mL/min/cm2)']
     has_perm = any(r.get('K_H2_mol_cm_s_Pa') is not None for r in all_results)
     if has_perm: cols += ['Thickness (um)', 'Permeability (mol/cm/s/Pa)']
@@ -387,12 +519,16 @@ def save_batch_crossover_excel(all_results, filepath):
         cell.font = hf; cell.fill = hfill; cell.alignment = Alignment(horizontal='center')
         ws.column_dimensions[cell.column_letter].width = 22
     for ri, r in enumerate(all_results, 2):
-        vals = [r.get('label',''), r['j_xover_mA_cm2'],
-                r['J_H2_nmol_cm2_s'], r['J_H2_mL_min_cm2']]
+        vals = [xl_value(v) for v in (
+                r.get('label',''), r['j_xover_mA_cm2'], r['j_xover_corrected_mA_cm2'],
+                r_short_shown(r), r['R_squared'], r['J_H2_nmol_cm2_s'], r['J_H2_mL_min_cm2'])]
         if has_perm:
-            vals += [r.get('membrane_thickness_um'), r.get('K_H2_mol_cm_s_Pa')]
+            vals += [xl_value(r.get('membrane_thickness_um')), xl_value(r.get('K_H2_mol_cm_s_Pa'))]
         for c, v in enumerate(vals, 1):
             if v is not None: ws.cell(row=ri, column=c, value=v)
+    # What the three columns after j_xover are, under the table.
+    for k, line in enumerate(XOVER_NOTES):
+        ws.cell(row=len(all_results) + 3 + k, column=1, value=line)
     for r in all_results:
         name = r.get('label','data')[:31].replace('/','_').replace('\\','_').replace('*','')
         ws2 = wb.create_sheet(name)
@@ -450,41 +586,50 @@ def run_batch(filepaths, labels, geo_area, delimiter, skip, v_col, j_col,
               mode_col=None, mode_exclude=None, save_dir=None, image_ext='png'):
     if save_dir: os.makedirs(save_dir, exist_ok=True)
     all_results = []
+    used = set()                  # plot names given in this batch
     print(f'\n  Processing {len(filepaths)} files...\n')
     for i, (fp, lbl) in enumerate(zip(filepaths, labels)):
         print(f'  [{i+1}/{len(filepaths)}] {lbl}')
         try:
-            fcd = parse_fcd_header(fp)
-            f_skip = fcd['skip'] if fcd else skip
-            f_v = fcd.get('v_col', v_col) if fcd else v_col
-            f_j = fcd.get('j_col', j_col) if fcd else j_col
-            f_mode = fcd.get('mode_col', mode_col) if fcd else mode_col
-            V, j = load_cv_data(fp, v_col=f_v, j_col=f_j, delimiter=delimiter,
-                                skip_header=f_skip, current_is_total=current_is_total,
-                                geo_area=geo_area, mode_col=f_mode, mode_exclude=mode_exclude)
+            V, j = read_cv(fp, geo_area=geo_area, delimiter=delimiter, skip_header=skip,
+                           v_col=v_col, j_col=j_col, current_is_total=current_is_total,
+                           mode_col=mode_col, mode_exclude=mode_exclude)
             r = analyze_crossover(V, j, avg_V_min=avg_V_min, avg_V_max=avg_V_max,
                                   geo_area=geo_area, membrane_thickness_um=membrane_thickness_um,
                                   p_h2_anode_kPa=p_h2_kPa)
             r['label'] = lbl; all_results.append(r)
+            # Its plot's name, which its summary row is labelled by: the label as
+            # a file name writes it, made unique in the batch, so two files whose
+            # names differ only by a space and an underscore keep a plot each.
+            name, k = plot_label(lbl), 2
+            while name in used:
+                name, k = f'{plot_label(lbl)}_{k}', k + 1
+            used.add(name)
+            r['plot_label'] = name
+            Rs = r_short_shown(r)
             print(f'         j_xover={r["j_xover_mA_cm2"]:.3f} mA/cm2  '
+                  f'corrected={r["j_xover_corrected_mA_cm2"]:.3f} mA/cm2  '
+                  f'R_short={Rs if isinstance(Rs, str) else "-" if Rs is None else f"{Rs:.0f} ohm.cm2"}  '
                   f'H2 flux={r["J_H2_nmol_cm2_s"]:.1f} nmol/cm2/s')
             if save_dir and image_ext:
-                safe = lbl.replace(' ','_').replace('/','_').replace('\\','_')
-                plot_crossover(r, save_path=os.path.join(save_dir, f'crossover_{safe}.{image_ext}'))
+                plot_crossover(r, save_path=os.path.join(save_dir, f'crossover_{name}.{image_ext}'))
                 plt.close()
         except Exception as e:
             print(f'         ERROR: {e}')
     if not all_results: print('\n  No files processed.'); return []
     if save_dir:
         save_batch_crossover_excel(all_results, os.path.join(save_dir, 'crossover_batch_data.xlsx'))
-    print(f'\n  {"=" * 65}')
-    print(f'  {"Label":30s} {"j_xover":>10s} {"H2 flux":>15s}')
-    print(f'  {"":30s} {"(mA/cm2)":>10s} {"(nmol/cm2/s)":>15s}')
-    print(f'  {"-" * 65}')
+    print(f'\n  {"=" * 89}')
+    print(f'  {"Label":30s} {"j_xover":>10s} {"corrected":>10s} {"R_short":>12s} {"H2 flux":>15s}')
+    print(f'  {"":30s} {"(mA/cm2)":>10s} {"(mA/cm2)":>10s} {"(ohm.cm2)":>12s} {"(nmol/cm2/s)":>15s}')
+    print(f'  {"-" * 89}')
     for r in all_results:
+        Rs = r_short_shown(r)
+        Rs = 'none' if isinstance(Rs, str) else '-' if Rs is None else f'{Rs:.0f}'
         print(f'  {r["label"]:30s} {r["j_xover_mA_cm2"]:10.3f} '
+              f'{r["j_xover_corrected_mA_cm2"]:10.3f} {Rs:>12s} '
               f'{r["J_H2_nmol_cm2_s"]:15.2f}')
-    print(f'  {"=" * 65}')
+    print(f'  {"=" * 89}')
     return all_results
 
 
@@ -536,15 +681,9 @@ def run_interactive():
 
     if mode == 1:
         filepath = _clean_path(_prompt('\n  File path', cast=None))
-        fcd = parse_fcd_header(filepath)
-        if fcd:
-            skip = fcd['skip']
-            v_col = fcd.get('v_col', v_col)
-            j_col = fcd.get('j_col', j_col)
-            mode_col = fcd.get('mode_col', mode_col)
-        V, j = load_cv_data(filepath, v_col=v_col, j_col=j_col, delimiter=delimiter,
-                            skip_header=skip, current_is_total=current_is_total,
-                            geo_area=geo_area, mode_col=mode_col, mode_exclude=mode_exclude)
+        V, j = read_cv(filepath, geo_area=geo_area, delimiter=delimiter, skip_header=skip,
+                       v_col=v_col, j_col=j_col, current_is_total=current_is_total,
+                       mode_col=mode_col, mode_exclude=mode_exclude)
         print(f'  Loaded: {len(V)} points')
         sweeps = detect_sweeps(V)
         na = sum(1 for s in sweeps if s['direction']=='anodic')
@@ -609,7 +748,7 @@ def main():
         if args.save_dir: os.makedirs(args.save_dir, exist_ok=True)
         run_demo(save_dir=args.save_dir)
     elif args.file:
-        V, j = load_cv_data(args.file)
+        V, j = read_cv(args.file, geo_area=args.area)
         r = analyze_crossover(V, j, avg_V_min=args.v_min, avg_V_max=args.v_max,
                               geo_area=args.area, membrane_thickness_um=args.thickness)
         print_results(r)

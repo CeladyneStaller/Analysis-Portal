@@ -4533,6 +4533,9 @@ const METRIC_DIR = {
   'OCV': 1, 'V @ 1 A/cm²': 1, 'Peak P': 1, 'Average ECSA': 1, 'Average RF': 1,
   'j @ 0.7 V': 1, 'j @ 0.65 V': 1, 'j @ 0.6 V': 1, 'j @ 0.5 V': 1, 'j @ 0.4 V': 1,
   'HFR': -1, 'Mean HFR': -1, '|j_xover|': -1, 'R_ohm': -1, 'R_ct': -1,
+  // The crossover's short-corrected value and the short's resistance, a higher
+  // one a lesser short.
+  'j_xover corrected': -1, 'R_short': 1,
   // FC Durability
   'Hours tested': 1, 'Hours to death': 1, 'OCV initial': 1,
   'OCV decay rate': -1, 'OCV loss': -1, 'j_xover initial': -1, 'j_xover final': -1,
@@ -12140,7 +12143,8 @@ const TR_UNIT = {
   'OCV': 'V', 'HFR': 'mΩ·cm²', 'Mean HFR': 'mΩ·cm²',
   'R_ohm': 'mΩ·cm²', 'R_ct': 'mΩ·cm²',
   'Peak P': 'mW/cm²', 'Peak Power': 'mW/cm²', 'Tafel': 'mV/dec',
-  '|j_xover|': 'mA/cm²', 'H₂ Flux': 'nmol/cm²/s',
+  '|j_xover|': 'mA/cm²', 'j_xover corrected': 'mA/cm²', 'R_short': 'Ω·cm²',
+  'H₂ Flux': 'nmol/cm²/s',
   'Average ECSA': 'm²/g', 'Average RF': '',
   // FC Durability, stored in these units (record.py KEY_VALUE_UNITS)
   'Hours tested': 'h', 'Hours to death': 'h', 'OCV initial': 'V',

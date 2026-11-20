@@ -2790,10 +2790,11 @@ def analyze_crossover_file(path: str, cs: CharSettings):
         r = _quiet(analyze_crossover, V, -j, avg_V_min=cs.xover_lo, avg_V_max=cs.xover_hi,
                    geo_area=cs.geo_area)
         note = 'oxidation current logged as negative; sign flipped'
-    R = float(r['R_short_ohm_cm2'])
+    # None where the window's line is flat or falls: no short.
+    R = r['R_short_ohm_cm2']
     values = {'j_xover': float(r['j_xover_mA_cm2']),
               'j_intercept': float(r['j_intercept_mA_cm2']),
-              'R_short': R if math.isfinite(R) and R > 0 else math.nan,
+              'R_short': float(R) if R is not None else math.nan,
               'fit_R2': float(r['R_squared'])}
     return values, (np.asarray(r['V_grid'], float), np.asarray(r['j_avg'], float) * 1000.0), note
 

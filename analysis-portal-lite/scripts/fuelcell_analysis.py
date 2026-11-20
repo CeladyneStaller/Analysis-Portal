@@ -87,7 +87,8 @@ _SUMMARY_KEYS = {
              'anodic_ECSA_m2_per_g', 'anodic_RF', 'cathodic_ECSA_m2_per_g',
              'cathodic_RF', 'ECSA_m2_per_g', 'ECSA_cm2', 'roughness_factor',
              'Q_hupd_mC_cm2', 'Q_co_mC_cm2', 'loading_mg_cm2', 'geo_area'),
-    'crossover': ('j_xover_mA_cm2', 'J_H2_nmol_cm2_s', 'J_H2_mL_min_cm2',
+    'crossover': ('j_xover_mA_cm2', 'j_xover_corrected_mA_cm2', 'R_short_ohm_cm2',
+                  'R_squared', 'J_H2_nmol_cm2_s', 'J_H2_mL_min_cm2',
                   'K_H2_mol_cm_s_Pa', 'j_avg_mean_mA_cm2',
                   'membrane_thickness_um', 'geo_area'),
 }
@@ -146,10 +147,22 @@ def _build_summary(info):
                 continue
             row = {'Label': r.get('label') or r.get('Label') or '',
                    'Analysis': bucket}
+            if bucket == 'crossover':
+                # As its plot's name writes it (spaces made underscores), so
+                # the row is matched to its plot.
+                try:
+                    from scripts.h2_crossover_analysis import plot_label
+                    row['Label'] = r.get('plot_label') or plot_label(row['Label'])
+                except Exception:
+                    pass
             for k in keys:
                 v = r.get(k)
                 if _finite(v):
                     row[k] = float(v)
+                elif k == 'R_short_ohm_cm2' and 'j_xover_mA_cm2' in row:
+                    # Measured as none, not absent: as the H2 Crossover script
+                    # writes it (SUMMARY_KEYS there).
+                    row[k] = None
             if bucket == 'polcurve':
                 for tv in _J_AT_V_TARGETS:
                     k = f'j_at_{tv:g}V'
@@ -636,8 +649,10 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
     xover = results.get('crossover', [])
     if xover:
         # Summary
+        from scripts.h2_crossover_analysis import XOVER_NOTES, r_short_shown, xl_value
         ws = wb.create_sheet('Crossover Summary')
-        headers = ['Label', 'j_xover (mA/cm²)', 'H₂ Flux (nmol/cm²/s)',
+        headers = ['Label', 'j_xover (mA/cm²)', 'j_xover corrected (mA/cm²)',
+                   'R_short (Ω·cm²)', 'Window fit R²', 'H₂ Flux (nmol/cm²/s)',
                    'H₂ Flux (mL/min/cm²)']
         has_perm = any(r.get('K_H2_mol_cm_s_Pa') is not None for r in xover)
         if has_perm:
@@ -646,12 +661,17 @@ def save_consolidated_excel(results, filepath, geo_area=5.0):
         for i, r in enumerate(xover, 2):
             c = 1
             _write_val(ws, i, c, r.get('label', '')); c += 1
-            _write_val(ws, i, c, r.get('j_xover_mA_cm2')); c += 1
-            _write_val(ws, i, c, r.get('J_H2_nmol_cm2_s')); c += 1
-            _write_val(ws, i, c, r.get('J_H2_mL_min_cm2')); c += 1
+            _write_val(ws, i, c, xl_value(r.get('j_xover_mA_cm2'))); c += 1
+            _write_val(ws, i, c, xl_value(r.get('j_xover_corrected_mA_cm2'))); c += 1
+            _write_val(ws, i, c, r_short_shown(r)); c += 1
+            _write_val(ws, i, c, xl_value(r.get('R_squared'))); c += 1
+            _write_val(ws, i, c, xl_value(r.get('J_H2_nmol_cm2_s'))); c += 1
+            _write_val(ws, i, c, xl_value(r.get('J_H2_mL_min_cm2'))); c += 1
             if has_perm:
-                _write_val(ws, i, c, r.get('membrane_thickness_um')); c += 1
-                _write_val(ws, i, c, r.get('K_H2_mol_cm_s_Pa'))
+                _write_val(ws, i, c, xl_value(r.get('membrane_thickness_um'))); c += 1
+                _write_val(ws, i, c, xl_value(r.get('K_H2_mol_cm_s_Pa')))
+        for k, line in enumerate(XOVER_NOTES):
+            _write_val(ws, len(xover) + 3 + k, 1, line)
 
         # Data: raw last CV cycle (anodic + cathodic) for all samples
         ws2 = wb.create_sheet('Crossover Data')

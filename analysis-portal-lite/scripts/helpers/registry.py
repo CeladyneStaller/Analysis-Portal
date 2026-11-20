@@ -152,6 +152,16 @@ METRICS: Dict[str, List[Dict[str, Any]]] = {
     'crossover': [
         _metric('|j_xover|', ['|j_xover|', 'j_xover', 'j_xover_mA_cm2',
                               'j_xover (mA/cm2)'], 'mA/cm²', better=-1),
+        # Beside the crossover, never in its place: the window's line at 0 V,
+        # the short taken out, and the short's resistance, a higher one a
+        # lesser short (none where the line is flat or falls). From the summary
+        # row only: a unit holding two CVs takes each summary field from the
+        # first row that has it, R_short null where there is none, so its three
+        # come from one CV; its plots' readouts are merged later over earlier,
+        # and one CV's R_short could stand beside another's crossover.
+        _metric('j_xover corrected', ['j_xover_corrected_mA_cm2'], 'mA/cm²', better=-1),
+        _metric('R_short', ['R_short_ohm_cm2'], 'Ω·cm²', better=1),
+        _metric('Fit R²', ['R_squared'], '', index=False),
     ],
     'ecsa': [
         _metric('Average ECSA', ['Average ECSA', 'average_ECSA_m2_per_g',
